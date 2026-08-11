@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tetris</title>
+  <style>
+    html, body { height: 100%; }
+    body  { background: #111; display: flex; justify-content: center;
+            align-items: center; margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="480" height="360"></canvas>
+  <script type="module">
+    import { main } from './controller.js';
+    main(document.getElementById('game'));
+  </script>
+</body>
+</html>

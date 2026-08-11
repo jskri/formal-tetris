@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "scripts": {
+    "serve": "npx serve .",
+    "test":  "node --test t1/tests t2/tests t3/tests t4/tests t5/tests t6/tests t7/tests"
+  },
+  "devDependencies": {
+    "fast-check": "^3.0.0"
+  }
+}

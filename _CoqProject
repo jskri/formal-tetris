@@ -1,0 +1,16 @@
+-R ./_build/default Tetris
+Notations.v
+Quantifiers.v
+QuantifiersProofs.v
+T1.v
+T1Proofs.v
+T2.v
+T2Proofs.v
+T3.v
+T3Proofs.v
+T4.v
+T4Proofs.v
+T5.v
+T5Proofs.v
+T6.v
+T6Proofs.v

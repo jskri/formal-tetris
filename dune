@@ -1,0 +1,12 @@
+(coq.theory
+ (name Tetris)
+ (modules
+   T1 T1Proofs
+   T2 T2Proofs
+   T3 T3Proofs
+   T4 T4Proofs
+   T5 T5Proofs
+   T6 T6Proofs
+   T7 T7Proofs
+   Notations Quantifiers QuantifiersProofs)
+ (theories Stdlib Hammer))

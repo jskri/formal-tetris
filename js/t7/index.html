@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tetris — Multiplayer</title>
+  <style>
+    html, body { height: 100%; }
+    body { background: #111; display: flex; justify-content: center; align-items: center;
+           margin: 0; overflow: hidden; font-family: sans-serif; color: #eee; }
+    #game-root { position: relative; }
+    canvas { display: block; }
+    .overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+               align-items: center; justify-content: center; gap: 12px;
+               background: rgba(17,17,17,0.92); padding: 16px; box-sizing: border-box; }
+    .overlay.hidden { display: none; }
+    .overlay.banner { inset: auto; top: 8px; right: 8px; left: auto; bottom: auto;
+                       background: rgba(17,17,17,0.75); padding: 8px 12px; gap: 4px;
+                       align-items: flex-start; max-width: 220px; }
+    .overlay h2 { margin: 0 0 8px 0; }
+    .overlay.banner h2 { font-size: 1em; margin: 0; }
+    .overlay textarea { width: 90%; max-width: 480px; height: 90px; }
+    .overlay textarea + button, .pending-block textarea + div { margin-top: 6px; }
+    .overlay input[type=text] { width: 90%; max-width: 300px; padding: 6px; }
+    .overlay button { padding: 8px 16px; cursor: pointer; }
+    .overlay button:focus { outline: 3px solid #fabd2f; }
+    .pending-list, .joiner-list { width: 90%; max-width: 480px; max-height: 260px; overflow-y: auto; }
+    .pending-block { border: 1px solid #444; padding: 8px; margin: 6px 0; }
+    .small { font-size: 0.85em; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div id="game-root">
+    <canvas id="game" width="480" height="360"></canvas>
+
+    <div id="S1" class="overlay">
+      <h2>Tetris</h2>
+      <button data-action="sp">Single Player</button>
+      <button data-action="mp">Multi Player</button>
+    </div>
+
+    <div id="S2" class="overlay hidden">
+      <h2>Multi Player</h2>
+      <button data-action="host">Host</button>
+      <button data-action="join">Join</button>
+    </div>
+
+    <div id="S3" class="overlay hidden">
+      <h2>Host Lobby</h2>
+      <input type="text" id="s3-name" placeholder="Your name" value="Host">
+      <div id="s3-pending" class="pending-list"></div>
+      <button data-action="s3-add-connection">Add connection</button>
+      <div class="small">Joiners:</div>
+      <div id="s3-joiners" class="joiner-list"></div>
+      <button data-action="s3-start" id="s3-start-btn" disabled>Start</button>
+    </div>
+
+    <div id="S4" class="overlay hidden">
+      <h2>Join Game</h2>
+      <input type="text" id="s4-name" placeholder="Your name">
+      <div class="small">Your offer — copy to host:</div>
+      <textarea id="s4-offer" readonly></textarea>
+      <button data-action="s4-copy-offer">Copy</button>
+      <div class="small">Paste host's answer here:</div>
+      <textarea id="s4-answer"></textarea>
+      <button data-action="s4-paste-answer">Paste</button>
+      <button data-action="s4-connect">Connect</button>
+    </div>
+
+    <div id="S6" class="overlay banner hidden">
+      <h2>Waiting for host to start…</h2>
+      <div id="s6-joiners" class="joiner-list small"></div>
+    </div>
+
+    <div id="S9" class="overlay hidden">
+      <h2 id="s9-message">Game over</h2>
+      <button data-action="s9-rematch">Rematch</button>
+      <button data-action="s9-leave">Leave</button>
+    </div>
+
+    <div id="S10" class="overlay hidden">
+      <h2>Connection to host lost.</h2>
+      <button data-action="s10-menu">Return to menu</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { main } from './controller.js';
+    main(document.getElementById('game'), document.getElementById('game-root'));
+  </script>
+</body>
+</html>
