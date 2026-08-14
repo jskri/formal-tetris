@@ -107,7 +107,7 @@ No separate configuration file exists at the moment. To change the input, edit `
 
 ### Multiplayer mode
 
-`t7/` and `final/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to the joiner. Once the offers/answers have been exchanged, the game can start.
+`t7/` and `final/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to corresponding joiner. Once the offers/answers have been exchanged, the game can start.
 
 
 ## File tree
