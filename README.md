@@ -2,6 +2,9 @@
 
 Tetris specified and proved correct in Rocq, with a JavaScript implementation that is itself proved (informally, and tested) to refine the Rocq model.
 
+![A screenshot of the multiplayer game](img/tetris.png)
+
+
 ## Why
 
 The usual approach to software treats the code as the source of truth. Here it is the other way around: the *model* is the source, and the code is derived from it, the way a binary is derived from source by a compiler. The model is written in Rocq, its invariants are machine-checked there, and the JavaScript code is generated from the model together with an implementation document (`implementation.md`, fixing every decision the model leaves open) and a refinement proof (`proofs.md`, arguing that the code is a faithful image of the model). The refinement proof is the one part of this chain that is not machine-checked: it is generated and must be checked by a human, which is why differential tests against an oracle derived from the model exist as a backstop.
@@ -134,6 +137,8 @@ No separate configuration file exists at the moment. To change the input, edit `
 ├── Notations.v
 ├── QuantifiersProofs.v
 ├── Quantifiers.v
+├── img
+│   └── tetris.png
 └── js
     ├── package.json
     ├── package-lock.json
