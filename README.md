@@ -144,6 +144,8 @@ No separate configuration file exists at the moment. To change the input, edit `
     ├── package-lock.json
     ├── lib
     │   └── utils.js
+    ├── vendor
+    │   └── fflate.js
     ├── final
     │   ├── controller.js
     │   ├── highscores.js

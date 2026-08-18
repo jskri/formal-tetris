@@ -69,6 +69,8 @@ model.js          # T7 engine: wraps T6.Machine, adds garbage/target/gameoverVie
                    #   connectedView/remGenGarbage (§5-7)
 view.js           # renderer: mini-grid strip, garbage gauge, wraps t6/view.js (§14)
 controller.js     # network relay, lobby, waiting room (§15)
+../vendor/
+  fflate.js       # deflate/inflate, used by controller.js's rawSend/decodeMsg (§15.3)
 index.html        # canvas + DOM overlay container (§15.8)
 proofs.md         # refinement proof, delta over t6/proofs.md (§8)
 tests/
@@ -300,9 +302,11 @@ above T1 — reachable solely via the flattened `this.s6.s1` accessor:
 any lower level) so `broadcastState()` (`controller.js`) can read them live
 without constructing a full `snapshot()` — which spreads through the whole
 T1–T6 chain and copies fields that call never uses — just to discard most of
-it; safe because `JSON.stringify`, the only consumer, never mutates what it's
-given, unlike `view.js`, which is why `snapshot()` wraps `mg` read-only in the
-first place. `gy` (a T5-level field, `this.gy` there, not a getter) is
+it; safe because the only consumer, `rawSend`'s `stringify → encode → deflate`
+pipeline, runs synchronously start to finish and none of its steps mutate
+what they're given, unlike `view.js`, which is why `snapshot()` wraps `mg`
+read-only in the first place. `gy` (a T5-level field, `this.gy` there, not a
+getter) is
 likewise promoted at `T7.Machine` as `get gy() { return this.s6.gy; }`, for
 the same `broadcastState()` reason.
 
@@ -626,6 +630,11 @@ before sending, except `LEAVE` itself, `JOIN`, and `PLAYERS`, which are untagged
 (§15.5). `to` is `null` on every broadcast message; only `GARBAGE` ever carries a
 real recipient index, since it is the one message routed to a single target
 (the sender's own `target` field) rather than relayed to everyone.
+
+On the wire, every message is `JSON.stringify`'d then `deflateSync`'d
+(`rawSend`) and, on receipt, `inflateSync`'d then `JSON.parse`'d (`decodeMsg`)
+— both synchronous, so message order and content are unaffected; the table
+above describes the payload before this encoding.
 
 `STATE`: sent unconditionally right after a successful `Fix`; otherwise at
 minimum `3` Hz — a single timer, always re-armed for `1/3` s from the last send

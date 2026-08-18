@@ -3,6 +3,7 @@ import { T as T6 } from '../t6/model.js';
 import { render } from '../t7/view.js';
 import { renderClearFlash, drawGarbageFlash, drawGameOverPartial } from './view.js';
 import { sfx } from './sound.js';
+import { deflateSync, inflateSync } from '../vendor/fflate.js';
 import {
   Piece, InitialMainGrid, ForbiddenGrid,
   RotGrid, InitialY, InitialX,
@@ -25,6 +26,8 @@ const constants = {
 };
 
 const STUN_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 const STATE_HZ = 3;
 const STATE_PERIOD_MS = 1000 / STATE_HZ;
 const HEARTBEAT_TIMEOUT_MS = 10000;
@@ -108,6 +111,7 @@ function waitIceComplete(pc) {
 async function createOfferConnection() {
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   const dc = pc.createDataChannel('t7', { ordered: true });
+  dc.binaryType = 'arraybuffer'; // rawSend/decodeMsg exchange compressed bytes, not JSON strings
   await pc.setLocalDescription(await pc.createOffer());
   await waitIceComplete(pc);
   return { pc, dc, sdpText: JSON.stringify(pc.localDescription) };
@@ -124,6 +128,7 @@ async function createAnswerConnection(offerText) {
   const dcPromise = new Promise((res) => { resolveDc = res; });
   pc.ondatachannel = (e) => {
     const ch = e.channel;
+    ch.binaryType = 'arraybuffer';
     resolveDc(ch);
   };
   await pc.setRemoteDescription(JSON.parse(offerText));
@@ -227,8 +232,15 @@ export function main(canvas, root) {
   // ── message envelope / transport ──
   function tag(msg) { return { ...msg, gen: matchGen }; }
   function rawSend(dc, msg) {
-    if (dc && dc.readyState === 'open') { dc.send(JSON.stringify(msg)); return true; }
+    if (dc && dc.readyState === 'open') {
+      dc.send(deflateSync(textEncoder.encode(JSON.stringify(msg))));
+      return true;
+    }
     return false;
+  }
+  // Inverse of rawSend — every dc.onmessage handler below goes through this.
+  function decodeMsg(data) {
+    return JSON.parse(textDecoder.decode(inflateSync(new Uint8Array(data))));
   }
   // A failed send attempt is itself treated as detection, fail-fast, rather
   // than left as a silent drop for the heartbeat/watchConnection timers to
@@ -334,7 +346,7 @@ export function main(canvas, root) {
     playerData.splice(idx, 1);
     for (let i = idx; i < playerData.length; i++) {
       const p = playerData[i];
-      if (p && p.conn) p.conn.onmessage = (ev) => hostHandleFromJoiner(i, JSON.parse(ev.data));
+      if (p && p.conn) p.conn.onmessage = (ev) => hostHandleFromJoiner(i, decodeMsg(ev.data));
     }
   }
 
@@ -527,10 +539,11 @@ export function main(canvas, root) {
     // (t1/model.js's Machine.p/py/px/pr/mg): snapshot() would spread through
     // the whole T1-T6 chain and copy gameoverView/connectedView, none of which
     // this message uses, then mg would need unwrapping right back out of its
-    // read-only accessor for JSON — safe here specifically because
-    // JSON.stringify (via rawSend, synchronously, before anything else in this
-    // single-threaded turn can run) never mutates what it's given, unlike
-    // view.js, which is why snapshot() wraps mg read-only in the first place.
+    // read-only accessor for JSON — safe here specifically because rawSend's
+    // stringify/encode/compress pipeline runs synchronously, start to finish,
+    // before anything else in this single-threaded turn can run, and none of
+    // those steps mutate what they're given — unlike view.js, which is why
+    // snapshot() wraps mg read-only in the first place.
     const msg = { type: 'STATE', from: myIndex, to: null,
       mg: t7machine.mg, p: t7machine.p, py: t7machine.py, px: t7machine.px, pr: t7machine.pr,
       gameover: t7machine.gameover };
@@ -975,7 +988,7 @@ export function main(canvas, root) {
         const dc = await dcPromise;
         playerData[idx].conn = dc;
         playerData[idx].pc = pc;
-        dc.onmessage = (ev) => hostHandleFromJoiner(idx, JSON.parse(ev.data));
+        dc.onmessage = (ev) => hostHandleFromJoiner(idx, decodeMsg(ev.data));
         watchConnection(pc, () => declarePlayerDisconnected(idx));
         block.remove();
         break;
@@ -1053,7 +1066,7 @@ export function main(canvas, root) {
         await applyAnswer(hostPc, answerText);
         hostLostHandled = false;
         watchConnection(hostPc, () => noticeHostLost());
-        hostConn.onmessage = (ev) => joinerHandleFromHost(JSON.parse(ev.data));
+        hostConn.onmessage = (ev) => joinerHandleFromHost(decodeMsg(ev.data));
         // The data channel isn't usable the instant the answer is applied —
         // ICE/DTLS still has to finish connecting. Waiting for 'open' here,
         // rather than relying on sendToHost's own fail-fast path, avoids
