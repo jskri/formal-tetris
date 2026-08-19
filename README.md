@@ -82,6 +82,8 @@ An additional `js/final/` implementation adds to `t7/`: sounds, clear-line/game-
 cd js/ && npm install && npm test
 ```
 
+Tested with npm 11.17.0 and node v24.19.0.
+
 See also the [Using the CI image locally](#using-the-ci-image-locally) below.
 
 
