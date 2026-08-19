@@ -10,26 +10,36 @@ permissions:
   packages: write
 
 jobs:
-  dockerfile-changed:
+  changes:
     runs-on: ubuntu-24.04
     outputs:
-      dockerfile: ${{ steps.filter.outputs.dockerfile }}
+      docker: ${{ steps.filter.outputs.docker }}
+      rocq: ${{ steps.filter.outputs.rocq }}
+      js: ${{ steps.filter.outputs.js }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check diffs on Dockerfile
+      - name: Detect changed paths
         uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            dockerfile:
+            docker:
               - 'ci/Dockerfile'
               - 'ci/VERSION'
+            rocq:
+              - '**/*.v'
+              - '**/dune-project'
+              - '**/dune'
+            js:
+              - 'js/**/*.js'
+              - 'js/package.json'
+              - 'js/package-lock.json'
 
-  build-docker-image:
-    needs: dockerfile-changed
-    if: needs.dockerfile-changed.outputs.dockerfile == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+  build-image:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -60,11 +70,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  check-proofs-test-implems:
-    needs: build-docker-image
+  check-proofs:
+    needs: [changes, build-image]
     # Below, `always()` is needed to avoid this step to be skipped if
-    # `build-docker-image` didn't trigger.
-    if: always() && needs.build-docker-image.result != 'failure'
+    # `build-image` didn't trigger.
+    if: always() && needs.changes.outputs.rocq == 'true' && needs.build-image.result != 'failure'
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/${{ github.repository }}/formal-tetris-ci:latest
@@ -82,9 +92,22 @@ jobs:
       - name: Check proofs
         run: dune build --display=progress --action-stdout-on-success=swallow --action-stderr-on-success=must-be-empty
 
+  run-js-tests:
+    needs: [changes, build-image]
+    if: always() && needs.changes.outputs.js == 'true' && needs.build-image.result != 'failure'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/${{ github.repository }}/formal-tetris-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Run JS tests
         run: |
           cd js/
           npm install
           npm test
-
