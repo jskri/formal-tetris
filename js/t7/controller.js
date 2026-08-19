@@ -772,21 +772,13 @@ export function main(canvas, root) {
         block.innerHTML = `
           <div class="small">Paste joiner's offer:</div>
           <textarea class="s3-offer-input"></textarea>
-          <div><button class="s3-offer-paste">Paste</button>
-          <button class="s3-offer-add">Add</button>
+          <div><button class="s3-offer-add">Add</button>
           <button class="s3-offer-cancel">Cancel</button></div>
         `;
         document.getElementById('s3-pending').appendChild(block);
         const offerInput = block.querySelector('.s3-offer-input');
         offerInput.focus();
         const offerText = await new Promise((resolve) => {
-          block.querySelector('.s3-offer-paste').addEventListener('click', async () => {
-            try {
-              offerInput.value = await navigator.clipboard.readText();
-            } catch (err) {
-              console.warn('[T7] Clipboard paste failed — paste manually instead.', err);
-            }
-          });
           block.querySelector('.s3-offer-add').addEventListener('click', () => resolve(offerInput.value));
           block.querySelector('.s3-offer-cancel').addEventListener('click', () => resolve(null));
         });
@@ -797,16 +789,8 @@ export function main(canvas, root) {
         block.innerHTML = `
           <div class="small">Answer — copy to joiner:</div>
           <textarea readonly></textarea>
-          <button class="s3-answer-copy">Copy</button>
         `;
         block.querySelector('textarea').value = sdpText;
-        block.querySelector('.s3-answer-copy').addEventListener('click', async () => {
-          try {
-            await navigator.clipboard.writeText(sdpText);
-          } catch (err) {
-            console.warn('[T7] Clipboard copy failed — copy manually instead.', err);
-          }
-        });
         const dc = await dcPromise;
         playerData[idx].conn = dc;
         dc.onmessage = (ev) => hostHandleFromJoiner(idx, decodeMsg(ev.data));
@@ -854,23 +838,6 @@ export function main(canvas, root) {
         showScreen('S7');
         startMatch();
         startHeartbeat();
-        break;
-      }
-
-      case 's4-copy-offer': {
-        try {
-          await navigator.clipboard.writeText(document.getElementById('s4-offer').value);
-        } catch (err) {
-          console.warn('[T7] Clipboard copy failed — copy manually instead.', err);
-        }
-        break;
-      }
-      case 's4-paste-answer': {
-        try {
-          document.getElementById('s4-answer').value = await navigator.clipboard.readText();
-        } catch (err) {
-          console.warn('[T7] Clipboard paste failed — paste manually instead.', err);
-        }
         break;
       }
 
