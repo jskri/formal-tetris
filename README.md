@@ -47,7 +47,7 @@ This type-checks every `.v` file; if it succeeds, every theorem (in particular t
 Alternatively, if you want an empty output on success:
 
 ```sh
-dune build --action-stdout-on-success=swallow --action-stderr-on-success=must-be-empty
+dune build --display=progress --action-stdout-on-success=swallow --action-stderr-on-success=must-be-empty
 ```
 
 The proofs can also be stepped through interactively in an editor. VSCode (tested with 1.124.0) picks up the project layout via `_CoqProject`.
