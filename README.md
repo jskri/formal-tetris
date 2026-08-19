@@ -116,6 +116,8 @@ No separate configuration file exists at the moment. To change the input, edit `
 
 `t7/` and `final/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to corresponding joiner. Once the offers/answers have been exchanged, the game can start.
 
+Warning: The network communication may fail if at least one player is behind a NAT. Currently, the code uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server for cost reasons.
+
 
 ## File tree
 
