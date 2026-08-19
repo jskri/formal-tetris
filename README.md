@@ -13,7 +13,7 @@ The full reasoning behind this approach, including what is machine-checked and w
 
 ## Models
 
-The model is a tower of refinements. Each model adds a feature on top of the previous one and is proved to refine it. Requirements are tracked in `definitions_requirements.md`, a hierarchical tree where each requirement has an id (`req-*`); models reference these ids for the requirements they address.
+The models address the logical core of the game, not I/O or rendering. They are organized as a tower of refinements. Each model adds a feature on top of the previous one and is proved to refine it. Requirements are tracked in `definitions_requirements.md`, a hierarchical tree where each requirement has an id (`req-*`); models reference these ids for the requirements they address.
 
 **T1**, core mechanics: piece movement, rotation, falling, fixing, line clearing, gameover. The main grid and pieces are unified under the notion of grid. A small grid algebra (union, intersection, translation, inclusion) allows one to express main operations. This model addresses `req-flow`, `req-piece-ctrl`, `req-piece-loc`, `req-piece-free`, `req-piece-init`, `req-piece-move-dir`, `req-piece-move-def`, `req-piece-rot`, `req-piece-fall`, `req-piece-fix`, `req-piece-fix-gameover`, `req-piece-fix-new`, `req-grid-clear`.
 
@@ -52,6 +52,8 @@ dune build --display=progress --action-stdout-on-success=swallow --action-stderr
 
 The proofs can also be stepped through interactively in an editor. VSCode (tested with 1.124.0) picks up the project layout via `_CoqProject`.
 
+See also the [Using the CI image locally](#using-the-ci-image-locally) below.
+
 
 ## JavaScript implementations
 
@@ -80,11 +82,14 @@ An additional `js/final/` implementation adds to `t7/`: sounds, clear-line/game-
 cd js/ && npm install && npm test
 ```
 
+See also the [Using the CI image locally](#using-the-ci-image-locally) below.
+
+
 ## Using the CI image locally
 
 You can run `check-proofs-run-tests.sh` to check proofs and run implementation tests locally, using the CI image.
 
-Warning: This script changes file ownership to rocq. This is needed only if your id/group is *not* 1000:1000; otherwise comment out the corresponding step. Also note that the file ownership "restoration" forces "$(id -u)":"$(id -g)", which may change the original owner.
+**Warning**: This script changes file ownership to rocq. This is needed only if your id/group is *not* `1000:1000`; otherwise comment out the corresponding step. Also note that the file ownership "restoration" forces `$(id -u):$(id -g)`, which may change the original owner.
 
 
 ## Running the game
@@ -92,11 +97,13 @@ Warning: This script changes file ownership to rocq. This is needed only if your
 1. Start a local HTTP server:
 
 ```bash
-cd js/ && \
-  npx serve -l 8000  # or python3 -m http.server -b 127.0.0.1 8000
+cd js/ && npx serve -l 8000  # or `python3 -m http.server -b 127.0.0.1 8000` for instance
 ```
 
 2. Open `http://127.0.0.1:8000/final/` in a browser (or `http://127.0.0.1:8000/tx/` for a previous version, with `x` in 1-7).
+
+**Note**: Be sure to include the trailing slash.
+
 
 ### Input
 
@@ -116,7 +123,7 @@ No separate configuration file exists at the moment. To change the input, edit `
 
 `t7/` and `final/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to corresponding joiner. Once the offers/answers have been exchanged, the game can start.
 
-Warning: The network communication may fail if at least one player is behind a NAT. Currently, the code uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server for cost reasons.
+**Warning**: The network communication may fail if at least one player is behind a NAT. Currently, the code uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server for cost reasons.
 
 
 ## File tree
