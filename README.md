@@ -118,7 +118,15 @@ No separate configuration file exists at the moment. To change the input, edit `
 ├── dune
 ├── _CoqProject
 ├── README.md
+├── img
+│   └── tetris.png
 ├── LICENSE
+├── ci
+│   ├── Dockerfile
+│   └── VERSION
+├── .github
+│   └── workflows
+│       └── ci.yml
 ├── definitions_requirements.md
 ├── T1.v
 ├── T1Proofs.v
@@ -137,8 +145,6 @@ No separate configuration file exists at the moment. To change the input, edit `
 ├── Notations.v
 ├── QuantifiersProofs.v
 ├── Quantifiers.v
-├── img
-│   └── tetris.png
 └── js
     ├── package.json
     ├── package-lock.json
