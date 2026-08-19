@@ -80,6 +80,13 @@ An additional `js/final/` implementation adds to `t7/`: sounds, clear-line/game-
 cd js/ && npm install && npm test
 ```
 
+## Using the CI image locally
+
+You can run `check-proofs-run-tests.sh` to check proofs and run implementation tests locally, using the CI image.
+
+Warning: This script changes file ownership to rocq. This is needed only if your id/group is *not* 1000:1000; otherwise comment out the corresponding step. Also note that the file ownership "restoration" forces "$(id -u)":"$(id -g)", which may change the original owner.
+
+
 ## Running the game
 
 1. Start a local HTTP server:
@@ -127,6 +134,7 @@ No separate configuration file exists at the moment. To change the input, edit `
 ├── .github
 │   └── workflows
 │       └── ci.yml
+├── check-proofs-run-tests.sh
 ├── definitions_requirements.md
 ├── T1.v
 ├── T1Proofs.v
