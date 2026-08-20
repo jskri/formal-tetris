@@ -1,0 +1,23 @@
+[package]
+name = "t4"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"  # model.rs uses std::sync::LazyLock (stabilized 1.80), transitively via t1
+license = "MIT"
+authors = ["jskri <jskri@proton.me>"]
+repository = "https://github.com/jskri/formal-tetris"
+
+[dependencies]
+# t4's engine wraps t3's Machine (which wraps t2's, which wraps t1's) directly
+# (skill §7) instead of redefining any of them.
+t1 = { path = "../t1" }
+t2 = { path = "../t2" }
+t3 = { path = "../t3" }
+# view.rs/main.rs, exactly as in t1/t2/t3.
+macroquad = "0.4"
+gilrs = "0.11"
+
+[dev-dependencies]
+# model_properties_test.rs. model_unit_test.rs, model_fuzz_test.rs, and
+# oracle.rs use only std plus t1's tests/test_instance.rs fixture.
+proptest = "1"

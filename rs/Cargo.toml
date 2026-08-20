@@ -1,0 +1,16 @@
+[workspace]
+members = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "tfinal"]
+resolver = "2"
+
+# Incremental compilation's on-disk cache is vulnerable to interference from
+# antivirus real-time scanning of `target/` (observed on Windows as "Access
+# is denied" while rustc renames freshly-built .rmeta files into the
+# incremental directory); a build that "succeeds" with those warnings leaves
+# a partially-written cache that a later build can then fail an internal
+# compiler error trying to reuse. Disabling incremental compilation avoids
+# that failure mode entirely, at the cost of slower rebuilds.
+[profile.dev]
+incremental = false
+
+[profile.release]
+incremental = false

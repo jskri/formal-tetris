@@ -1,0 +1,32 @@
+[package]
+name = "t7"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["jskri <jskri@proton.me>"]
+repository = "https://github.com/jskri/formal-tetris"
+
+[dependencies]
+# t7::model::Machine<P> wraps t6::model::Machine<P> (= t5::model::Machine<P>,
+# itself wrapping t4/t3/t2/t1) — implementation.md §1, §6.1. model.rs also
+# reaches t1::model directly (intersect/new_piece_yx_state/PieceOrExtra) and
+# t5::model directly (check_axioms/check_invariants — t6::model does not
+# re-export these, implementation.md §6.9/§6.10's deviation note in model.rs).
+t1 = { path = "../t1" }
+t2 = { path = "../t2" }
+t3 = { path = "../t3" }
+t4 = { path = "../t4" }
+t5 = { path = "../t5" }
+t6 = { path = "../t6" }
+# view.rs/main.rs, exactly as in t1–t6.
+macroquad = "0.4"
+gilrs = "0.11"
+# net.rs only (implementation.md §15.3): WireMessage is JSON-encoded, then
+# deflate-compressed, before the reliable/best-effort framing header is
+# prepended.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
+
+[dev-dependencies]
+proptest = "1"

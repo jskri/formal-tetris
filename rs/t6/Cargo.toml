@@ -1,0 +1,27 @@
+[package]
+name = "t6"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["jskri <jskri@proton.me>"]
+repository = "https://github.com/jskri/formal-tetris"
+
+[dependencies]
+# t6's engine is a type alias over t5's Machine (which wraps t4's, which
+# wraps t3's, which wraps t2's, which wraps t1's) — implementation.md §1;
+# rotate_kick_piece calls t1::model directly for can_rotate_piece/
+# new_piece_yx_state (implementation.md §0.2, §4-T6b).
+t1 = { path = "../t1" }
+t2 = { path = "../t2" }
+t3 = { path = "../t3" }
+t4 = { path = "../t4" }
+t5 = { path = "../t5" }
+# view.rs/main.rs, exactly as in t1/t2/t3/t4/t5.
+macroquad = "0.4"
+gilrs = "0.11"
+
+[dev-dependencies]
+# model_properties_test.rs, model_unit_test.rs, model_fuzz_test.rs, and
+# oracle.rs use only std plus t1's tests/test_instance.rs fixture (own
+# `include!` copy, implementation.md §9).
+proptest = "1"

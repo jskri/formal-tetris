@@ -1,0 +1,39 @@
+[package]
+# "final" itself is a reserved Rust keyword and cannot be a package name
+# (`cargo new --name final` refuses it).
+name = "tfinal"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["jskri <jskri@proton.me>"]
+repository = "https://github.com/jskri/formal-tetris"
+
+[[bin]]
+name = "tfinal"
+path = "src/main.rs"
+
+[dependencies]
+# t7::model::Machine<P>/t7::session::Session wrap t6::model::Machine<P>
+# (= t5::model::Machine<P>, itself wrapping t4/t3/t2/t1) — single-player
+# here drives t6::model::Machine<t1::instance::Tetris> directly, never
+# t7::model::Machine (implementation.md §0).
+t1 = { path = "../t1" }
+t2 = { path = "../t2" }
+t3 = { path = "../t3" }
+t4 = { path = "../t4" }
+t5 = { path = "../t5" }
+t6 = { path = "../t6" }
+t7 = { path = "../t7" }
+# view.rs/main.rs, exactly as in t1–t7.
+macroquad = "0.4"
+gilrs = "0.11"
+# sound.rs only: procedural sfx playback.
+rodio = "0.22"
+# highscores.rs only: platform-appropriate data directory for the
+# single-player hall of fame.
+directories = "6.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+proptest = "1"

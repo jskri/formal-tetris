@@ -32,6 +32,10 @@ jobs:
               - '**/*.v'
               - '**/dune-project'
               - '**/dune'
+            rs:
+              - 'rs/**/*.rs'
+              - 'rs/Cargo.toml'
+              - 'rs/Cargo.lock'
             js:
               - 'js/**/*.js'
               - 'js/package.json'
@@ -93,6 +97,45 @@ jobs:
 
       - name: Check proofs
         run: dune build --display=progress --action-stdout-on-success=swallow --action-stderr-on-success=must-be-empty
+
+  run-rs-tests:
+    needs: [changes, build-image]
+    if: always() && needs.changes.outputs.rs == 'true' && needs.build-image.result != 'failure'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/${{ github.repository }}/formal-tetris-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rs
+
+      - name: Check formatting
+        run: |
+          cd rs/
+          cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: |
+          cd rs/
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: |
+          cd rs/
+          cargo build --workspace --all-targets
+
+      - name: Run Rust tests
+        run: |
+          cd rs/
+          cargo test --workspace
 
   run-js-tests:
     needs: [changes, build-image]

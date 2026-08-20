@@ -1,0 +1,25 @@
+[package]
+name = "t1"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"  # model.rs/instance.rs use std::sync::LazyLock (stabilized 1.80)
+license = "MIT"
+authors = ["jskri <jskri@proton.me>"]
+repository = "https://github.com/jskri/formal-tetris"
+
+[dependencies]
+# model.rs and instance.rs use only std beyond these. macroquad (rendering/
+# windowing/input, §14) and gilrs (gamepad input, §15.1) are pulled in by
+# view.rs/main.rs. strum backs instance.rs's derive(EnumIter)-based
+# `Piece::all()` (§13.2).
+macroquad = "0.4"
+gilrs = "0.11"
+strum = { version = "0.26", features = ["derive"] }
+
+[dev-dependencies]
+# model_properties_test.rs (§9.2). model_unit_test.rs, model_fuzz_test.rs,
+# and oracle.rs use only std plus the small deterministic PRNG in
+# tests/test_instance.rs, to avoid pulling in a full `rand`-family
+# dependency for what is, in each of them, just "pick one of a few small
+# integers many times."
+proptest = "1"
