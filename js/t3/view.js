@@ -113,8 +113,8 @@ export function drawBanners(ctx, constants, banners, geom) {
   ctx.textBaseline = 'top';
   ctx.font = `${bannerFont}px sans-serif`;
 
-  const visibleCombo = banners ? banners.combo - 1 : 0;
-  if (banners && visibleCombo > 0) {
+  const visibleCombo = banners ? banners.combo : 0;
+  if (banners && visibleCombo > 1) {
     ctx.fillStyle = '#FFD000';
     ctx.fillText(`${visibleCombo}-hit combo!`, margin, y);
   }

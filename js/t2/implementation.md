@@ -565,7 +565,7 @@ drawPanel(ctx, constants, snapshot, cellSize)
 drawBanners(ctx, constants, banners, cellSize)
   — when banners ≠ null, draws in the panel BELOW the LEVEL block, stacked so they never
     overlap (combo line first, perfect-clear line below):
-      if banners.combo - 1 > 0:   "<n>-hit combo!"  with n = banners.combo - 1   (skill §6 / §4-T2b)
+      if banners.combo > 1:   "<n>-hit combo!"  with n = banners.combo
       if banners.perfectClear:    "Perfect clear!"
     bannerFont = PANEL_PX×0.10 floored at 10px. Combo colour #FFD000, perfect-clear colour
     #00E0FF. Both lines are allotted a fixed slot height (bannerFont×1.4) so the
@@ -573,9 +573,11 @@ drawBanners(ctx, constants, banners, cellSize)
     (reserve the combo slot even when empty, so "Perfect clear!" never jumps).
 ```
 
-`n-hit combo!` uses `banners.combo - 1` (the visible combo); shown only when `≥ 1`, i.e.
-the stored `combo ≥ 2` — no combo banner on the first clear of a streak (§B2, matches
-scoring). Both banners read the controller's *snapshotted* values (§15), not live fields.
+`n-hit combo!` uses `banners.combo` directly — the number of clears in the current
+streak — shown only once it exceeds `1`: no combo banner on the first (non-consecutive)
+clear of a streak, "2-hit combo!" on the second, and so on. This is a display count, not
+the scoring combo (§4-T2b/§6), which is one less. Both banners read the controller's
+*snapshotted* values (§15), not live fields.
 
 ### 14.5 Piece colour parameter
 

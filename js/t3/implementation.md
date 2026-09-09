@@ -533,6 +533,10 @@ SCORE/LEVEL/banner-slot layout). Font-size constants: `labelFont: 0.11·PANEL_PX
 `valueFont: 0.17·PANEL_PX`, `bannerFont: 0.10·PANEL_PX` — the same fractions T4 uses,
 so T4 can import these functions directly rather than redefining them.
 
+`drawBanners`' combo line shows `banners.combo` directly — the number of clears in
+the current streak — once it exceeds `1`: no banner on the first (non-consecutive)
+clear, "2-hit combo!" on the second, and so on.
+
 ### 14.5 Piece colour parameter
 
 `pieceColor` (fallback `#FFFFFF`) is threaded explicitly through every drawing
