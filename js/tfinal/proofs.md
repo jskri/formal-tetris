@@ -1,11 +1,11 @@
-# proofs.md — refinement proof, `final/*.js ⊨ T7.v`
+# proofs.md — refinement proof, `tfinal/*.js ⊨ T7.v`
 
-Not a fresh derivation. `final/` introduces no `model.js` of its own — every
-import of `T` in `final/controller.js` and `final/sp_controller.js` resolves to
+Not a fresh derivation. `tfinal/` introduces no `model.js` of its own — every
+import of `T` in `tfinal/controller.js` and `tfinal/sp_controller.js` resolves to
 `../t7/model.js` or `../t6/model.js` unchanged (§2). So the state type, `α`,
 `Correct`, and every per-event argument are exactly `t7/proofs.md`'s (multi-
 player) or `t6/proofs.md`'s (single-player) — not re-derived here. This file's
-own obligation is narrower: catalogue everything `final/` adds over `t7/`'s and
+own obligation is narrower: catalogue everything `tfinal/` adds over `t7/`'s and
 `t6/`'s own controllers, and show each addition is *no-use* with respect to the
 refinement mapping — it never calls a `Machine`-mutating method beyond the set
 `t7/proofs.md`/`t6/proofs.md` already cover, in an order or with arguments that
@@ -13,7 +13,7 @@ differ from what's already proven there.
 
 ## 0. Result
 
-No obstruction found. `final/`'s entire new surface (`view.js`, `sound.js`,
+No obstruction found. `tfinal/`'s entire new surface (`view.js`, `sound.js`,
 `highscores.js`, and `controller.js`'s/`sp_controller.js`'s own added local
 state and call sites) is either read-only against already-computed `Machine`
 state, or a side effect (audio, `localStorage`, DOM/canvas) entirely disjoint
@@ -21,41 +21,41 @@ from `Σ`. No new call to a mutating `Machine` method is introduced; no existing
 one is removed, reordered relative to another mutating call, or given
 different arguments. `t7/proofs.md`'s and `t6/proofs.md`'s own conclusions
 (including the accepted, bounded divergence at `t7/proofs.md` §5a — ported
-into `final/controller.js` unchanged, §5 below) transfer without modification.
+into `tfinal/controller.js` unchanged, §5 below) transfer without modification.
 
 ## 1. Scope
 
 Safety only, inherited from `t7/proofs.md` §1 / `t6/proofs.md` §1. Nothing in
-`final/` touches liveness either way.
+`tfinal/` touches liveness either way.
 
-## 2. `model.js` — unchanged, not present in `final/`
+## 2. `model.js` — unchanged, not present in `tfinal/`
 
 ```
-$ grep -rn "from '.*model.js'" final/*.js
-final/controller.js:    import { T } from '../t7/model.js';
-final/controller.js:    import { T as T6 } from '../t6/model.js';
-final/sp_controller.js: import { T } from '../t6/model.js';
+$ grep -rn "from '.*model.js'" tfinal/*.js
+tfinal/controller.js:    import { T } from '../t7/model.js';
+tfinal/controller.js:    import { T as T6 } from '../t6/model.js';
+tfinal/sp_controller.js: import { T } from '../t6/model.js';
 ```
 
-No `final/model.js` exists. `final/controller.js`'s `T7.Machine`/`T6Eng.Machine`
-and `final/sp_controller.js`'s `T6.Machine` are the *same classes* `t7/proofs.md`
+No `tfinal/model.js` exists. `tfinal/controller.js`'s `T7.Machine`/`T6Eng.Machine`
+and `tfinal/sp_controller.js`'s `T6.Machine` are the *same classes* `t7/proofs.md`
 and `t6/proofs.md` already prove refine `T7.v`/`T6.v` — not subclasses, not
 wrapped, not monkey-patched. This is the same style of argument
 `t6/proofs.md` §2 makes for `T6.Machine` inheriting `T5.Machine` unchanged:
 no projection lemma is needed for any `Machine` method beyond "this is
 literally the class already proven," because it literally is.
 
-`final/instance.js` is `export * from '../t7/instance.js';` — unchanged, same
+`tfinal/instance.js` is `export * from '../t7/instance.js';` — unchanged, same
 argument as `t7/implementation.md` §11.
 
-## 3. `final/controller.js` — multiplayer, new surface catalogued
+## 3. `tfinal/controller.js` — multiplayer, new surface catalogued
 
 Diffed against `t7/controller.js` (already proven, `t7/proofs.md`). Every
 addition falls into one of the categories below (§3.1–§3.6); most are argued
 once, generically, rather than per call site — §3.4 and §3.6 are the two
 that need checking call site by call site.
 
-### 3.1 `final/view.js` — read-only rendering, no `Machine` calls at all
+### 3.1 `tfinal/view.js` — read-only rendering, no `Machine` calls at all
 
 `renderClearFlash`, `drawGarbageFlash`, `drawGameOverPartial` never import
 `model.js`/`instance.js` (enforced by the same convention every `view.js` in
@@ -64,12 +64,12 @@ array, row indices, a progress float, a cell size — as arguments. None calls
 any method on a `Machine`. They cannot affect `Σ`; they only draw pixels.
 No-use, trivially — there is nothing here for `α` to even see.
 
-### 3.2 `final/sound.js` — side-effecting, disjoint from `Σ`
+### 3.2 `tfinal/sound.js` — side-effecting, disjoint from `Σ`
 
 `sfx.*`, `toggleMuted`, `isMuted` operate on a private, module-local
 `AudioContext`/`muted` flag, imported by nothing in `model.js`/`instance.js`
 and importing nothing from them. Every `sfx.X()` call site in
-`final/controller.js` is placed strictly *after* the `Machine` call whose
+`tfinal/controller.js` is placed strictly *after* the `Machine` call whose
 outcome it reacts to has already returned (§3.4) — it reads no `Machine`
 field and writes none. No-use: `Σ`, as `t7/proofs.md` §3 defines it, has no
 audio component for this to touch.
@@ -137,7 +137,7 @@ a two-way branch over an existing one.
 ### 3.5 The fail-fast networking fix — identical port, already covered
 
 `sendToHost`/`sendToPlayer`/`declarePlayerDisconnected`/`rawSend` in
-`final/controller.js` are a verbatim port of the same functions in
+`tfinal/controller.js` are a verbatim port of the same functions in
 `t7/controller.js`, fixed in the same commit this file's counterpart records
 (`t7/proofs.md` §5a: the `FixPiece`-message-gate corner case is an accepted,
 invariant-harmless divergence, not a re-derived argument here). One addition:
@@ -165,7 +165,7 @@ New relative to `t7/controller.js`. Matters only for `frame()`'s own
 regardless). No-use: this branch changes what gets rendered, never what gets
 mutated.
 
-## 4. `final/sp_controller.js` — single-player, new surface catalogued
+## 4. `tfinal/sp_controller.js` — single-player, new surface catalogued
 
 Wraps `t6/model.js`'s `Machine` directly (§2) — `t6/proofs.md`'s refinement
 applies unconditionally to any correctly-driven instance, independent of
@@ -194,11 +194,11 @@ refinement obligation lives entirely at the `Machine` level).
 
 ## 5. Conclusion
 
-`final/`'s obligation reduces entirely to `t7/proofs.md` (multiplayer) and
+`tfinal/`'s obligation reduces entirely to `t7/proofs.md` (multiplayer) and
 `t6/proofs.md` (single-player), verbatim, plus §§3–4 above showing the added
 surface is no-use. No new argument was needed beyond confirming, call site by
 call site, that nothing new was inserted *between* an existing pair of
 `Machine`-mutating calls, and that every new read either precedes a mutating
-call on its pre-state or follows one on its post-state. `final/*.js ⊨ T7.v`
-(multiplayer) and `final/*.js ⊨ T6.v` (single-player, via `t7/model.js`'s own
+call on its pre-state or follows one on its post-state. `tfinal/*.js ⊨ T7.v`
+(multiplayer) and `tfinal/*.js ⊨ T6.v` (single-player, via `t7/model.js`'s own
 `PlayerCount = 1` delegation to `t6/model.js`, `t7/proofs.md` §2) both hold.

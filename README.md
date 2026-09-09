@@ -73,7 +73,7 @@ Each model Tx has a JavaScript implementation in the directory `js/tx/`.
 
 - `js/tx/tests/` contains unit tests, property-based tests, fuzz tests, and an oracle.
 
-An additional `js/final/` implementation adds to `t7/`: sounds, clear-line/game-over animations, and a local hall of fame.
+An additional `js/tfinal/` implementation adds to `t7/`: sounds, clear-line/game-over animations, and a local hall of fame.
 
 
 ## Running the tests
@@ -102,7 +102,7 @@ You can run `check-proofs-run-tests.sh` to check proofs and run implementation t
 cd js/ && npx serve -l 8000  # or `python3 -m http.server -b 127.0.0.1 8000` for instance
 ```
 
-2. Open `http://127.0.0.1:8000/final/` in a browser (or `http://127.0.0.1:8000/tx/` for a previous version, with `x` in 1-7).
+2. Open `http://127.0.0.1:8000/tfinal/` in a browser (or `http://127.0.0.1:8000/tx/` for a previous version, with `x` in 1-7).
 
 **Note**: Be sure to include the trailing slash.
 
@@ -123,7 +123,7 @@ No separate configuration file exists at the moment. To change the input, edit `
 
 ### Multiplayer mode
 
-`t7/` and `final/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to corresponding joiner. Once the offers/answers have been exchanged, the game can start.
+`t7/` and `tfinal/` implement the multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated "offer" through an external channel. The host adds a connection for each offer and must send the "answer" back to corresponding joiner. Once the offers/answers have been exchanged, the game can start.
 
 **Warning**: The network communication may fail if at least one player is behind a NAT. Currently, the code uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server for cost reasons.
 
@@ -171,7 +171,7 @@ No separate configuration file exists at the moment. To change the input, edit `
     │   └── utils.js
     ├── vendor
     │   └── fflate.js
-    ├── final
+    ├── tfinal
     │   ├── controller.js
     │   ├── highscores.js
     │   ├── index.html

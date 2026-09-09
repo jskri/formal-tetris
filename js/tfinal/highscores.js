@@ -3,7 +3,7 @@
 // synchronous access keeps the gameover flow simple (no async plumbing for
 // something this small).
 
-const KEY = 'tetris-final-hof-v1'; // versioned — a later schema change
+const KEY = 'tetris-tfinal-hof-v1'; // versioned — a later schema change
                                     // shouldn't have to migrate or crash on old data
 const MAX_ENTRIES = 10;
 
@@ -34,7 +34,7 @@ function save(entries) {
 // aren't sticking rather than watching it silently fail.
 export function isStorageAvailable() {
   try {
-    const probeKey = '__tetris_final_storage_probe__';
+    const probeKey = '__tetris_tfinal_storage_probe__';
     localStorage.setItem(probeKey, '1');
     const ok = localStorage.getItem(probeKey) === '1';
     localStorage.removeItem(probeKey);

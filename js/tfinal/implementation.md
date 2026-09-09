@@ -1,28 +1,28 @@
-# implementation.md — `final/`, delta over `t7/implementation.md`
+# implementation.md — `tfinal/`, delta over `t7/implementation.md`
 
-Not a fresh derivation. `final/` introduces no `model.js` of its own and no
+Not a fresh derivation. `tfinal/` introduces no `model.js` of its own and no
 new naming map — every `T7.v`/`T6.v` ↔ JS correspondence `t7/implementation.md`
 already establishes (§§3–13 there) applies unchanged to the same classes,
 imported directly. This file's own scope is narrower: the file layout, and
-the surface `final/` adds on top — three small modules (`view.js`, `sound.js`,
+the surface `tfinal/` adds on top — three small modules (`view.js`, `sound.js`,
 `highscores.js`) plus each controller's own delta.
 
 ## 0. Files reused unchanged
 
-`final/model.js` does not exist:
+`tfinal/model.js` does not exist:
 
 ```
-$ grep -rn "from '.*model.js'" final/*.js
-final/controller.js:    import { T } from '../t7/model.js';
-final/controller.js:    import { T as T6 } from '../t6/model.js';
-final/sp_controller.js: import { T } from '../t6/model.js';
+$ grep -rn "from '.*model.js'" tfinal/*.js
+tfinal/controller.js:    import { T } from '../t7/model.js';
+tfinal/controller.js:    import { T as T6 } from '../t6/model.js';
+tfinal/sp_controller.js: import { T } from '../t6/model.js';
 ```
 
-`final/controller.js`'s multiplayer path drives the same `T7.Machine`/
-`T6Eng.Machine` `t7/implementation.md` documents; `final/sp_controller.js`'s
+`tfinal/controller.js`'s multiplayer path drives the same `T7.Machine`/
+`T6Eng.Machine` `t7/implementation.md` documents; `tfinal/sp_controller.js`'s
 single-player path drives `t6/model.js`'s `T6.Machine` directly (never
 `T7.Machine` — no filler-machine duality, unlike `t7/controller.js`'s own
-mid-match filler at §15.2). `final/instance.js` is `export * from
+mid-match filler at §15.2). `tfinal/instance.js` is `export * from
 '../t7/instance.js'` — same relationship `t7/implementation.md` §11 describes
 one level down for `t7/instance.js` itself over `t6/instance.js`.
 
@@ -85,7 +85,7 @@ to `beep`/`chord` calls with fixed frequency/duration/gain per event.
 
 ## 4. `highscores.js`
 
-`localStorage`-backed, single-player only. `KEY = 'tetris-final-hof-v1'`
+`localStorage`-backed, single-player only. `KEY = 'tetris-tfinal-hof-v1'`
 (versioned, so a later schema change doesn't have to migrate or crash on old
 data); `MAX_ENTRIES = 10`. `load`/`save` are private, fail-soft (`try/catch`
 around every `localStorage` call — corrupted data, storage full, or storage
@@ -117,7 +117,7 @@ inside `applyIncoming`'s `'DISCONNECT'` branch, placed after
 - `clearAnim`, `garbageAnim` — animation timers for `view.js`'s
   `renderClearFlash`/`drawGarbageFlash`, driven by `frame()`'s own clock.
 - `gameoverAt`, `RESTART_LOCKOUT_MS` — `t7/controller.js`'s mid-match filler
-  (§15.2) restarts on the very next keypress after gameover; `final/`
+  (§15.2) restarts on the very next keypress after gameover; `tfinal/`
   delays that by `RESTART_LOCKOUT_MS` so a last-second key mash during
   gameover doesn't immediately restart the filler.
 
@@ -151,7 +151,7 @@ fired/not-fired boolean the call returns.
 
 Wraps `t6/model.js`'s `Machine` directly — no `T7Eng`, no host/joiner roles,
 no data channel. Its own `constants`/`eng` are built from `t6/instance.js`,
-independent of `final/controller.js`'s.
+independent of `tfinal/controller.js`'s.
 
 - `precomputeLock`, `onLocked`, `attemptFall`, `attemptDrop` mirror §5's
   pattern: `precomputeLock` reads `machine.s1` before `machine.fallStep`/

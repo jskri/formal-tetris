@@ -1,4 +1,4 @@
-// view.js — animation-only additions for final/. Never imports from model.js
+// view.js — animation-only additions for tfinal/. Never imports from model.js
 // or instance.js (same rule as every other view.js in the tower).
 //
 // Reuses t5's exported primitives directly rather than t6's/t7's re-exports,
@@ -81,7 +81,7 @@ export function drawGarbageFlash(canvas, constants, rowCount, progress) {
 // window right after gameover, before the restart prompt/input both become
 // active (a frantic last-second key mash shouldn't immediately restart the
 // game). Not a parameter added to the shared drawGameOver: this timing is a
-// final/-specific UX choice, not something t1-t6's own standalone pages
+// tfinal/-specific UX choice, not something t1-t6's own standalone pages
 // should be forced to adopt, so it lives here instead of touching the tower.
 export function drawGameOverPartial(canvas, constants, cellSize) {
   const ctx = canvas.getContext('2d');
