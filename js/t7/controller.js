@@ -770,7 +770,7 @@ export function main(canvas, root) {
         const block = document.createElement('div');
         block.className = 'pending-block';
         block.innerHTML = `
-          <div class="small">Paste joiner's offer:</div>
+          <div class="small">Paste joiner's code:</div>
           <textarea class="s3-offer-input"></textarea>
           <div><button class="s3-offer-add">Add</button>
           <button class="s3-offer-cancel">Cancel</button></div>
@@ -787,7 +787,7 @@ export function main(canvas, root) {
         const idx = playerData.length;
         playerData.push({ name: `player${idx}`, conn: null, pc, lastHeard: performance.now(), declaredDisconnected: false, joined: false });
         block.innerHTML = `
-          <div class="small">Answer — copy to joiner:</div>
+          <div class="small">Host's code — copy to joiner:</div>
           <textarea readonly></textarea>
         `;
         block.querySelector('textarea').value = sdpText;

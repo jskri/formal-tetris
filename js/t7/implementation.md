@@ -566,8 +566,8 @@ One DOM overlay state machine, `<canvas>` shown only in `S7`/`S8` (gameplay).
 |---|---|---|---|
 | `S1` Mode Select | "Single Player" / "Multi Player" buttons | click | SP → `t6/controller.js`'s `main()`, `t7` never loaded. MP → `S2` |
 | `S2` Role Select | "Host" / "Join" buttons | click | Host → `S3`. Join → `S4` |
-| `S3` Host Lobby | name field; "Add connection" button; per-pending-connection: offer paste-box + "Generate answer" button + generated answer (read-only, copy); joiner list (names, post-`JOIN`); "Start" button, enabled once joiner list `≥ 1` | paste offer, generate answer, `Start` | `Start` → freeze roster, send `START` to all, `HostIndex = 0`, own transition to `S7` |
-| `S4` Join Screen | name field; own generated offer (read-only, copy); "paste host's answer" box; "Connect" button | `Connect` | apply pasted answer → connection opens → send `JOIN(name)` → `S6` |
+| `S3` Host Lobby | name field; "Add connection" button; per-pending-connection: joiner's-code paste-box + "Add"/"Cancel" buttons, then (once added) host's code (read-only, copy); joiner list (names, post-`JOIN`); "Start" button, enabled once joiner list `≥ 1` | paste joiner's code, `Start` | `Start` → freeze roster, send `START` to all, `HostIndex = 0`, own transition to `S7` |
+| `S4` Join Screen | name field; own generated code (read-only, copy); "paste host's code" box; "Connect" button | `Connect` | apply pasted code → connection opens → send `JOIN(name)` → `S6` |
 | `S5` Rejoin | (rematch only) name pre-filled, no SDP exchange (existing connection reused) | automatic | send `JOIN(name)` over existing connection → `S6` |
 | `S6` Waiting Room (pre-`START`) | `t6.Machine` filler game; joiner-name list from `PLAYERS`; "waiting for host" text | ordinary SP input | `START` received → `S7` |
 | `S7` Gameplay | `t7.Machine`; mini-grid strip + garbage gauge (§14) | ordinary game input | own `gameover` → `S8`. `winnerMulti(self)` → `S9` |
