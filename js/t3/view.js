@@ -1,16 +1,37 @@
 // view.js — renderer. Never imports from model.js or instance.js.
 
 import {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
 } from '../t1/view.js';
 
 export {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
 };
 
-export function render(canvas, constants, snapshot, pieceColor = {}, banners = null) {
+export function render(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  banners = null,
+) {
   const ctx = canvas.getContext('2d');
-  const cellSize = Math.min((canvas.width - constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (canvas.width - constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
   const geom = holdBoxGeometry(constants, cellSize);
 
   drawBackground(ctx, canvas, constants, cellSize);
@@ -38,13 +59,25 @@ export function labelGeometry(constants) {
 export function holdBoxGeometry(constants, cellSize) {
   const { margin, labelFont, labelHeight } = labelGeometry(constants);
   const valueFont = Math.max(12, Math.floor(constants.PANEL_PX * 0.17));
-  const bannerFont = Math.max(10, Math.floor(constants.PANEL_PX * 0.10));
-  const hbSize = Math.min(constants.PW * cellSize, constants.PANEL_PX - 2 * margin);
+  const bannerFont = Math.max(10, Math.floor(constants.PANEL_PX * 0.1));
+  const hbSize = Math.min(
+    constants.PW * cellSize,
+    constants.PANEL_PX - 2 * margin,
+  );
   const labelY = margin;
   const boxY = labelY + labelHeight;
   const panelTopY = boxY + hbSize + margin; // shared with drawPanel/drawBanners
-  return { margin, labelFont, valueFont, bannerFont, labelY, hbSize,
-           hbCellSize: hbSize / constants.PW, boxY, panelTopY };
+  return {
+    margin,
+    labelFont,
+    valueFont,
+    bannerFont,
+    labelY,
+    hbSize,
+    hbCellSize: hbSize / constants.PW,
+    boxY,
+    panelTopY,
+  };
 }
 
 // Hold box (HB): top of the panel, at the same per-cell scale as the main grid
@@ -55,7 +88,8 @@ export function drawHoldBox(ctx, constants, snapshot, geom, pieceColor) {
   const dim = snapshot.swapped;
 
   ctx.fillStyle = '#AAAAAA';
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
   ctx.font = `${labelFont}px sans-serif`;
   ctx.fillText('Hold', margin, labelY);
 
@@ -107,7 +141,12 @@ export function drawBanners(ctx, constants, banners, geom) {
   const { margin, labelFont, valueFont, bannerFont, panelTopY } = geom;
   const slotHeight = bannerFont * 1.4;
 
-  let y = panelTopY + labelFont * 1.2 + valueFont * 1.4 + labelFont * 1.2 + valueFont * 1.4;
+  let y =
+    panelTopY +
+    labelFont * 1.2 +
+    valueFont * 1.4 +
+    labelFont * 1.2 +
+    valueFont * 1.4;
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';

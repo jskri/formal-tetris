@@ -5,14 +5,25 @@ import * as TI from './testInstance.js';
 import { oracle3 } from './oracle.js';
 import { assertSnapshotsEqual } from '../../t1/tests/oracle.js';
 
-const eng = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-              TI.PW, TI.FY, TI.FX);
+const eng = T(
+  TI.Piece,
+  TI.InitialMainGrid,
+  TI.ForbiddenGrid,
+  TI.RotGrid,
+  TI.InitialY,
+  TI.InitialX,
+  TI.PW,
+  TI.FY,
+  TI.FX,
+);
 
 // model.js's snapshot() wraps mg as a read-only { height, width, cell(y,x) }
 // accessor (D1, t1/model.js); assertSnapshotsEqual (t1/tests/oracle.js) compares
 // it correctly against the oracle's own plain-array mg.
 
-function randOf(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randOf(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 function randomTrace(steps) {
   const m = new eng.Machine(randOf(TI.Piece));
@@ -60,7 +71,8 @@ describe('T3 model.js fuzz', () => {
       for (let step = 0; step < 150; step++) {
         const kind = Math.floor(Math.random() * 5);
         if (kind === 0) {
-          const dy = randOf([-1, 0]), dx = randOf([-1, 0, 1]);
+          const dy = randOf([-1, 0]),
+            dx = randOf([-1, 0, 1]);
           m.movePiece(dy, dx);
           const r = oracle3.movePiece3(dy, dx, rs, params);
           if (r) rs = r;
@@ -92,13 +104,24 @@ describe('T3 model.js fuzz', () => {
 
   test('adversarial checkAxioms (delegated through T2/T1): malformed params trip an assertion', () => {
     const originalAssert = console.assert;
-    let tripped = false;
-    console.assert = (cond) => { if (!cond) tripped = true; };
+    let tripped;
+    console.assert = (cond) => {
+      if (!cond) tripped = true;
+    };
     try {
       tripped = false;
       const raggedGrid = [[false, false], [false]];
-      const badEng = T(TI.Piece, raggedGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                        TI.PW, TI.FY, TI.FX);
+      const badEng = T(
+        TI.Piece,
+        raggedGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+      );
       badEng.checkAxioms();
       assert.strictEqual(tripped, true);
     } finally {

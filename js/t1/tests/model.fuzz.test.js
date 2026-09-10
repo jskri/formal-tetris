@@ -3,10 +3,21 @@ import assert from 'node:assert/strict';
 import { T } from '../model.js';
 import * as TI from './testInstance.js';
 
-const eng = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-              TI.PW, TI.FY, TI.FX);
+const eng = T(
+  TI.Piece,
+  TI.InitialMainGrid,
+  TI.ForbiddenGrid,
+  TI.RotGrid,
+  TI.InitialY,
+  TI.InitialX,
+  TI.PW,
+  TI.FY,
+  TI.FX,
+);
 
-function randOf(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randOf(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 function randomTrace(steps) {
   const m = new eng.Machine(randOf(TI.Piece));
@@ -35,35 +46,74 @@ describe('T1 model.js fuzz', () => {
 
   test('adversarial checkAxioms: malformed params trip an assertion', () => {
     const originalAssert = console.assert;
-    let tripped = false;
-    console.assert = (cond) => { if (!cond) tripped = true; };
+    let tripped;
+    console.assert = (cond) => {
+      if (!cond) tripped = true;
+    };
     try {
       // ragged grid
       tripped = false;
       const raggedGrid = [[false, false], [false]];
-      const badEng = T(TI.Piece, raggedGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                        TI.PW, TI.FY, TI.FX);
+      const badEng = T(
+        TI.Piece,
+        raggedGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+      );
       badEng.checkAxioms();
       assert.strictEqual(tripped, true);
 
       // non-primitive piece
       tripped = false;
-      const badEng2 = T([{}], TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, () => 4, () => 1,
-                         TI.PW, TI.FY, TI.FX);
+      const badEng2 = T(
+        [{}],
+        TI.InitialMainGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        () => 4,
+        () => 1,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+      );
       badEng2.checkAxioms();
       assert.strictEqual(tripped, true);
 
       // B > MAX_SAFE_INTEGER (force via a tiny MAX_SAFE_INTEGER override)
       tripped = false;
-      const badEng3 = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                         TI.PW, TI.FY, TI.FX, 1 /* MAX_SAFE_INTEGER */);
+      const badEng3 = T(
+        TI.Piece,
+        TI.InitialMainGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+        1 /* MAX_SAFE_INTEGER */,
+      );
       badEng3.checkAxioms();
       assert.strictEqual(tripped, true);
 
       // negative FY
       tripped = false;
-      const badEng4 = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                         TI.PW, -1, TI.FX);
+      const badEng4 = T(
+        TI.Piece,
+        TI.InitialMainGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        -1,
+        TI.FX,
+      );
       badEng4.checkAxioms();
       assert.strictEqual(tripped, true);
     } finally {

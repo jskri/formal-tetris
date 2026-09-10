@@ -4,16 +4,35 @@ import { T } from '../model.js';
 import * as TI from './testInstance.js';
 
 function makeEngine() {
-  return T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-            TI.PW, TI.FY, TI.FX);
+  return T(
+    TI.Piece,
+    TI.InitialMainGrid,
+    TI.ForbiddenGrid,
+    TI.RotGrid,
+    TI.InitialY,
+    TI.InitialX,
+    TI.PW,
+    TI.FY,
+    TI.FX,
+  );
 }
 
 describe('lineClearPoints', () => {
   for (const level of [1, 2, 5]) {
-    for (const [clearedLines, expected] of [[0, 0], [1, 100], [2, 300], [3, 500], [4, 800], [5, 800]]) {
+    for (const [clearedLines, expected] of [
+      [0, 0],
+      [1, 100],
+      [2, 300],
+      [3, 500],
+      [4, 800],
+      [5, 800],
+    ]) {
       test(`lineClearPoints(${clearedLines}, level=${level})`, () => {
         const eng = makeEngine();
-        assert.strictEqual(eng.lineClearPoints(clearedLines, level), expected * level);
+        assert.strictEqual(
+          eng.lineClearPoints(clearedLines, level),
+          expected * level,
+        );
       });
     }
   }
@@ -37,11 +56,17 @@ describe('perfectClearPoints', () => {
     for (const clearedLines of [0, 1, 2, 3, 4, 5]) {
       test(`perfectClearPoints(false, ${clearedLines}, ${level}) === 0`, () => {
         const eng = makeEngine();
-        assert.strictEqual(eng.perfectClearPoints(false, clearedLines, level), 0);
+        assert.strictEqual(
+          eng.perfectClearPoints(false, clearedLines, level),
+          0,
+        );
       });
       test(`perfectClearPoints(true, ${clearedLines}, ${level})`, () => {
         const eng = makeEngine();
-        assert.strictEqual(eng.perfectClearPoints(true, clearedLines, level), table[clearedLines] * level);
+        assert.strictEqual(
+          eng.perfectClearPoints(true, clearedLines, level),
+          table[clearedLines] * level,
+        );
       });
     }
   }
@@ -64,19 +89,35 @@ describe('points', () => {
 describe('emptyGridb', () => {
   test('all-false grid is empty', () => {
     const eng = makeEngine();
-    assert.strictEqual(eng.emptyGridb([[false, false], [false, false]]), true);
+    assert.strictEqual(
+      eng.emptyGridb([
+        [false, false],
+        [false, false],
+      ]),
+      true,
+    );
   });
 
   test('any true cell makes it non-empty', () => {
     const eng = makeEngine();
-    assert.strictEqual(eng.emptyGridb([[false, true], [false, false]]), false);
+    assert.strictEqual(
+      eng.emptyGridb([
+        [false, true],
+        [false, false],
+      ]),
+      false,
+    );
   });
 });
 
 describe('fullLineCount (re-exported from T1)', () => {
   test('counts full rows', () => {
     const eng = makeEngine();
-    const g = [[true, true], [false, true], [true, true]];
+    const g = [
+      [true, true],
+      [false, true],
+      [true, true],
+    ];
     assert.strictEqual(eng.fullLineCount(g), 2);
   });
 });
@@ -85,10 +126,14 @@ describe('fullLineCount (re-exported from T1)', () => {
 // columns (0 and 3) so a full-block piece ('A', occupying both landing rows'
 // middle columns 1,2) completes both lines.
 function dropAndFillFullClear(m, pNew) {
-  while (m.s1.movePiece(-1, 0)) { /* fall */ }
+  while (m.s1.movePiece(-1, 0)) {
+    /* fall */
+  }
   const y = m.s1.py;
-  m.s1.mg[y][0] = true; m.s1.mg[y][3] = true;
-  m.s1.mg[y + 1][0] = true; m.s1.mg[y + 1][3] = true;
+  m.s1.mg[y][0] = true;
+  m.s1.mg[y][3] = true;
+  m.s1.mg[y + 1][0] = true;
+  m.s1.mg[y + 1][3] = true;
   return m.fixPiece(pNew);
 }
 
@@ -123,7 +168,9 @@ describe('Machine.fixPiece — score/level bookkeeping', () => {
   test('a non-clearing fix resets combo to 0 and leaves score unchanged', () => {
     const eng = makeEngine();
     const m = new eng.Machine('A');
-    while (m.movePiece(-1, 0)) { /* fall to the floor without filling any line */ }
+    while (m.movePiece(-1, 0)) {
+      /* fall to the floor without filling any line */
+    }
     const before = { score: m.score, total: m.totalClearedLines };
     const fired = m.fixPiece('A');
     assert.strictEqual(fired, true);
@@ -144,13 +191,24 @@ describe('Machine.fixPiece — score/level bookkeeping', () => {
   test('guard fails (piece can still fall) -> stutter, no T2 field changes', () => {
     const eng = makeEngine();
     const m = new eng.Machine('A'); // spawns with clear space below
-    const before = { score: m.score, level: m.level, combo: m.combo,
-                      perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines };
+    const before = {
+      score: m.score,
+      level: m.level,
+      combo: m.combo,
+      perfectClear: m.perfectClear,
+      totalClearedLines: m.totalClearedLines,
+    };
     assert.strictEqual(m.fixPiece('B'), false);
     assert.deepStrictEqual(
-      { score: m.score, level: m.level, combo: m.combo,
-        perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines },
-      before);
+      {
+        score: m.score,
+        level: m.level,
+        combo: m.combo,
+        perfectClear: m.perfectClear,
+        totalClearedLines: m.totalClearedLines,
+      },
+      before,
+    );
   });
 });
 
@@ -158,25 +216,47 @@ describe('Machine.movePiece / rotatePiece — scalars unchanged', () => {
   test('movePiece leaves score/level/combo/perfectClear/totalClearedLines untouched', () => {
     const eng = makeEngine();
     const m = new eng.Machine('B');
-    const before = { score: m.score, level: m.level, combo: m.combo,
-                      perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines };
+    const before = {
+      score: m.score,
+      level: m.level,
+      combo: m.combo,
+      perfectClear: m.perfectClear,
+      totalClearedLines: m.totalClearedLines,
+    };
     m.movePiece(0, -1);
     assert.deepStrictEqual(
-      { score: m.score, level: m.level, combo: m.combo,
-        perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines },
-      before);
+      {
+        score: m.score,
+        level: m.level,
+        combo: m.combo,
+        perfectClear: m.perfectClear,
+        totalClearedLines: m.totalClearedLines,
+      },
+      before,
+    );
   });
 
   test('rotatePiece leaves score/level/combo/perfectClear/totalClearedLines untouched', () => {
     const eng = makeEngine();
     const m = new eng.Machine('B');
-    const before = { score: m.score, level: m.level, combo: m.combo,
-                      perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines };
+    const before = {
+      score: m.score,
+      level: m.level,
+      combo: m.combo,
+      perfectClear: m.perfectClear,
+      totalClearedLines: m.totalClearedLines,
+    };
     m.rotatePiece(true);
     assert.deepStrictEqual(
-      { score: m.score, level: m.level, combo: m.combo,
-        perfectClear: m.perfectClear, totalClearedLines: m.totalClearedLines },
-      before);
+      {
+        score: m.score,
+        level: m.level,
+        combo: m.combo,
+        perfectClear: m.perfectClear,
+        totalClearedLines: m.totalClearedLines,
+      },
+      before,
+    );
   });
 });
 
@@ -192,7 +272,9 @@ describe('Machine.fallStep', () => {
   test('triggers fixPiece when blocked below', () => {
     const eng = makeEngine();
     const m = new eng.Machine('B');
-    while (m.movePiece(-1, 0)) { /* fall */ }
+    while (m.movePiece(-1, 0)) {
+      /* fall */
+    }
     const pBefore = m.s1.p;
     assert.strictEqual(m.fallStep('A'), true);
     assert.notStrictEqual(m.s1.p, pBefore); // fixPiece fired

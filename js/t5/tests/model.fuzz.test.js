@@ -5,14 +5,26 @@ import * as TI from './testInstance.js';
 import { oracle5 } from './oracle.js';
 import { assertSnapshotsEqual } from '../../t1/tests/oracle.js';
 
-const eng = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-              TI.PW, TI.FY, TI.FX, TI.NextLen);
+const eng = T(
+  TI.Piece,
+  TI.InitialMainGrid,
+  TI.ForbiddenGrid,
+  TI.RotGrid,
+  TI.InitialY,
+  TI.InitialX,
+  TI.PW,
+  TI.FY,
+  TI.FX,
+  TI.NextLen,
+);
 
 // model.js's snapshot() wraps mg as a read-only { height, width, cell(y,x) }
 // accessor (D1, t1/model.js); assertSnapshotsEqual (t1/tests/oracle.js) compares
 // it correctly against the oracle's own plain-array mg.
 
-function randOf(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randOf(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 function shuffleBag() {
   const a = TI.Piece.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -23,7 +35,10 @@ function shuffleBag() {
 }
 function makeBagsFn() {
   const bags = [];
-  return (i) => { while (bags.length <= i) bags.push(shuffleBag()); return bags[i]; };
+  return (i) => {
+    while (bags.length <= i) bags.push(shuffleBag());
+    return bags[i];
+  };
 }
 
 function randomTrace(steps) {
@@ -65,9 +80,10 @@ describe('T5 model.js fuzz', () => {
 
       for (let step = 0; step < 150; step++) {
         const kind = Math.floor(Math.random() * 6);
-        let r = null;
+        let r;
         if (kind === 0) {
-          const dy = randOf([-1, 0]), dx = randOf([-1, 0, 1]);
+          const dy = randOf([-1, 0]),
+            dx = randOf([-1, 0, 1]);
           m.movePiece(dy, dx);
           r = oracle5.movePiece5(dy, dx, rs, params);
         } else if (kind === 1) {
@@ -100,7 +116,9 @@ describe('T5 model.js fuzz', () => {
   test('checkInvariants never fires spuriously across many steps', () => {
     const originalAssert = console.assert;
     let fired = 0;
-    console.assert = (cond) => { if (!cond) fired++; };
+    console.assert = (cond) => {
+      if (!cond) fired++;
+    };
     try {
       for (let trial = 0; trial < 10; trial++) {
         const m = new eng.Machine(makeBagsFn());

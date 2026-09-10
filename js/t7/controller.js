@@ -3,18 +3,39 @@ import { T as T6 } from '../t6/model.js';
 import { render } from './view.js';
 import { deflateSync, inflateSync } from '../vendor/fflate.js';
 import {
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX, NextLen, PieceColor,
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+  PieceColor,
 } from './instance.js';
 
-const T6Eng = T6(Piece, InitialMainGrid, ForbiddenGrid, RotGrid, InitialY, InitialX,
-                  PW, FY, FX, NextLen);
+const T6Eng = T6(
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+);
 
 const constants = {
   HM: InitialMainGrid.length,
   WM: InitialMainGrid[0].length,
-  PW, FY, FX, NextLen,
+  PW,
+  FY,
+  FX,
+  NextLen,
   Piece,
   FH: ForbiddenGrid.length,
   FW: ForbiddenGrid[0].length,
@@ -47,12 +68,22 @@ function fallPeriod(level) {
 // Same keys/gamepad map as t6/controller.js — dropPiece is available at T7
 // level too now (§4-T7i), so DROP is wired identically.
 const KEYMAP = new Map([
-  ['ArrowLeft', 'LEFT'], ['ArrowRight', 'RIGHT'], ['ArrowDown', 'DOWN'], ['ArrowUp', 'DROP'],
-  ['z', 'CCW'], ['x', 'CW'], [' ', 'HOLD'],
+  ['ArrowLeft', 'LEFT'],
+  ['ArrowRight', 'RIGHT'],
+  ['ArrowDown', 'DOWN'],
+  ['ArrowUp', 'DROP'],
+  ['z', 'CCW'],
+  ['x', 'CW'],
+  [' ', 'HOLD'],
 ]);
 const GAMEPAD_MAP = new Map([
-  [14, 'LEFT'], [15, 'RIGHT'], [13, 'DOWN'], [12, 'DROP'],
-  [0, 'CCW'], [1, 'CW'], [3, 'HOLD'],
+  [14, 'LEFT'],
+  [15, 'RIGHT'],
+  [13, 'DOWN'],
+  [12, 'DROP'],
+  [0, 'CCW'],
+  [1, 'CW'],
+  [3, 'HOLD'],
 ]);
 
 function shuffleBag() {
@@ -66,7 +97,10 @@ function shuffleBag() {
 
 function makeBagsFn() {
   const bags = [];
-  return (i) => { while (bags.length <= i) bags.push(shuffleBag()); return bags[i]; };
+  return (i) => {
+    while (bags.length <= i) bags.push(shuffleBag());
+    return bags[i];
+  };
 }
 
 // ── WebRTC — manual copy/paste signalling, no relay server ────────────────
@@ -104,7 +138,9 @@ async function applyAnswer(pc, answerText) {
 async function createAnswerConnection(offerText) {
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
   let resolveDc;
-  const dcPromise = new Promise((res) => { resolveDc = res; });
+  const dcPromise = new Promise((res) => {
+    resolveDc = res;
+  });
   pc.ondatachannel = (e) => {
     const ch = e.channel;
     ch.binaryType = 'arraybuffer';
@@ -117,8 +153,6 @@ async function createAnswerConnection(offerText) {
 }
 
 export function main(canvas, root) {
-  const ctx = canvas.getContext('2d');
-
   // ── lifecycle state ──
   let screen = 'S1';
   let matchGen = 0;
@@ -136,15 +170,15 @@ export function main(canvas, root) {
   let hostConn = null;
   let hostPc = null;
   let hostLostHandled = false; // guards against watchConnection() and the
-                                // heartbeat both firing noticeHostLost()
+  // heartbeat both firing noticeHostLost()
   let roster = []; // names, index-aligned, joiner's own copy from PLAYERS
   let lastHostMessageAt = 0;
 
   // Gameplay
-  let t7eng = null;    // this match's T7 engine instance (closure, not window)
+  let t7eng = null; // this match's T7 engine instance (closure, not window)
   let t7machine = null;
   let t6machine = null; // filler, active during S6/S8
-  let opponents = [];   // index-aligned: { name, mg, p, py, px, pr, gameover, connected }
+  let opponents = []; // index-aligned: { name, mg, p, py, px, pr, gameover, connected }
   let inMidMatchFiller = false;
 
   // Input (shared across S6/S7/S8 — whichever machine is "active")
@@ -165,7 +199,8 @@ export function main(canvas, root) {
   let stateTimer = null;
   let heartbeatTimer = null;
 
-  const nameOf = (i) => (isHost ? (playerData[i]?.name ?? '?') : (roster[i] ?? '?'));
+  const nameOf = (i) =>
+    isHost ? (playerData[i]?.name ?? '?') : (roster[i] ?? '?');
 
   // ── screens ──
   const SCREEN_IDS = ['S1', 'S2', 'S3', 'S4', 'S6', 'S9', 'S10'];
@@ -204,7 +239,9 @@ export function main(canvas, root) {
   }
 
   // ── message envelope / transport ──
-  function tag(msg) { return { ...msg, gen: matchGen }; }
+  function tag(msg) {
+    return { ...msg, gen: matchGen };
+  }
   function rawSend(dc, msg) {
     if (dc && dc.readyState === 'open') {
       dc.send(deflateSync(textEncoder.encode(JSON.stringify(msg))));
@@ -228,7 +265,7 @@ export function main(canvas, root) {
   // corresponding `T7.v` step to match it to (`proofs.md` §5a).
   function sendToHost(msg) {
     if (hostLostHandled) return; // already declared — matches connected = false,
-                                  // no send attempted
+    // no send attempted
     if (!rawSend(hostConn, tag(msg))) noticeHostLost();
   }
   // Shared by the heartbeat's own timeout branch, watchConnection's onFailed
@@ -243,17 +280,18 @@ export function main(canvas, root) {
     applyIncoming(msg); // host's own view
     broadcastFromHost(tag(msg), idx);
     maybeEnterWinnerScreen(idx); // a disconnect can decide the match on its own,
-                                  // same as a GAMEOVER can
+    // same as a GAMEOVER can
   }
   function sendToPlayer(idx, msg) {
     if (idx === 0) return;
     const p = playerData[idx];
     if (!p || p.declaredDisconnected) return; // already declared — matches
-                                               // connected = false, no send attempted
+    // connected = false, no send attempted
     if (!rawSend(p.conn, tag(msg))) declarePlayerDisconnected(idx);
   }
   function broadcastFromHost(msg, exclude) {
-    for (let i = 1; i < playerData.length; i++) if (i !== exclude) sendToPlayer(i, msg);
+    for (let i = 1; i < playerData.length; i++)
+      if (i !== exclude) sendToPlayer(i, msg);
   }
 
   // Applies an already-routed message to *this* client's own view — used both
@@ -264,8 +302,14 @@ export function main(canvas, root) {
         opponents[msg.from] = {
           // CHECK: OK to not copy msg.mg?
           playerIndex: msg.from,
-          name: nameOf(msg.from), mg: msg.mg, p: msg.p, py: msg.py, px: msg.px, pr: msg.pr,
-          gameover: msg.gameover, connected: true,
+          name: nameOf(msg.from),
+          mg: msg.mg,
+          p: msg.p,
+          py: msg.py,
+          px: msg.px,
+          pr: msg.pr,
+          gameover: msg.gameover,
+          connected: true,
         };
         break;
       case 'GARBAGE':
@@ -288,8 +332,14 @@ export function main(canvas, root) {
 
   // ── host relay ──
   function hostHandleFromJoiner(fromIdx, msg) {
-    if (msg.type === 'JOIN') { hostHandleJoin(fromIdx, msg); return; }
-    if (msg.type === 'LEAVE') { hostHandleLeave(fromIdx); return; }
+    if (msg.type === 'JOIN') {
+      hostHandleJoin(fromIdx, msg);
+      return;
+    }
+    if (msg.type === 'LEAVE') {
+      hostHandleLeave(fromIdx);
+      return;
+    }
     if (msg.gen !== matchGen) return; // stale — different match
     if (playerData[fromIdx]) playerData[fromIdx].lastHeard = performance.now();
     switch (msg.type) {
@@ -322,7 +372,8 @@ export function main(canvas, root) {
     playerData.splice(idx, 1);
     for (let i = idx; i < playerData.length; i++) {
       const p = playerData[i];
-      if (p && p.conn) p.conn.onmessage = (ev) => hostHandleFromJoiner(i, decodeMsg(ev.data));
+      if (p && p.conn)
+        p.conn.onmessage = (ev) => hostHandleFromJoiner(i, decodeMsg(ev.data));
     }
   }
 
@@ -334,8 +385,14 @@ export function main(canvas, root) {
 
   function joinerHandleFromHost(msg) {
     lastHostMessageAt = performance.now();
-    if (msg.type === 'PLAYERS') { joinerHandlePlayers(msg); return; }
-    if (msg.type === 'START') { joinerHandleStart(msg); return; }
+    if (msg.type === 'PLAYERS') {
+      joinerHandlePlayers(msg);
+      return;
+    }
+    if (msg.type === 'START') {
+      joinerHandleStart(msg);
+      return;
+    }
     if (msg.gen !== matchGen) return;
     applyIncoming(msg);
     if (msg.type === 'GAMEOVER') maybeEnterWinnerScreen();
@@ -388,14 +445,38 @@ export function main(canvas, root) {
 
   // ── match start ──
   function startMatch() {
-    const Player = isHost ? playerData.map((_, i) => i) : roster.map((_, i) => i);
+    const Player = isHost
+      ? playerData.map((_, i) => i)
+      : roster.map((_, i) => i);
     const HostIndex = 0;
     const bagsFn = makeBagsFn();
-    const eng = T(Piece, InitialMainGrid, ForbiddenGrid, RotGrid, InitialY, InitialX,
-                  PW, FY, FX, NextLen, Player, HostIndex);
+    const eng = T(
+      Piece,
+      InitialMainGrid,
+      ForbiddenGrid,
+      RotGrid,
+      InitialY,
+      InitialX,
+      PW,
+      FY,
+      FX,
+      NextLen,
+      Player,
+      HostIndex,
+    );
     t7eng = eng;
     t7machine = new eng.Machine(myIndex, bagsFn);
-    opponents = Player.map((_, i) => (i === myIndex ? null : { playerIndex: i, name: nameOf(i), mg: null, gameover: false, connected: true }));
+    opponents = Player.map((_, i) =>
+      i === myIndex
+        ? null
+        : {
+            playerIndex: i,
+            name: nameOf(i),
+            mg: null,
+            gameover: false,
+            connected: true,
+          },
+    );
     inMidMatchFiller = false;
     prevLevel = 1;
     banner = null;
@@ -433,16 +514,13 @@ export function main(canvas, root) {
     if (!t7machine) return null;
     const Player = t7machine.gameoverView.map((_, i) => i);
     for (const i of Player) {
-      const view = (pl2) => t7eng.playingView(t7machine.gameoverView, t7machine.connectedView, pl2);
+      const view = (pl2) =>
+        t7eng.playingView(t7machine.gameoverView, t7machine.connectedView, pl2);
       let allOthersOut = true;
       for (const j of Player) if (j !== i && view(j)) allOthersOut = false;
       if (view(i) && allOthersOut) return i;
     }
     return null;
-  }
-
-  function stopped() {
-    return !!t7machine && (t7machine.gameover || findWinner() === myIndex);
   }
 
   function maybeEnterWinnerScreen(disconnectedPl) {
@@ -452,18 +530,21 @@ export function main(canvas, root) {
     stopStateTimer();
     stopHeartbeat();
     document.getElementById('s9-message').textContent =
-      (w === myIndex)
-        ? (disconnectedPl !== undefined
-            ? `You win! (your last opponent, ${nameOf(disconnectedPl)} was disconnected)`
-            : 'You win!')
+      w === myIndex
+        ? disconnectedPl !== undefined
+          ? `You win! (your last opponent, ${nameOf(disconnectedPl)} was disconnected)`
+          : 'You win!'
         : `You lose! Winner: ${nameOf(w)}`;
     showScreen('S9');
   }
 
   function noticeHostLost() {
     if (hostLostHandled) return; // watchConnection() and the heartbeat can
-    hostLostHandled = true;      // both observe the same loss
-    if (!t7machine) { showScreen('S1'); return; }
+    hostLostHandled = true; // both observe the same loss
+    if (!t7machine) {
+      showScreen('S1');
+      return;
+    }
     t7machine.noticeDisconnection();
     // Always S10, never routed through findWinner()/maybeEnterWinnerScreen():
     // losing my own connection to the host is not a legitimate win or loss
@@ -489,13 +570,24 @@ export function main(canvas, root) {
     stateTimer = null;
   }
   function rearmStateTimer() {
-    if (stateTimer) { clearInterval(stateTimer); stateTimer = setInterval(broadcastState, STATE_PERIOD_MS); }
+    if (stateTimer) {
+      clearInterval(stateTimer);
+      stateTimer = setInterval(broadcastState, STATE_PERIOD_MS);
+    }
   }
   function broadcastState() {
     if (!t7machine) return;
-    const msg = { type: 'STATE', from: myIndex, to: null,
-      mg: t7machine.mg, p: t7machine.p, py: t7machine.py, px: t7machine.px, pr: t7machine.pr,
-      gameover: t7machine.gameover };
+    const msg = {
+      type: 'STATE',
+      from: myIndex,
+      to: null,
+      mg: t7machine.mg,
+      p: t7machine.p,
+      py: t7machine.py,
+      px: t7machine.px,
+      pr: t7machine.pr,
+      gameover: t7machine.gameover,
+    };
     if (isHost) broadcastFromHost(tag(msg), 0);
     else sendToHost(msg);
   }
@@ -504,9 +596,16 @@ export function main(canvas, root) {
   function handleFixResult(preTarget) {
     if (t7machine.remGenGarbage > 0) {
       const to = preTarget;
-      const msg = { type: 'GARBAGE', from: myIndex, to, amount: t7machine.remGenGarbage };
-      if (isHost) { if (to === 0) applyIncoming(msg); else sendToPlayer(to, msg); }
-      else sendToHost(msg);
+      const msg = {
+        type: 'GARBAGE',
+        from: myIndex,
+        to,
+        amount: t7machine.remGenGarbage,
+      };
+      if (isHost) {
+        if (to === 0) applyIncoming(msg);
+        else sendToPlayer(to, msg);
+      } else sendToHost(msg);
     }
     broadcastState();
     rearmStateTimer();
@@ -533,7 +632,8 @@ export function main(canvas, root) {
         for (let i = 1; i < playerData.length; i++) {
           const p = playerData[i];
           if (!p || p.declaredDisconnected) continue;
-          if (now - p.lastHeard > HEARTBEAT_TIMEOUT_MS) declarePlayerDisconnected(i);
+          if (now - p.lastHeard > HEARTBEAT_TIMEOUT_MS)
+            declarePlayerDisconnected(i);
         }
       } else if (t7machine && now - lastHostMessageAt > HEARTBEAT_TIMEOUT_MS) {
         stopHeartbeat();
@@ -541,7 +641,10 @@ export function main(canvas, root) {
       }
     }, HEARTBEAT_CHECK_MS);
   }
-  function stopHeartbeat() { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  function stopHeartbeat() {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
 
   // spec: ValidHoles — realized as a fresh, per-call memoizing function, not
   // persistent across calls (unlike bagsFn): GarbageGrid always indexes rows
@@ -553,7 +656,8 @@ export function main(canvas, root) {
     return (y) => {
       while (holes.length <= y) holes.push(Math.floor(Math.random() * w));
       const x = holes[y];
-      if (!(0 <= x && x < w)) throw new Error(`makeHolesFn: hole out of range: ${x}`);
+      if (!(0 <= x && x < w))
+        throw new Error(`makeHolesFn: hole out of range: ${x}`);
       return x;
     };
   }
@@ -566,22 +670,31 @@ export function main(canvas, root) {
       if (!fired) return;
       if (machine.level !== prevLevel) retargetGravity(now);
       if (machine.totalClearedLines > prevTotalClearedLines) {
-        banner = { combo: machine.combo, perfectClear: machine.perfectClear, t: now };
+        banner = {
+          combo: machine.combo,
+          perfectClear: machine.perfectClear,
+          t: now,
+        };
       }
       prevTotalClearedLines = machine.totalClearedLines;
       if (isT7 && wasFix) handleFixResult(preTarget);
     }
     function doFall() {
-      if (machine.movePiece(-1, 0)) { fixFamily(true, false); return; }
+      if (machine.movePiece(-1, 0)) {
+        fixFamily(true, false);
+        return;
+      }
       const preTarget = isT7 ? machine.target : undefined;
-      const fixed = isT7 ? machine.fixPiece(shuffleBag(), makeHolesFn(constants.WM))
-                         : machine.fixPiece(shuffleBag());
+      const fixed = isT7
+        ? machine.fixPiece(shuffleBag(), makeHolesFn(constants.WM))
+        : machine.fixPiece(shuffleBag());
       fixFamily(fixed, true, preTarget);
     }
     function doDrop() {
       const preTarget = isT7 ? machine.target : undefined;
-      const fixed = isT7 ? machine.dropPiece(shuffleBag(), makeHolesFn(constants.WM))
-                         : machine.dropPiece(shuffleBag());
+      const fixed = isT7
+        ? machine.dropPiece(shuffleBag(), makeHolesFn(constants.WM))
+        : machine.dropPiece(shuffleBag());
       fixFamily(fixed, true, preTarget);
     }
     function doRotate(cw) {
@@ -589,13 +702,22 @@ export function main(canvas, root) {
       fixFamily(fired, false);
     }
     return {
-      LEFT:  { repeat: true,  effect: () => fixFamily(machine.movePiece(0, -1), false) },
-      RIGHT: { repeat: true,  effect: () => fixFamily(machine.movePiece(0, 1), false) },
-      DOWN:  { repeat: true,  effect: () => doFall() },
-      CCW:   { repeat: false, effect: () => doRotate(false) },
-      CW:    { repeat: false, effect: () => doRotate(true) },
-      HOLD:  { repeat: false, effect: () => fixFamily(machine.holdPiece(shuffleBag()), false) },
-      DROP:  { repeat: false, effect: () => doDrop() },
+      LEFT: {
+        repeat: true,
+        effect: () => fixFamily(machine.movePiece(0, -1), false),
+      },
+      RIGHT: {
+        repeat: true,
+        effect: () => fixFamily(machine.movePiece(0, 1), false),
+      },
+      DOWN: { repeat: true, effect: () => doFall() },
+      CCW: { repeat: false, effect: () => doRotate(false) },
+      CW: { repeat: false, effect: () => doRotate(true) },
+      HOLD: {
+        repeat: false,
+        effect: () => fixFamily(machine.holdPiece(shuffleBag()), false),
+      },
+      DROP: { repeat: false, effect: () => doDrop() },
     };
   }
 
@@ -624,7 +746,7 @@ export function main(canvas, root) {
   function onTick(now) {
     const m = activeMachine();
     if (!m) return;
-    const isT7 = (m === t7machine);
+    const isT7 = m === t7machine;
     const actions = actionsFor(m, isT7, now);
     actions.DOWN.effect();
   }
@@ -633,19 +755,23 @@ export function main(canvas, root) {
     const held = {};
     for (const name of keyHeld) held[name] = true;
     const gp = navigator.getGamepads?.()?.[0];
-    if (gp) for (const [idx, name] of GAMEPAD_MAP) if (gp.buttons[idx]?.pressed) held[name] = true;
+    if (gp)
+      for (const [idx, name] of GAMEPAD_MAP)
+        if (gp.buttons[idx]?.pressed) held[name] = true;
     return held;
   }
 
   function processGameInput(now) {
     const m = activeMachine();
     if (!m) return;
-    const isT7 = (m === t7machine);
+    const isT7 = m === t7machine;
     const held = computeHeld();
     // Filler (SP) game has no host/match to wait on — any keypress after its
     // own gameover just starts a fresh one, same as ordinary SP restart.
     if (!isT7 && m.gameover) {
-      const anyPressed = Object.keys(held).some((name) => held[name] && !prevHeld[name]);
+      const anyPressed = Object.keys(held).some(
+        (name) => held[name] && !prevHeld[name],
+      );
       if (anyPressed) enterWaitingRoom();
       prevHeld = held;
       return;
@@ -656,8 +782,16 @@ export function main(canvas, root) {
       if (act.repeat) {
         if (held[name]) {
           const t = repeatTimers[name];
-          if (!t) { act.effect(); repeatTimers[name] = { pressedAt: now, lastFire: now }; }
-          else if (now - t.pressedAt >= DAS_DELAY && now - t.lastFire >= ARR) { act.effect(); t.lastFire = now; }
+          if (!t) {
+            act.effect();
+            repeatTimers[name] = { pressedAt: now, lastFire: now };
+          } else if (
+            now - t.pressedAt >= DAS_DELAY &&
+            now - t.lastFire >= ARR
+          ) {
+            act.effect();
+            t.lastFire = now;
+          }
         } else repeatTimers[name] = null;
       } else if (held[name] && !prevHeld[name]) act.effect();
     }
@@ -667,14 +801,25 @@ export function main(canvas, root) {
   // ── menu navigation (S1/S2/S3/S4/S9/S10) — gamepad drives focus, button 0 clicks ──
   function processMenuInput() {
     const active = document.activeElement;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA'))
+      return;
     const buttons = menuButtons();
     if (buttons.length === 0) return;
     const gp = navigator.getGamepads?.()?.[0];
     const held = {};
-    if (gp) { held.up = gp.buttons[12]?.pressed; held.down = gp.buttons[13]?.pressed; held.a = gp.buttons[0]?.pressed; }
-    if (held.down && !prevMenuHeld.down) { focusIndex = (focusIndex + 1) % buttons.length; buttons[focusIndex]?.focus(); }
-    if (held.up && !prevMenuHeld.up) { focusIndex = (focusIndex - 1 + buttons.length) % buttons.length; buttons[focusIndex]?.focus(); }
+    if (gp) {
+      held.up = gp.buttons[12]?.pressed;
+      held.down = gp.buttons[13]?.pressed;
+      held.a = gp.buttons[0]?.pressed;
+    }
+    if (held.down && !prevMenuHeld.down) {
+      focusIndex = (focusIndex + 1) % buttons.length;
+      buttons[focusIndex]?.focus();
+    }
+    if (held.up && !prevMenuHeld.up) {
+      focusIndex = (focusIndex - 1 + buttons.length) % buttons.length;
+      buttons[focusIndex]?.focus();
+    }
     if (held.a && !prevMenuHeld.a) buttons[focusIndex]?.click();
     prevMenuHeld = held;
   }
@@ -685,7 +830,12 @@ export function main(canvas, root) {
     else processMenuInput();
 
     const m = activeMachine();
-    if (gravityRunning && m && !m.gameover && now - lastGravityAt >= currentGravityPeriod) {
+    if (
+      gravityRunning &&
+      m &&
+      !m.gameover &&
+      now - lastGravityAt >= currentGravityPeriod
+    ) {
       lastGravityAt = now;
       onTick(now);
     }
@@ -693,7 +843,7 @@ export function main(canvas, root) {
     if (banner && now - banner.t > BANNER_MS) banner = null;
 
     if (m) {
-      const isT7 = (m === t7machine);
+      const isT7 = m === t7machine;
       const snap = isT7 ? t7eng.snapshot(m) : T6Eng.snapshot(m);
       // Opponents stay visible whenever a t7machine exists at all — including
       // mid-match filler, where it keeps running headless — not just while it
@@ -707,14 +857,23 @@ export function main(canvas, root) {
   }
 
   function sizeCanvas() {
-    const PANEL_FRAC = 0.22, PANEL_MIN = 120, PANEL_MAX = 360;
+    const PANEL_FRAC = 0.22,
+      PANEL_MIN = 120,
+      PANEL_MAX = 360;
     const MINI_STRIP_FRAC = 0.25; // fixed relative to viewport — §14.2
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const totalPanel = Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)));
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    const totalPanel = Math.min(
+      PANEL_MAX,
+      Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)),
+    );
     const panel = totalPanel / 2;
     const gridMaxW = vw * (1 - MINI_STRIP_FRAC) - 2 * panel;
     const gridMaxH = vh * 0.95;
-    const cell = Math.max(1, Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)));
+    const cell = Math.max(
+      1,
+      Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)),
+    );
     constants.PANEL_PX = panel;
     const gridAreaWidth = 2 * panel + constants.WM * cell;
     constants.gridAreaWidth = gridAreaWidth;
@@ -754,17 +913,29 @@ export function main(canvas, root) {
         t6main(canvas);
         break;
       }
-      case 'mp': showScreen('S2'); break;
+      case 'mp':
+        showScreen('S2');
+        break;
       case 'host': {
         isHost = true;
         myIndex = 0;
         myName = document.getElementById('s3-name').value || 'Host';
-        playerData = [{ name: myName, conn: null, pc: null, lastHeard: performance.now(), declaredDisconnected: false }];
+        playerData = [
+          {
+            name: myName,
+            conn: null,
+            pc: null,
+            lastHeard: performance.now(),
+            declaredDisconnected: false,
+          },
+        ];
         renderS3Joiners();
         showScreen('S3');
         break;
       }
-      case 'join': showScreen('S4'); break;
+      case 'join':
+        showScreen('S4');
+        break;
 
       case 's3-add-connection': {
         const block = document.createElement('div');
@@ -779,13 +950,28 @@ export function main(canvas, root) {
         const offerInput = block.querySelector('.s3-offer-input');
         offerInput.focus();
         const offerText = await new Promise((resolve) => {
-          block.querySelector('.s3-offer-add').addEventListener('click', () => resolve(offerInput.value));
-          block.querySelector('.s3-offer-cancel').addEventListener('click', () => resolve(null));
+          block
+            .querySelector('.s3-offer-add')
+            .addEventListener('click', () => resolve(offerInput.value));
+          block
+            .querySelector('.s3-offer-cancel')
+            .addEventListener('click', () => resolve(null));
         });
-        if (!offerText) { block.remove(); return; }
-        const { pc, dcPromise, sdpText } = await createAnswerConnection(offerText);
+        if (!offerText) {
+          block.remove();
+          return;
+        }
+        const { pc, dcPromise, sdpText } =
+          await createAnswerConnection(offerText);
         const idx = playerData.length;
-        playerData.push({ name: `player${idx}`, conn: null, pc, lastHeard: performance.now(), declaredDisconnected: false, joined: false });
+        playerData.push({
+          name: `player${idx}`,
+          conn: null,
+          pc,
+          lastHeard: performance.now(),
+          declaredDisconnected: false,
+          joined: false,
+        });
         block.innerHTML = `
           <div class="small">Host's code — copy to joiner:</div>
           <textarea readonly></textarea>
@@ -811,7 +997,12 @@ export function main(canvas, root) {
         // shift the index of another one still pending eviction in this
         // same pass.
         for (let i = playerData.length - 1; i >= 1; i--) {
-          if (!playerData[i] || !playerData[i].joined || playerData[i].declaredDisconnected) evictSlot(i);
+          if (
+            !playerData[i] ||
+            !playerData[i].joined ||
+            playerData[i].declaredDisconnected
+          )
+            evictSlot(i);
         }
         renderS3Joiners();
         // Eviction can shift a still-joined survivor's index (e.g. an
@@ -834,7 +1025,8 @@ export function main(canvas, root) {
           playerData[i].declaredDisconnected = false;
           playerData[i].lastHeard = performance.now();
         }
-        for (let i = 1; i < playerData.length; i++) sendToPlayer(i, { type: 'START', gen: matchGen });
+        for (let i = 1; i < playerData.length; i++)
+          sendToPlayer(i, { type: 'START', gen: matchGen });
         showScreen('S7');
         startMatch();
         startHeartbeat();
@@ -848,7 +1040,9 @@ export function main(canvas, root) {
           // Already negotiated (e.g. a stray repeat click) or not ready yet —
           // setRemoteDescription would throw InvalidStateError ("wrong state:
           // stable") instead of doing anything useful here.
-          console.warn('[T7] Ignoring Connect click — connection not awaiting an answer.');
+          console.warn(
+            '[T7] Ignoring Connect click — connection not awaiting an answer.',
+          );
           return;
         }
         await applyAnswer(hostPc, answerText);
@@ -862,7 +1056,9 @@ export function main(canvas, root) {
         // no t7.Machine yet at this point for noticeHostLost to act on
         // anyway — it would just bounce to S1).
         if (hostConn.readyState !== 'open') {
-          await new Promise((resolve) => { hostConn.onopen = resolve; });
+          await new Promise((resolve) => {
+            hostConn.onopen = resolve;
+          });
         }
         lastHostMessageAt = performance.now();
         sendToHost({ type: 'JOIN', name: myName });
@@ -910,14 +1106,20 @@ export function main(canvas, root) {
         stopHeartbeat();
         stopStateTimer();
         stopGravity();
-        t7machine = null; t6machine = null; hostConn = null; hostPc = null;
+        t7machine = null;
+        t6machine = null;
+        hostConn = null;
+        hostPc = null;
         showScreen('S1');
         break;
       case 's10-menu':
         stopHeartbeat();
         stopStateTimer();
         stopGravity();
-        t7machine = null; t6machine = null; hostConn = null; hostPc = null;
+        t7machine = null;
+        t6machine = null;
+        hostConn = null;
+        hostPc = null;
         showScreen('S1');
         break;
     }
@@ -926,7 +1128,9 @@ export function main(canvas, root) {
 
   // Join screen: generate our own offer as soon as we arrive there.
   let generatingOffer = false;
-  const joinBtn = document.getElementById('S2').querySelector('[data-action="join"]');
+  const joinBtn = document
+    .getElementById('S2')
+    .querySelector('[data-action="join"]');
   async function onJoinClick() {
     if (generatingOffer) return; // ICE gathering can take a few seconds on
     // a real network (unlike same-machine loopback); without this guard, an
@@ -939,7 +1143,8 @@ export function main(canvas, root) {
       document.getElementById('s4-name').value = myName || '';
       document.getElementById('s4-answer').value = '';
       const { pc, dc, sdpText } = await createOfferConnection();
-      hostPc = pc; hostConn = dc;
+      hostPc = pc;
+      hostConn = dc;
       document.getElementById('s4-offer').value = sdpText;
     } finally {
       generatingOffer = false;
@@ -950,7 +1155,10 @@ export function main(canvas, root) {
 
   function onKeyDown(e) {
     const name = KEYMAP.get(e.key);
-    if (name && (screen === 'S6' || screen === 'S7')) { e.preventDefault(); keyHeld.add(name); }
+    if (name && (screen === 'S6' || screen === 'S7')) {
+      e.preventDefault();
+      keyHeld.add(name);
+    }
   }
   function onKeyUp(e) {
     const name = KEYMAP.get(e.key);
@@ -981,11 +1189,35 @@ export function main(canvas, root) {
     document.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('resize', sizeCanvas);
     joinBtn.removeEventListener('click', onJoinClick);
-    if (hostPc) { try { hostPc.close(); } catch { /* already closed */ } }
-    if (hostConn) { try { hostConn.close(); } catch { /* already closed */ } }
+    if (hostPc) {
+      try {
+        hostPc.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    if (hostConn) {
+      try {
+        hostConn.close();
+      } catch {
+        /* already closed */
+      }
+    }
     for (const p of playerData) {
-      if (p?.conn) { try { p.conn.close(); } catch { /* already closed */ } }
-      if (p?.pc) { try { p.pc.close(); } catch { /* already closed */ } }
+      if (p?.conn) {
+        try {
+          p.conn.close();
+        } catch {
+          /* already closed */
+        }
+      }
+      if (p?.pc) {
+        try {
+          p.pc.close();
+        } catch {
+          /* already closed */
+        }
+      }
     }
     keyHeld.clear();
     repeatTimers = {};

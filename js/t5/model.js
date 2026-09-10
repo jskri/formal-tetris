@@ -4,14 +4,31 @@ const CHECK_INVARIANTS = false;
 
 // spec: module T5 (parameter order identical to T4's — T5 adds no abstract parameters)
 export function T(
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX,
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
   NextLen,
   MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER,
 ) {
-  const T4Eng = T4(Piece, InitialMainGrid, ForbiddenGrid, RotGrid, InitialY, InitialX,
-                    PW, FY, FX, NextLen, MAX_SAFE_INTEGER);
+  const T4Eng = T4(
+    Piece,
+    InitialMainGrid,
+    ForbiddenGrid,
+    RotGrid,
+    InitialY,
+    InitialX,
+    PW,
+    FY,
+    FX,
+    NextLen,
+    MAX_SAFE_INTEGER,
+  );
   const T1Eng = T4Eng.T1Eng; // flattened — one hop regardless of how many models are stacked
 
   // ── Free functions (T5.v source order) ────────────────────────────────
@@ -40,7 +57,7 @@ export function T(
     return py;
   }
 
-  function checkInvariants(s, message, isOccupied = (c => Piece.includes(c))) {
+  function checkInvariants(s, message, isOccupied = (c) => Piece.includes(c)) {
     T4Eng.checkInvariants(s.s4, message, isOccupied);
     // LowestShadowY's own guard is `gameover = false ->`; checking gy against a
     // fresh shadowY computation only makes sense under that same precondition —
@@ -49,7 +66,10 @@ export function T(
     // doesn't make in that state.
     if (!s.gameover) {
       const expected = shadowY(s.s1);
-      console.assert(s.gy === expected, `LowestShadowY (gy matches shadowY) failed @ ${message}`);
+      console.assert(
+        s.gy === expected,
+        `LowestShadowY (gy matches shadowY) failed @ ${message}`,
+      );
       console.assert(s.gy <= s.s1.py, `gy <= py failed @ ${message}`);
     }
   }
@@ -58,24 +78,38 @@ export function T(
   class Machine {
     // spec: Init bags H
     constructor(bagsFn) {
-      this.s4 = new T4Eng.Machine(bagsFn);        // spec: T4.Init bags H
-      this.gy = shadowY(this.s1);                  // spec: ShadowY s4
+      this.s4 = new T4Eng.Machine(bagsFn); // spec: T4.Init bags H
+      this.gy = shadowY(this.s1); // spec: ShadowY s4
       if (CHECK_INVARIANTS) checkInvariants(this, 'Init');
     }
 
     // spec: gameover s — T5.v's own gameover helper (T4.gameover (s4 s))
-    get gameover() { return this.s4.gameover; }
+    get gameover() {
+      return this.s4.gameover;
+    }
 
     // Flattened access — see T3.Machine's own get s1() for rationale.
-    get s1() { return this.s4.s1; }
+    get s1() {
+      return this.s4.s1;
+    }
 
     // read-through getters — every T4-level field controller.js reads directly
     // outside snapshot() (same rationale as T4's §6.7)
-    get level() { return this.s4.level; }
-    get totalClearedLines() { return this.s4.totalClearedLines; }
-    get combo() { return this.s4.combo; }
-    get perfectClear() { return this.s4.perfectClear; }
-    get score() { return this.s4.score; }
+    get level() {
+      return this.s4.level;
+    }
+    get totalClearedLines() {
+      return this.s4.totalClearedLines;
+    }
+    get combo() {
+      return this.s4.combo;
+    }
+    get perfectClear() {
+      return this.s4.perfectClear;
+    }
+    get score() {
+      return this.s4.score;
+    }
 
     // spec: UpdateShadowY s s4' — recomputes gy from the current s4
     updateShadowY() {
@@ -109,7 +143,7 @@ export function T(
     // spec: FallStep bagNew H
     fallStep(bagNew) {
       if (this.movePiece(-1, 0)) return true; // req-piece-fall
-      return this.fixPiece(bagNew);           // req-piece-fix
+      return this.fixPiece(bagNew); // req-piece-fix
     }
 
     // spec: HoldPiece bagNew H — full use; gy refreshed only on success
@@ -136,12 +170,12 @@ export function T(
       // coordinates unconditionally, so the caller must pass px's current value
       // explicitly to keep it unchanged.
       const r = T1Eng.newPieceYXState(this.gy, s1.px, s1);
-      s1.mg = r.mg;                 // written for uniformity (unchanged value)
-      s1.p = r.p;                   // written for uniformity (unchanged value)
-      s1.py = r.py;                 // spec: NewPieceYXState's one real change here
-      s1.px = r.px;                 // written for uniformity (unchanged value)
-      s1.pr = r.pr;                 // written for uniformity (unchanged value)
-      s1.gameover = r.gameover;     // written for uniformity (unchanged value)
+      s1.mg = r.mg; // written for uniformity (unchanged value)
+      s1.p = r.p; // written for uniformity (unchanged value)
+      s1.py = r.py; // spec: NewPieceYXState's one real change here
+      s1.px = r.px; // written for uniformity (unchanged value)
+      s1.pr = r.pr; // written for uniformity (unchanged value)
+      s1.gameover = r.gameover; // written for uniformity (unchanged value)
       s1.clearedLines = r.clearedLines; // written for uniformity (unchanged value)
       return this.fixPiece(bagNew); // guaranteed to fire, given LowestShadowY
     }

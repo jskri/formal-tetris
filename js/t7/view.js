@@ -10,12 +10,28 @@ import { render as renderT6 } from '../t6/view.js';
 const MINI_GAP = 4;
 const GARBAGE_GAUGE_FRAC = 1 / 3; // relative to cellSize — a starting value, not measured-optimal
 
-export function render(canvas, constants, snapshot, pieceColor = {}, banners = null, opponents = [], target = null) {
+export function render(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  banners = null,
+  opponents = [],
+  target = null,
+) {
   const ctx = canvas.getContext('2d');
   const cellSize = renderT6(canvas, constants, snapshot, pieceColor, banners);
 
   drawGarbageGauge(ctx, constants, snapshot, cellSize);
-  drawMiniStrip(ctx, canvas, constants, opponents, pieceColor, cellSize, target);
+  drawMiniStrip(
+    ctx,
+    canvas,
+    constants,
+    opponents,
+    pieceColor,
+    cellSize,
+    target,
+  );
 }
 
 // ── Garbage gauge (§14.3): vertical bar flush against the playfield's left
@@ -25,7 +41,7 @@ export function render(canvas, constants, snapshot, pieceColor = {}, banners = n
 function drawGarbageGauge(ctx, constants, snapshot, cellSize) {
   const { PANEL_PX, HM } = constants;
   const amount = Math.min(snapshot.garbage ?? 0, HM); // T6 (filler) snapshots have no
-  if (amount <= 0) return;                            // `garbage` field — ?? 0 hides it there
+  if (amount <= 0) return; // `garbage` field — ?? 0 hides it there
   const gaugeW = cellSize * GARBAGE_GAUGE_FRAC;
   const gh = amount * cellSize;
   ctx.fillStyle = '#B8860B';
@@ -36,7 +52,15 @@ function drawGarbageGauge(ctx, constants, snapshot, cellSize) {
 // PlayerCount (controller.js's sizeCanvas allocates it); tiles opponents in
 // rows × columns, individual mini cell size chosen to maximize itself within
 // that fixed region — more opponents shrink each mini, never grow the strip.
-function drawMiniStrip(ctx, canvas, constants, opponents, pieceColor, mainCellSize, target) {
+function drawMiniStrip(
+  ctx,
+  canvas,
+  constants,
+  opponents,
+  pieceColor,
+  mainCellSize,
+  target,
+) {
   const stripX = constants.gridAreaWidth ?? canvas.width;
   const stripW = canvas.width - stripX;
   const stripH = canvas.height;
@@ -46,7 +70,15 @@ function drawMiniStrip(ctx, canvas, constants, opponents, pieceColor, mainCellSi
   const labelFont = Math.max(8, Math.floor(mainCellSize * 0.5));
   const labelH = labelFont * 1.3;
 
-  const { cols, cellSize } = bestTiling(n, stripW, stripH, constants.WM, constants.HM, labelH, MINI_GAP);
+  const { cols, cellSize } = bestTiling(
+    n,
+    stripW,
+    stripH,
+    constants.WM,
+    constants.HM,
+    labelH,
+    MINI_GAP,
+  );
   if (cellSize <= 0) return;
 
   const miniW = constants.WM * cellSize;
@@ -63,8 +95,23 @@ function drawMiniStrip(ctx, canvas, constants, opponents, pieceColor, mainCellSi
     const oy = MINI_GAP + row * (miniH + labelH + MINI_GAP);
     // Only meaningful with more than one opponent (PlayerCount > 2): with
     // exactly one, the target is unambiguous and a border would be redundant.
-    const isTarget = opponents.length > 1 && target != null && opponents[i].playerIndex === target;
-    drawMini(ctx, constants, opponents[i], ox, oy, cellSize, miniW, miniH, labelH, pieceColor, isTarget);
+    const isTarget =
+      opponents.length > 1 &&
+      target != null &&
+      opponents[i].playerIndex === target;
+    drawMini(
+      ctx,
+      constants,
+      opponents[i],
+      ox,
+      oy,
+      cellSize,
+      miniW,
+      miniH,
+      labelH,
+      pieceColor,
+      isTarget,
+    );
   }
 }
 
@@ -91,7 +138,19 @@ function bestTiling(n, stripW, stripH, WM, HM, labelH, gap) {
 // ambiguous which opponent that is (drawMiniStrip only sets isTarget with
 // more than one opponent) — with exactly one opponent the target can only
 // ever be them, so no border is drawn.
-function drawMini(ctx, constants, opp, ox, oy, cellSize, miniW, miniH, labelH, pieceColor, isTarget) {
+function drawMini(
+  ctx,
+  constants,
+  opp,
+  ox,
+  oy,
+  cellSize,
+  miniW,
+  miniH,
+  labelH,
+  pieceColor,
+  isTarget,
+) {
   ctx.fillStyle = '#AAAAAA';
   ctx.fillText(opp.name, ox, oy);
 

@@ -1,27 +1,60 @@
 // view.js — renderer. Never imports from model.js or instance.js.
 
 import {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
-  labelGeometry, holdBoxGeometry, drawHoldBox, drawPanel, drawBanners,
-  effectiveRowRange, previewGeometry, drawPreview,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
+  labelGeometry,
+  holdBoxGeometry,
+  drawHoldBox,
+  drawPanel,
+  drawBanners,
+  effectiveRowRange,
+  previewGeometry,
+  drawPreview,
 } from '../t4/view.js';
 
 export {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
-  labelGeometry, holdBoxGeometry, drawHoldBox, drawPanel, drawBanners,
-  effectiveRowRange, previewGeometry, drawPreview,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
+  labelGeometry,
+  holdBoxGeometry,
+  drawHoldBox,
+  drawPanel,
+  drawBanners,
+  effectiveRowRange,
+  previewGeometry,
+  drawPreview,
 };
 
 const GHOST_ALPHA = 0.25; // a starting value, not a measured-optimal one
 
-export function render(canvas, constants, snapshot, pieceColor = {}, banners = null) {
+export function render(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  banners = null,
+) {
   const ctx = canvas.getContext('2d');
   // gridAreaWidth is optional: when set, the grid draws within that width
   // instead of the full canvas (used by T7's mini-grid strip, which needs
   // room to the side of the main board). Every other caller leaves it unset,
   // so this is exactly canvas.width there.
   const gridAreaWidth = constants.gridAreaWidth ?? canvas.width;
-  const cellSize = Math.min((gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
   const holdGeom = holdBoxGeometry(constants, cellSize);
   const previewGeom = previewGeometry(constants, cellSize);
 

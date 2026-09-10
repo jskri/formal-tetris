@@ -2,9 +2,18 @@
   "type": "module",
   "scripts": {
     "serve": "npx serve .",
-    "test": "node test-runner.js"
+    "test": "node test-runner.js",
+    "format:check": "prettier --check \"**/*.js\"",
+    "format:write": "prettier --write \"**/*.js\"",
+    "lint": "eslint . --max-warnings 0",
+    "syntax-check": "node syntax-check.js"
   },
   "devDependencies": {
-    "fast-check": "^3.0.0"
+    "fast-check": "^3.0.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6"
   }
 }

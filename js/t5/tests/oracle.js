@@ -78,7 +78,10 @@ function dropPiece5(bagNew, s, params) {
   if (snap4.gameover) return null;
   const s1 = s.s4.s3.s2.s1;
   const relocated = newPieceYXState(s.gy, s1.px, s1);
-  const s4Relocated = { ...s.s4, s3: { ...s.s4.s3, s2: { ...s.s4.s3.s2, s1: relocated } } };
+  const s4Relocated = {
+    ...s.s4,
+    s3: { ...s.s4.s3, s2: { ...s.s4.s3.s2, s1: relocated } },
+  };
   return fixPiece5(bagNew, { s4: s4Relocated, gy: s.gy }, params);
 }
 
@@ -105,11 +108,13 @@ function makeParams5(TI) {
 function makeValid(TI) {
   return function valid(mg, p, py, px, pr) {
     const rg = TI.RotGrid(p, pr);
-    const rgH = rg.length, rgW = rg[0].length;
+    const rgH = rg.length,
+      rgW = rg[0].length;
     for (let y = 0; y < rgH; y++) {
       for (let x = 0; x < rgW; x++) {
         if (!rg[y][x]) continue;
-        const oy = y + py, ox = x + px;
+        const oy = y + py,
+          ox = x + px;
         if (!(oy >= 0 && oy < mg.H && ox >= 0 && ox < mg.W)) return false;
         if (mg.L(oy, ox)) return false;
       }

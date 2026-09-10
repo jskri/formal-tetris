@@ -63,7 +63,8 @@ function fixPiece4(bagNew, s, params) {
   const p = s.next_[0];
   const s3p = oracle3.fixPiece3(p, s.s3, params);
   if (!s3p) return null; // guard-fail: bag_/next_ untouched
-  const bag_ = s.bag_.slice(), next_ = s.next_.slice();
+  const bag_ = s.bag_.slice(),
+    next_ = s.next_.slice();
   drawOnce(bag_, next_, bagNew); // commit now that T3 is confirmed to fire
   return { s3: s3p, bag_, next_ };
 }
@@ -76,7 +77,8 @@ function fallStep4(bagNew, s, params) {
 function holdPiece4(bagNew, s, params) {
   const snap = oracle3.snapshotOf3(s.s3);
   if (snap.gameover) return null;
-  const bag_ = s.bag_.slice(), next_ = s.next_.slice();
+  const bag_ = s.bag_.slice(),
+    next_ = s.next_.slice();
   let p2;
   if (snap.hold !== null) {
     p2 = snap.hold; // skip: bag_/next_ (the copies above) stay untouched

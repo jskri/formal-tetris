@@ -5,20 +5,44 @@ import * as TI from './testInstance.js';
 import { assertSnapshotsEqual } from '../../t1/tests/oracle.js';
 
 function makeEngine() {
-  return T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-            TI.PW, TI.FY, TI.FX, TI.NextLen);
+  return T(
+    TI.Piece,
+    TI.InitialMainGrid,
+    TI.ForbiddenGrid,
+    TI.RotGrid,
+    TI.InitialY,
+    TI.InitialX,
+    TI.PW,
+    TI.FY,
+    TI.FX,
+    TI.NextLen,
+  );
 }
 
 describe('Machine — standalone (subclass of T5.Machine, no wrapping field)', () => {
   test('every T5 method is directly callable on the T6 instance', () => {
     const eng = makeEngine();
     const m = new eng.Machine(() => ['A', 'B']);
-    for (const method of ['movePiece', 'rotatePiece', 'fixPiece', 'fallStep', 'holdPiece', 'dropPiece']) {
-      assert.strictEqual(typeof m[method], 'function', `${method} should be inherited`);
+    for (const method of [
+      'movePiece',
+      'rotatePiece',
+      'fixPiece',
+      'fallStep',
+      'holdPiece',
+      'dropPiece',
+    ]) {
+      assert.strictEqual(
+        typeof m[method],
+        'function',
+        `${method} should be inherited`,
+      );
     }
     assert.strictEqual(typeof m.rotateKickPiece, 'function');
     assert.ok(m instanceof eng.Machine);
-    assert.ok('s4' in m, "T6.Machine has T5.Machine's own s4 field directly, no extra wrapping layer");
+    assert.ok(
+      's4' in m,
+      "T6.Machine has T5.Machine's own s4 field directly, no extra wrapping layer",
+    );
     assert.ok(!('s5' in m), 'no new wrapping field was introduced');
   });
 });
@@ -51,12 +75,17 @@ describe('Machine.rotateKickPiece — exclusivity with rotatePiece', () => {
     let found = false;
     for (const piece of TI.Piece) {
       for (let px = -2; px < 3 && !found; px++) {
-        const m = new eng.Machine(() => [piece, ...TI.Piece.filter(p => p !== piece)]);
+        const m = new eng.Machine(() => [
+          piece,
+          ...TI.Piece.filter((p) => p !== piece),
+        ]);
         m.s1.p = piece;
         m.s1.px = px;
         if (!eng.T1Eng.canRotatePiece(true, m.s1)) {
           const fired = m.rotateKickPiece(true);
-          if (fired) { found = true; }
+          if (fired) {
+            found = true;
+          }
         }
       }
     }
@@ -71,15 +100,20 @@ describe('Machine.rotateKickPiece — left tried before right, w.r.t. original p
     const eng = makeEngine();
     for (const piece of TI.Piece) {
       for (let px = -2; px < 3; px++) {
-        const m = new eng.Machine(() => [piece, ...TI.Piece.filter(p => p !== piece)]);
+        const m = new eng.Machine(() => [
+          piece,
+          ...TI.Piece.filter((p) => p !== piece),
+        ]);
         m.s1.p = piece;
         m.s1.px = px;
         if (eng.T1Eng.canRotatePiece(true, m.s1)) continue; // not a kick scenario
         const before = px;
         const fired = m.rotateKickPiece(true);
         if (fired) {
-          assert.ok(m.s1.px === before - 1 || m.s1.px === before + 1,
-            `kick should move px by exactly 1 from ${before}, got ${m.s1.px}`);
+          assert.ok(
+            m.s1.px === before - 1 || m.s1.px === before + 1,
+            `kick should move px by exactly 1 from ${before}, got ${m.s1.px}`,
+          );
         }
       }
     }

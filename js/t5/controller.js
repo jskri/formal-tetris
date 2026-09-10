@@ -1,18 +1,39 @@
 import { T } from './model.js';
 import { render } from './view.js';
 import {
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX, NextLen, PieceColor,
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+  PieceColor,
 } from './instance.js';
 
-const eng = T(Piece, InitialMainGrid, ForbiddenGrid,
-              RotGrid, InitialY, InitialX, PW, FY, FX, NextLen);
+const eng = T(
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+);
 
 const constants = {
   HM: InitialMainGrid.length,
   WM: InitialMainGrid[0].length,
-  PW, FY, FX, NextLen,
+  PW,
+  FY,
+  FX,
+  NextLen,
   Piece,
   FH: ForbiddenGrid.length,
   FW: ForbiddenGrid[0].length,
@@ -35,13 +56,23 @@ function fallPeriod(level) {
 }
 
 const KEYMAP = new Map([
-  ['ArrowLeft', 'LEFT'], ['ArrowRight', 'RIGHT'], ['ArrowDown', 'DOWN'], ['ArrowUp', 'DROP'],
-  ['z', 'CCW'], ['x', 'CW'], [' ', 'HOLD'],
+  ['ArrowLeft', 'LEFT'],
+  ['ArrowRight', 'RIGHT'],
+  ['ArrowDown', 'DOWN'],
+  ['ArrowUp', 'DROP'],
+  ['z', 'CCW'],
+  ['x', 'CW'],
+  [' ', 'HOLD'],
 ]);
 
 const GAMEPAD_MAP = new Map([
-  [14, 'LEFT'], [15, 'RIGHT'], [13, 'DOWN'], [12, 'DROP'],
-  [0, 'CCW'], [1, 'CW'], [3, 'HOLD'],
+  [14, 'LEFT'],
+  [15, 'RIGHT'],
+  [13, 'DOWN'],
+  [12, 'DROP'],
+  [0, 'CCW'],
+  [1, 'CW'],
+  [3, 'HOLD'],
 ]);
 
 function shuffleBag() {
@@ -55,7 +86,10 @@ function shuffleBag() {
 
 function makeBagsFn() {
   const bags = [];
-  return (i) => { while (bags.length <= i) bags.push(shuffleBag()); return bags[i]; };
+  return (i) => {
+    while (bags.length <= i) bags.push(shuffleBag());
+    return bags[i];
+  };
 }
 
 export function main(canvas) {
@@ -72,13 +106,55 @@ export function main(canvas) {
   let prevTotalClearedLines = 0;
 
   const ACTIONS = {
-    LEFT:  { repeat: true,  effect: (now) => { machine.movePiece(0, -1); afterAction(now); } },
-    RIGHT: { repeat: true,  effect: (now) => { machine.movePiece(0, 1); afterAction(now); } },
-    DOWN:  { repeat: true,  effect: (now) => { machine.fallStep(shuffleBag()); afterAction(now); } },
-    CCW:   { repeat: false, effect: (now) => { machine.rotatePiece(false); afterAction(now); } },
-    CW:    { repeat: false, effect: (now) => { machine.rotatePiece(true); afterAction(now); } },
-    HOLD:  { repeat: false, effect: (now) => { machine.holdPiece(shuffleBag()); afterAction(now); } },
-    DROP:  { repeat: false, effect: (now) => { machine.dropPiece(shuffleBag()); afterAction(now); } },
+    LEFT: {
+      repeat: true,
+      effect: (now) => {
+        machine.movePiece(0, -1);
+        afterAction(now);
+      },
+    },
+    RIGHT: {
+      repeat: true,
+      effect: (now) => {
+        machine.movePiece(0, 1);
+        afterAction(now);
+      },
+    },
+    DOWN: {
+      repeat: true,
+      effect: (now) => {
+        machine.fallStep(shuffleBag());
+        afterAction(now);
+      },
+    },
+    CCW: {
+      repeat: false,
+      effect: (now) => {
+        machine.rotatePiece(false);
+        afterAction(now);
+      },
+    },
+    CW: {
+      repeat: false,
+      effect: (now) => {
+        machine.rotatePiece(true);
+        afterAction(now);
+      },
+    },
+    HOLD: {
+      repeat: false,
+      effect: (now) => {
+        machine.holdPiece(shuffleBag());
+        afterAction(now);
+      },
+    },
+    DROP: {
+      repeat: false,
+      effect: (now) => {
+        machine.dropPiece(shuffleBag());
+        afterAction(now);
+      },
+    },
   };
 
   // Retargets gravity's period on a level change, restarting the accumulator
@@ -94,7 +170,11 @@ export function main(canvas) {
     }
 
     if (machine.totalClearedLines > prevTotalClearedLines) {
-      banner = { combo: machine.combo, perfectClear: machine.perfectClear, t: now };
+      banner = {
+        combo: machine.combo,
+        perfectClear: machine.perfectClear,
+        t: now,
+      };
     }
     prevTotalClearedLines = machine.totalClearedLines;
 
@@ -138,7 +218,8 @@ export function main(canvas) {
     const held = computeHeld();
 
     if (machine.gameover) {
-      if (Object.keys(held).some(name => held[name] && !prevHeld[name])) startGame();
+      if (Object.keys(held).some((name) => held[name] && !prevHeld[name]))
+        startGame();
       prevHeld = held;
       repeatTimers = {};
       return;
@@ -152,7 +233,10 @@ export function main(canvas) {
           if (!t) {
             act.effect(now);
             repeatTimers[name] = { pressedAt: now, lastFire: now };
-          } else if (now - t.pressedAt >= DAS_DELAY && now - t.lastFire >= ARR) {
+          } else if (
+            now - t.pressedAt >= DAS_DELAY &&
+            now - t.lastFire >= ARR
+          ) {
             act.effect(now);
             t.lastFire = now;
           }
@@ -180,20 +264,32 @@ export function main(canvas) {
   }
 
   function sizeCanvas() {
-    const PANEL_FRAC = 0.22, PANEL_MIN = 120, PANEL_MAX = 360;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const totalPanel = Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)));
+    const PANEL_FRAC = 0.22,
+      PANEL_MIN = 120,
+      PANEL_MAX = 360;
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    const totalPanel = Math.min(
+      PANEL_MAX,
+      Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)),
+    );
     const panel = totalPanel / 2;
     const gridMaxW = vw * 0.95 - 2 * panel;
     const gridMaxH = vh * 0.95;
-    const cell = Math.max(1, Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)));
+    const cell = Math.max(
+      1,
+      Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)),
+    );
     constants.PANEL_PX = panel;
     canvas.width = 2 * panel + constants.WM * cell;
     canvas.height = constants.HM * cell;
   }
 
   function onKeyDown(e) {
-    if (machine.gameover) { startGame(); return; }
+    if (machine.gameover) {
+      startGame();
+      return;
+    }
     const name = KEYMAP.get(e.key);
     if (!name) return;
     e.preventDefault();

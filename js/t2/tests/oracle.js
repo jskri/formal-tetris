@@ -6,9 +6,15 @@
 
 import { oracle as t1oracle } from '../../t1/tests/oracle.js';
 
-function natSub(a, b) { return a > b ? a - b : 0; }
-function natDiv(a, b) { return Math.floor(a / b); }
-function capAdd(a, b, max) { return b > max - a ? max : a + b; }
+function natSub(a, b) {
+  return a > b ? a - b : 0;
+}
+function natDiv(a, b) {
+  return Math.floor(a / b);
+}
+function capAdd(a, b, max) {
+  return b > max - a ? max : a + b;
+}
 
 function lineClearPoints(clearedLines, level) {
   if (clearedLines === 0) return 0;
@@ -32,9 +38,11 @@ function perfectClearPoints(perfectClear, clearedLines, level) {
 }
 
 function points(clearedLines, level, combo, perfectClear) {
-  return lineClearPoints(clearedLines, level)
-       + comboPoints(level, combo)
-       + perfectClearPoints(perfectClear, clearedLines, level);
+  return (
+    lineClearPoints(clearedLines, level) +
+    comboPoints(level, combo) +
+    perfectClearPoints(perfectClear, clearedLines, level)
+  );
 }
 
 function emptyGridb(g) {
@@ -69,7 +77,7 @@ function fixPiece(pNew, s, params) {
   const s1p = t1oracle.fixPiece(pNew, s.s1, params);
   if (!s1p) return null;
   const clearedLines = s1p.clearedLines;
-  const combo2 = (clearedLines === 0) ? 0 : capAdd(s.combo, 1, MAX);
+  const combo2 = clearedLines === 0 ? 0 : capAdd(s.combo, 1, MAX);
   const perfectClear2 = emptyGridb(t1oracle.snapshotOf(s1p).mg);
   const pts = points(clearedLines, s.level, natSub(combo2, 1), perfectClear2);
   const total2 = capAdd(s.totalClearedLines, clearedLines, MAX);

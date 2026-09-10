@@ -4,7 +4,7 @@
 // something this small).
 
 const KEY = 'tetris-tfinal-hof-v1'; // versioned — a later schema change
-                                    // shouldn't have to migrate or crash on old data
+// shouldn't have to migrate or crash on old data
 const MAX_ENTRIES = 10;
 
 function load() {
@@ -52,7 +52,9 @@ export function getHighScores() {
 // lowest entry — checked before bothering the player with a name prompt.
 export function qualifies(score) {
   const entries = load();
-  return entries.length < MAX_ENTRIES || score > entries[entries.length - 1].score;
+  return (
+    entries.length < MAX_ENTRIES || score > entries[entries.length - 1].score
+  );
 }
 
 export function recordScore(name, score, level, lines) {

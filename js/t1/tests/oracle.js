@@ -14,11 +14,15 @@
 
 import assert from 'node:assert/strict';
 
-function mkGrid(L, H, W, Y = 0, X = 0) { return { L, H, W, Y, X }; }
+function mkGrid(L, H, W, Y = 0, X = 0) {
+  return { L, H, W, Y, X };
+}
 
 const EmptyGrid = mkGrid(() => false, 0, 0, 0, 0);
 
-function Full(g) { return mkGrid(() => true, g.H, g.W, g.Y, g.X); }
+function Full(g) {
+  return mkGrid(() => true, g.H, g.W, g.Y, g.X);
+}
 
 function inBox(g, y, x) {
   return g.Y <= y && y < g.Y + g.H && g.X <= x && x < g.X + g.W;
@@ -27,33 +31,54 @@ function inBox(g, y, x) {
 // fromArray(arr, y0, x0): the coercion ⟦arr, y0, x0⟧ from proofs.md §2 — a
 // boolean[][] plus its Rocq origin, made total by gating on the box.
 function fromArray(arr, y0 = 0, x0 = 0) {
-  const H = arr.length, W = arr[0].length;
+  const H = arr.length,
+    W = arr[0].length;
   return mkGrid(
-    (y, x) => (y0 <= y && y < y0 + H && x0 <= x && x < x0 + W) ? arr[y - y0][x - x0] : false,
-    H, W, y0, x0);
+    (y, x) =>
+      y0 <= y && y < y0 + H && x0 <= x && x < x0 + W
+        ? arr[y - y0][x - x0]
+        : false,
+    H,
+    W,
+    y0,
+    x0,
+  );
 }
 
 function materialize(g) {
   return Array.from({ length: g.H }, (_, i) =>
-    Array.from({ length: g.W }, (_, j) => g.L(g.Y + i, g.X + j)));
+    Array.from({ length: g.W }, (_, j) => g.L(g.Y + i, g.X + j)),
+  );
 }
 
 // spec: GridUnion g1 g2
 function gridUnion(g1, g2) {
-  const minY = Math.min(g1.Y, g2.Y), minX = Math.min(g1.X, g2.X);
+  const minY = Math.min(g1.Y, g2.Y),
+    minX = Math.min(g1.X, g2.X);
   const topMax = Math.max(g1.Y + g1.H, g2.Y + g2.H);
   const rightMax = Math.max(g1.X + g1.W, g2.X + g2.W);
-  return mkGrid((y, x) => g1.L(y, x) || g2.L(y, x),
-    topMax - minY, rightMax - minX, minY, minX);
+  return mkGrid(
+    (y, x) => g1.L(y, x) || g2.L(y, x),
+    topMax - minY,
+    rightMax - minX,
+    minY,
+    minX,
+  );
 }
 
 // spec: GridIntersect g1 g2
 function gridIntersect(g1, g2) {
-  const maxY = Math.max(g1.Y, g2.Y), maxX = Math.max(g1.X, g2.X);
+  const maxY = Math.max(g1.Y, g2.Y),
+    maxX = Math.max(g1.X, g2.X);
   const topMin = Math.min(g1.Y + g1.H, g2.Y + g2.H);
   const rightMin = Math.min(g1.X + g1.W, g2.X + g2.W);
-  return mkGrid((y, x) => g1.L(y, x) && g2.L(y, x),
-    topMin - maxY, rightMin - maxX, maxY, maxX);
+  return mkGrid(
+    (y, x) => g1.L(y, x) && g2.L(y, x),
+    topMin - maxY,
+    rightMin - maxX,
+    maxY,
+    maxX,
+  );
 }
 
 // spec: GridTranslate g (dy, dx)
@@ -90,12 +115,24 @@ function filterFullLines(g, fuel, y, i) {
   if (fuel === 0) return mkGrid(() => false, 0, g.W, g.Y, g.X);
   if (isFullLineb(g, y)) return filterFullLines(g, fuel - 1, y + 1, i);
   const g2 = filterFullLines(g, fuel - 1, y + 1, i + 1);
-  return mkGrid((y1, x) => (y1 === i ? g.L(y, x) : g2.L(y1, x)), 1 + g2.H, g.W, g.Y, g.X);
+  return mkGrid(
+    (y1, x) => (y1 === i ? g.L(y, x) : g2.L(y1, x)),
+    1 + g2.H,
+    g.W,
+    g.Y,
+    g.X,
+  );
 }
 
 // spec: Resize g newGh fillValue
 function resize(g, newGh, fillValue) {
-  return mkGrid((y, x) => (y < g.Y + g.H ? g.L(y, x) : fillValue(x)), newGh, g.W, g.Y, g.X);
+  return mkGrid(
+    (y, x) => (y < g.Y + g.H ? g.L(y, x) : fillValue(x)),
+    newGh,
+    g.W,
+    g.Y,
+    g.X,
+  );
 }
 
 // spec: ClearFullLines g
@@ -113,7 +150,10 @@ function fullLineCount(g) {
 // ── State-level transitions (spec: MovePiece, RotatePiece, FixPiece, FallStep) ──
 
 function canMovePiece(dy, dx, s, params) {
-  const dirOK = (dy === 0 && dx === -1) || (dy === 0 && dx === 1) || (dy === -1 && dx === 0);
+  const dirOK =
+    (dy === 0 && dx === -1) ||
+    (dy === 0 && dx === 1) ||
+    (dy === -1 && dx === 0);
   return dirOK && valid(s.mg, s.p, s.py + dy, s.px + dx, s.pr, params.RotGrid);
 }
 
@@ -123,15 +163,19 @@ function movePiece(dy, dx, s, params) {
 }
 
 function rotatePiece(cw, s, params) {
-  const pr2 = ((s.pr + (cw ? -1 : 1)) % 4 + 4) % 4;
-  if (s.gameover || !valid(s.mg, s.p, s.py, s.px, pr2, params.RotGrid)) return null;
+  const pr2 = (((s.pr + (cw ? -1 : 1)) % 4) + 4) % 4;
+  if (s.gameover || !valid(s.mg, s.p, s.py, s.px, pr2, params.RotGrid))
+    return null;
   return { ...s, pr: pr2 };
 }
 
 function fixPiece(pNew, s, params) {
   if (s.gameover || canMovePiece(-1, 0, s, params)) return null;
   const rg = fromArray(params.RotGrid(s.p, s.pr));
-  const u = gridIntersect(gridUnion(s.mg, gridTranslate(rg, s.py, s.px)), Full(s.mg));
+  const u = gridIntersect(
+    gridUnion(s.mg, gridTranslate(rg, s.py, s.px)),
+    Full(s.mg),
+  );
   const mg2 = clearFullLines(u);
   return {
     mg: mg2,
@@ -155,7 +199,10 @@ function initState(p, params) {
     py: params.InitialY(p),
     px: params.InitialX(p),
     pr: 0,
-    gameover: !subseteq(gridIntersect(params.ForbiddenGrid, params.InitialMainGrid), EmptyGrid),
+    gameover: !subseteq(
+      gridIntersect(params.ForbiddenGrid, params.InitialMainGrid),
+      EmptyGrid,
+    ),
     clearedLines: 0,
   };
 }
@@ -163,19 +210,35 @@ function initState(p, params) {
 function snapshotOf(s) {
   return {
     mg: materialize(s.mg),
-    p: s.p, py: s.py, px: s.px, pr: s.pr, gameover: s.gameover, clearedLines: s.clearedLines,
+    p: s.p,
+    py: s.py,
+    px: s.px,
+    pr: s.pr,
+    gameover: s.gameover,
+    clearedLines: s.clearedLines,
   };
 }
 
 // makeParams: wraps array-based instance params (as in instance.js/testInstance.js)
 // into the Grid-record form this oracle uses internally. ForbiddenGrid carries its
 // Rocq origin (FY, FX); InitialMainGrid and every RotGrid(p,r) are origin (0,0).
-function makeParams({ Piece, InitialMainGrid, ForbiddenGrid, RotGrid, InitialY, InitialX, FY, FX }) {
+function makeParams({
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  FY,
+  FX,
+}) {
   return {
     Piece,
     InitialMainGrid: fromArray(InitialMainGrid, 0, 0),
     ForbiddenGrid: fromArray(ForbiddenGrid, FY, FX),
-    RotGrid, InitialY, InitialX,
+    RotGrid,
+    InitialY,
+    InitialX,
   };
 }
 
@@ -208,12 +271,16 @@ export const oracle = {
 // ever supposed to agree on whether a cell is occupied, never on which exact
 // value occupies it.
 function gridDims(g) {
-  return Array.isArray(g) ? { height: g.length, width: g[0].length } : { height: g.height, width: g.width };
+  return Array.isArray(g)
+    ? { height: g.length, width: g[0].length }
+    : { height: g.height, width: g.width };
 }
 function gridCell(g, y, x) {
   return Array.isArray(g) ? g[y][x] : g.cell(y, x);
 }
-function occ(c) { return c !== false; }
+function occ(c) {
+  return c !== false;
+}
 
 export function gridsEqual(g1, g2) {
   const d1 = gridDims(g1);

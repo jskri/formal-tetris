@@ -5,14 +5,26 @@ import * as TI from './testInstance.js';
 import { oracle4 } from './oracle.js';
 import { assertSnapshotsEqual } from '../../t1/tests/oracle.js';
 
-const eng = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-              TI.PW, TI.FY, TI.FX, TI.NextLen);
+const eng = T(
+  TI.Piece,
+  TI.InitialMainGrid,
+  TI.ForbiddenGrid,
+  TI.RotGrid,
+  TI.InitialY,
+  TI.InitialX,
+  TI.PW,
+  TI.FY,
+  TI.FX,
+  TI.NextLen,
+);
 
 // model.js's snapshot() wraps mg as a read-only { height, width, cell(y,x) }
 // accessor (D1, t1/model.js); assertSnapshotsEqual (t1/tests/oracle.js) compares
 // it correctly against the oracle's own plain-array mg.
 
-function randOf(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randOf(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 function shuffleBag() {
   const a = TI.Piece.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -23,7 +35,10 @@ function shuffleBag() {
 }
 function makeBagsFn() {
   const bags = [];
-  return (i) => { while (bags.length <= i) bags.push(shuffleBag()); return bags[i]; };
+  return (i) => {
+    while (bags.length <= i) bags.push(shuffleBag());
+    return bags[i];
+  };
 }
 
 function randomTrace(steps) {
@@ -46,9 +61,9 @@ function randomTrace(steps) {
     // not isPieceSet(bag_), is the checkable representational invariant)
     assert.ok(m.bag_.length > 0 && m.bag_.length <= TI.Piece.length);
     assert.strictEqual(new Set(m.bag_).size, m.bag_.length);
-    assert.ok(m.bag_.every(p => TI.Piece.includes(p)));
+    assert.ok(m.bag_.every((p) => TI.Piece.includes(p)));
     assert.strictEqual(m.next_.length, TI.NextLen);
-    assert.ok(m.next_.every(p => TI.Piece.includes(p)));
+    assert.ok(m.next_.every((p) => TI.Piece.includes(p)));
 
     // T3-level invariants transfer to the embedded s3
     assert.ok(!m.s3.swapped || m.s3.hold !== null);
@@ -66,7 +81,9 @@ describe('T4 model.js fuzz', () => {
   test('checkInvariants never fires spuriously across many steps', () => {
     const originalAssert = console.assert;
     let fired = 0;
-    console.assert = (cond) => { if (!cond) fired++; };
+    console.assert = (cond) => {
+      if (!cond) fired++;
+    };
     try {
       for (let trial = 0; trial < 10; trial++) {
         const m = new eng.Machine(makeBagsFn());
@@ -91,7 +108,10 @@ describe('T4 model.js fuzz', () => {
     const params = oracle4.makeParams4(TI);
     for (let trial = 0; trial < 20; trial++) {
       const bagsTable = [];
-      const bagsFn = (i) => { while (bagsTable.length <= i) bagsTable.push(shuffleBag()); return bagsTable[i]; };
+      const bagsFn = (i) => {
+        while (bagsTable.length <= i) bagsTable.push(shuffleBag());
+        return bagsTable[i];
+      };
 
       const m = new eng.Machine(bagsFn);
       let rs = oracle4.initState4(bagsFn, params);
@@ -100,7 +120,8 @@ describe('T4 model.js fuzz', () => {
       for (let step = 0; step < 150; step++) {
         const kind = Math.floor(Math.random() * 5);
         if (kind === 0) {
-          const dy = randOf([-1, 0]), dx = randOf([-1, 0, 1]);
+          const dy = randOf([-1, 0]),
+            dx = randOf([-1, 0, 1]);
           m.movePiece(dy, dx);
           const r = oracle4.movePiece4(dy, dx, rs, params);
           if (r) rs = r;
@@ -132,19 +153,41 @@ describe('T4 model.js fuzz', () => {
 
   test('adversarial checkAxioms (delegated through T3/T2/T1) and own NextLen axiom', () => {
     const originalAssert = console.assert;
-    let tripped = false;
-    console.assert = (cond) => { if (!cond) tripped = true; };
+    let tripped;
+    console.assert = (cond) => {
+      if (!cond) tripped = true;
+    };
     try {
       tripped = false;
       const raggedGrid = [[false, false], [false]];
-      const badEng = T(TI.Piece, raggedGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                        TI.PW, TI.FY, TI.FX, TI.NextLen);
+      const badEng = T(
+        TI.Piece,
+        raggedGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+        TI.NextLen,
+      );
       badEng.checkAxioms();
       assert.strictEqual(tripped, true);
 
       tripped = false;
-      const badEng2 = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                         TI.PW, TI.FY, TI.FX, 0 /* NextLen must be > 0 */);
+      const badEng2 = T(
+        TI.Piece,
+        TI.InitialMainGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+        0 /* NextLen must be > 0 */,
+      );
       badEng2.checkAxioms();
       assert.strictEqual(tripped, true);
     } finally {

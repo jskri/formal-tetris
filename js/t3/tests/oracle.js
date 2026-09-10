@@ -47,13 +47,13 @@ function fallStep3(pNew, s, params) {
 function holdPiece3(pNew, s, params) {
   const gameover = s.s2.s1.gameover;
   if (!(!gameover && !s.swapped)) return null; // real guard (req-hold-limit)
-  const p2 = (s.hold !== null) ? s.hold : pNew; // req-hold-swap / req-hold-empty
-  const oldP = s.s2.s1.p;                        // read BEFORE overwritten
+  const p2 = s.hold !== null ? s.hold : pNew; // req-hold-swap / req-hold-empty
+  const oldP = s.s2.s1.p; // read BEFORE overwritten
   const newS1 = newPieceState(p2, s.s2.s1, params);
   return {
     s2: { ...s.s2, s1: newS1 }, // score/level/combo/perfectClear/totalClearedLines untouched
-    hold: oldP,                  // req-hold
-    swapped: true,                // req-hold-limit
+    hold: oldP, // req-hold
+    swapped: true, // req-hold-limit
   };
 }
 

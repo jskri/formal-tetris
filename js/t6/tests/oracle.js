@@ -6,7 +6,9 @@
 
 import { oracle5 } from '../../t5/tests/oracle.js';
 
-function mod(a, n) { return ((a % n) + n) % n; }
+function mod(a, n) {
+  return ((a % n) + n) % n;
+}
 
 // spec: (the guard inside T6.RotateKickPiece that computes plainRotFires) —
 // independent hand-roll, not imported from t1/model.js's canRotatePiece.
@@ -36,9 +38,17 @@ function rotateKickPiece6(cw, s, params) {
   const s1 = s.s4.s3.s2.s1;
   if (canRotatePiece(cw, s1, params)) return null; // plain would fire — exclusive
   const origPx = s1.px;
-  const left = oracle5.rotatePiece5(cw, withS1(s, { ...s1, px: origPx - 1 }), params);
+  const left = oracle5.rotatePiece5(
+    cw,
+    withS1(s, { ...s1, px: origPx - 1 }),
+    params,
+  );
   if (left) return left;
-  const right = oracle5.rotatePiece5(cw, withS1(s, { ...s1, px: origPx + 1 }), params);
+  const right = oracle5.rotatePiece5(
+    cw,
+    withS1(s, { ...s1, px: origPx + 1 }),
+    params,
+  );
   if (right) return right;
   return null;
 }

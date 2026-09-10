@@ -2,20 +2,46 @@ import { T } from '../t6/model.js';
 import { render } from '../t6/view.js';
 import { renderClearFlash, drawGameOverPartial } from './view.js';
 import { sfx, toggleMuted } from './sound.js';
-import { qualifies, recordScore, getHighScores, isStorageAvailable } from './highscores.js';
 import {
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX, NextLen, PieceColor,
+  qualifies,
+  recordScore,
+  getHighScores,
+  isStorageAvailable,
+} from './highscores.js';
+import {
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+  PieceColor,
 } from '../t6/instance.js';
 
-const eng = T(Piece, InitialMainGrid, ForbiddenGrid,
-              RotGrid, InitialY, InitialX, PW, FY, FX, NextLen);
+const eng = T(
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  NextLen,
+);
 
 const constants = {
   HM: InitialMainGrid.length,
   WM: InitialMainGrid[0].length,
-  PW, FY, FX, NextLen,
+  PW,
+  FY,
+  FX,
+  NextLen,
   Piece,
   FH: ForbiddenGrid.length,
   FW: ForbiddenGrid[0].length,
@@ -31,13 +57,15 @@ const BASE_PERIOD = 1000;
 const MIN_PERIOD = 16;
 const EPS = 1e-6;
 
-const CLEAR_ANIM_MS = 180;  // freeze-and-fade duration for a 1-3 line clear
+const CLEAR_ANIM_MS = 180; // freeze-and-fade duration for a 1-3 line clear
 const TETRIS_ANIM_MS = 320; // longer, punchier duration for a 4-line clear
-const SHAKE_AMPLITUDE = 6;  // px, decays to 0 over the Tetris animation
+const SHAKE_AMPLITUDE = 6; // px, decays to 0 over the Tetris animation
 const RESTART_LOCKOUT_MS = 1000; // no restart prompt/input for this long after gameover —
-                                  // a frantic last-second key mash shouldn't instantly restart
+// a frantic last-second key mash shouldn't instantly restart
 
-function normalCurve(t) { return t; }
+function normalCurve(t) {
+  return t;
+}
 
 // Ramps to white slightly ahead of the animation's end, then adds a decaying
 // flicker on top so a Tetris reads as a pulse rather than a single fade.
@@ -54,13 +82,25 @@ function fallPeriod(level) {
 }
 
 const KEYMAP = new Map([
-  ['ArrowLeft', 'LEFT'], ['ArrowRight', 'RIGHT'], ['ArrowDown', 'DOWN'], ['ArrowUp', 'DROP'],
-  ['z', 'CCW'], ['x', 'CW'], [' ', 'HOLD'], ['m', 'MUTE'], ['M', 'MUTE'],
+  ['ArrowLeft', 'LEFT'],
+  ['ArrowRight', 'RIGHT'],
+  ['ArrowDown', 'DOWN'],
+  ['ArrowUp', 'DROP'],
+  ['z', 'CCW'],
+  ['x', 'CW'],
+  [' ', 'HOLD'],
+  ['m', 'MUTE'],
+  ['M', 'MUTE'],
 ]);
 
 const GAMEPAD_MAP = new Map([
-  [14, 'LEFT'], [15, 'RIGHT'], [13, 'DOWN'], [12, 'DROP'],
-  [0, 'CCW'], [1, 'CW'], [3, 'HOLD'],
+  [14, 'LEFT'],
+  [15, 'RIGHT'],
+  [13, 'DOWN'],
+  [12, 'DROP'],
+  [0, 'CCW'],
+  [1, 'CW'],
+  [3, 'HOLD'],
 ]);
 
 function shuffleBag() {
@@ -74,7 +114,10 @@ function shuffleBag() {
 
 function makeBagsFn() {
   const bags = [];
-  return (i) => { while (bags.length <= i) bags.push(shuffleBag()); return bags[i]; };
+  return (i) => {
+    while (bags.length <= i) bags.push(shuffleBag());
+    return bags[i];
+  };
 }
 
 // req-piece-kick: try plain rotation first, only attempt a kick if that fails.
@@ -130,7 +173,14 @@ export function main(canvas, root) {
   let awaitingName = false; // true only while the name-entry overlay is up — blocks restart
   let pendingScore = null; // { score, level, lines } captured at gameover, used once named
 
-  const { nameOverlay, nameInput, nameSubmit, hofOverlay, hofEntries, playAgainBtn } = buildOverlays(root);
+  const {
+    nameOverlay,
+    nameInput,
+    nameSubmit,
+    hofOverlay,
+    hofEntries,
+    playAgainBtn,
+  } = buildOverlays(root);
 
   function hideOverlays() {
     nameOverlay.classList.add('hidden');
@@ -151,7 +201,8 @@ export function main(canvas, root) {
     if (!isStorageAvailable()) {
       const notice = document.createElement('div');
       notice.className = 'small';
-      notice.textContent = 'High scores can\u2019t be saved in this browser/session \u2014 storage access is blocked.';
+      notice.textContent =
+        'High scores can\u2019t be saved in this browser/session \u2014 storage access is blocked.';
       hofEntries.appendChild(notice);
     }
     if (entries.length === 0) {
@@ -162,7 +213,8 @@ export function main(canvas, root) {
     } else {
       entries.forEach((e, i) => {
         const row = document.createElement('div');
-        row.className = 'hof-entry' + (e.score === highlightScore ? ' highlight' : '');
+        row.className =
+          'hof-entry' + (e.score === highlightScore ? ' highlight' : '');
         const nameSpan = document.createElement('span');
         nameSpan.textContent = `${i + 1}. ${e.name}`;
         const scoreSpan = document.createElement('span');
@@ -177,7 +229,12 @@ export function main(canvas, root) {
 
   function submitName() {
     const name = nameInput.value.trim() || 'Player';
-    const entries = recordScore(name, pendingScore.score, pendingScore.level, pendingScore.lines);
+    const entries = recordScore(
+      name,
+      pendingScore.score,
+      pendingScore.level,
+      pendingScore.lines,
+    );
     nameOverlay.classList.add('hidden');
     awaitingName = false;
     showHallOfFame(entries, pendingScore.score);
@@ -188,7 +245,10 @@ export function main(canvas, root) {
     e.stopPropagation(); // typing a name must never reach the game's own keydown handler
     if (e.key === 'Enter') submitName();
   });
-  playAgainBtn.addEventListener('click', () => { hideOverlays(); startGame(); });
+  playAgainBtn.addEventListener('click', () => {
+    hideOverlays();
+    startGame();
+  });
 
   // Computes the union/full-row preview for a piece that's about to lock at
   // (py, px) — used for both the soft-drop lock (current py/px) and the hard
@@ -199,11 +259,19 @@ export function main(canvas, root) {
   // become full (NoFullLine already guarantees every other row wasn't).
   function precomputeLock(py, px) {
     const s1 = machine.s1;
-    const preClearGrid = eng.T1Eng.union(s1.mg, 0, 0, eng.T1Eng.rotGrid(s1.p, s1.pr), py, px);
+    const preClearGrid = eng.T1Eng.union(
+      s1.mg,
+      0,
+      0,
+      eng.T1Eng.rotGrid(s1.p, s1.pr),
+      py,
+      px,
+    );
     const rows = [];
     const yStart = Math.max(py, 0);
     const yEnd = Math.min(py + constants.PW, constants.HM);
-    for (let y = yStart; y < yEnd; y++) if (eng.T1Eng.isFullLineb(preClearGrid, y)) rows.push(y);
+    for (let y = yStart; y < yEnd; y++)
+      if (eng.T1Eng.isFullLineb(preClearGrid, y)) rows.push(y);
     return { preClearGrid, rows };
   }
 
@@ -254,13 +322,43 @@ export function main(canvas, root) {
   }
 
   const ACTIONS = {
-    LEFT:  { repeat: true,  effect: () => { if (machine.movePiece(0, -1)) sfx.move(); afterAction(); } },
-    RIGHT: { repeat: true,  effect: () => { if (machine.movePiece(0, 1)) sfx.move(); afterAction(); } },
-    DOWN:  { repeat: true,  effect: () => attemptFall(shuffleBag()) },
-    CCW:   { repeat: false, effect: () => { if (rotate(machine, false)) sfx.rotate(); afterAction(); } },
-    CW:    { repeat: false, effect: () => { if (rotate(machine, true)) sfx.rotate(); afterAction(); } },
-    HOLD:  { repeat: false, effect: () => { if (machine.holdPiece(shuffleBag())) sfx.hold(); afterAction(); } },
-    DROP:  { repeat: false, effect: () => attemptDrop(shuffleBag()) },
+    LEFT: {
+      repeat: true,
+      effect: () => {
+        if (machine.movePiece(0, -1)) sfx.move();
+        afterAction();
+      },
+    },
+    RIGHT: {
+      repeat: true,
+      effect: () => {
+        if (machine.movePiece(0, 1)) sfx.move();
+        afterAction();
+      },
+    },
+    DOWN: { repeat: true, effect: () => attemptFall(shuffleBag()) },
+    CCW: {
+      repeat: false,
+      effect: () => {
+        if (rotate(machine, false)) sfx.rotate();
+        afterAction();
+      },
+    },
+    CW: {
+      repeat: false,
+      effect: () => {
+        if (rotate(machine, true)) sfx.rotate();
+        afterAction();
+      },
+    },
+    HOLD: {
+      repeat: false,
+      effect: () => {
+        if (machine.holdPiece(shuffleBag())) sfx.hold();
+        afterAction();
+      },
+    },
+    DROP: { repeat: false, effect: () => attemptDrop(shuffleBag()) },
   };
 
   function rescheduleFall() {
@@ -280,7 +378,11 @@ export function main(canvas, root) {
       sfx.clear(clearedNow);
       if (machine.perfectClear) sfx.perfectClear();
       if (machine.combo > 1) sfx.combo(machine.combo);
-      banner = { combo: machine.combo, perfectClear: machine.perfectClear, t: performance.now() };
+      banner = {
+        combo: machine.combo,
+        perfectClear: machine.perfectClear,
+        t: performance.now(),
+      };
     }
     prevTotalClearedLines = machine.totalClearedLines;
 
@@ -314,9 +416,14 @@ export function main(canvas, root) {
     gameoverAt = performance.now();
     sfx.gameover();
 
-    const scoreInfo = { score: machine.score, level: machine.level, lines: machine.totalClearedLines };
+    const scoreInfo = {
+      score: machine.score,
+      level: machine.level,
+      lines: machine.totalClearedLines,
+    };
     setTimeout(() => {
-      if (isStorageAvailable() && qualifies(scoreInfo.score)) showNameEntry(scoreInfo);
+      if (isStorageAvailable() && qualifies(scoreInfo.score))
+        showNameEntry(scoreInfo);
       else showHallOfFame(getHighScores(), null);
     }, RESTART_LOCKOUT_MS);
   }
@@ -336,8 +443,17 @@ export function main(canvas, root) {
     const held = computeHeld();
 
     if (machine.gameover) {
-      const canRestart = !awaitingName && gameoverAt !== null && now - gameoverAt >= RESTART_LOCKOUT_MS;
-      if (canRestart && Object.keys(held).some(name => held[name] && !prevHeld[name])) { hideOverlays(); startGame(); }
+      const canRestart =
+        !awaitingName &&
+        gameoverAt !== null &&
+        now - gameoverAt >= RESTART_LOCKOUT_MS;
+      if (
+        canRestart &&
+        Object.keys(held).some((name) => held[name] && !prevHeld[name])
+      ) {
+        hideOverlays();
+        startGame();
+      }
       prevHeld = held;
       repeatTimers = {};
       return;
@@ -351,7 +467,10 @@ export function main(canvas, root) {
           if (!t) {
             act.effect();
             repeatTimers[name] = { pressedAt: now, lastFire: now };
-          } else if (now - t.pressedAt >= DAS_DELAY && now - t.lastFire >= ARR) {
+          } else if (
+            now - t.pressedAt >= DAS_DELAY &&
+            now - t.lastFire >= ARR
+          ) {
             act.effect();
             t.lastFire = now;
           }
@@ -378,7 +497,15 @@ export function main(canvas, root) {
       } else {
         const isTetris = clearAnim.lines === 4;
         const progress = isTetris ? tetrisCurve(t) : normalCurve(t);
-        renderClearFlash(canvas, constants, eng.snapshot(machine), clearAnim.grid, clearAnim.rows, progress, PieceColor);
+        renderClearFlash(
+          canvas,
+          constants,
+          eng.snapshot(machine),
+          clearAnim.grid,
+          clearAnim.rows,
+          progress,
+          PieceColor,
+        );
         if (isTetris) {
           const amp = SHAKE_AMPLITUDE * (1 - t);
           const dx = (Math.random() * 2 - 1) * amp;
@@ -392,8 +519,17 @@ export function main(canvas, root) {
 
     const snap = eng.snapshot(machine);
     if (machine.gameover) {
-      const cellSize = Math.min((canvas.width - 2 * constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
-      render(canvas, constants, { ...snap, gameover: false }, PieceColor, banner);
+      const cellSize = Math.min(
+        (canvas.width - 2 * constants.PANEL_PX) / constants.WM,
+        canvas.height / constants.HM,
+      );
+      render(
+        canvas,
+        constants,
+        { ...snap, gameover: false },
+        PieceColor,
+        banner,
+      );
       drawGameOverPartial(canvas, constants, cellSize);
     } else {
       render(canvas, constants, snap, PieceColor, banner);
@@ -402,23 +538,39 @@ export function main(canvas, root) {
   }
 
   function sizeCanvas() {
-    const PANEL_FRAC = 0.22, PANEL_MIN = 120, PANEL_MAX = 360;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const totalPanel = Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)));
+    const PANEL_FRAC = 0.22,
+      PANEL_MIN = 120,
+      PANEL_MAX = 360;
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    const totalPanel = Math.min(
+      PANEL_MAX,
+      Math.max(PANEL_MIN, Math.round(PANEL_FRAC * vw)),
+    );
     const panel = totalPanel / 2;
     const gridMaxW = vw * 0.95 - 2 * panel;
     const gridMaxH = vh * 0.95;
-    const cell = Math.max(1, Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)));
+    const cell = Math.max(
+      1,
+      Math.floor(Math.min(gridMaxW / constants.WM, gridMaxH / constants.HM)),
+    );
     constants.PANEL_PX = panel;
     canvas.width = 2 * panel + constants.WM * cell;
     canvas.height = constants.HM * cell;
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'm' || e.key === 'M') { toggleMuted(); return; }
+    if (e.key === 'm' || e.key === 'M') {
+      toggleMuted();
+      return;
+    }
     if (document.activeElement === nameInput) return; // typing a name — never treat as game input
     if (machine.gameover) {
-      if (!awaitingName && gameoverAt !== null && performance.now() - gameoverAt >= RESTART_LOCKOUT_MS) {
+      if (
+        !awaitingName &&
+        gameoverAt !== null &&
+        performance.now() - gameoverAt >= RESTART_LOCKOUT_MS
+      ) {
         hideOverlays();
         startGame();
       }

@@ -8,21 +8,38 @@ const CHECK_INVARIANTS = false;
 // uses t6/model.js directly, selected by the controller before any t7.Machine
 // exists (implementation.md §0).
 export function T(
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX,
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
   NextLen,
-  Player, HostIndex,
+  Player,
+  HostIndex,
   MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER,
 ) {
-  const T6Eng = T6(Piece, InitialMainGrid, ForbiddenGrid, RotGrid, InitialY, InitialX,
-                    PW, FY, FX, NextLen, MAX_SAFE_INTEGER);
+  const T6Eng = T6(
+    Piece,
+    InitialMainGrid,
+    ForbiddenGrid,
+    RotGrid,
+    InitialY,
+    InitialX,
+    PW,
+    FY,
+    FX,
+    NextLen,
+    MAX_SAFE_INTEGER,
+  );
   const T1Eng = T6Eng.T1Eng; // flattened
 
   const HM = InitialMainGrid.length;
   const WM = InitialMainGrid[0].length;
   const PlayerCount = Player.length;
-  const Host = Player[HostIndex];
 
   // spec: PlayerNext — Player values are plain indices
   const PlayerNext = (i) => (i + 1) % PlayerCount;
@@ -40,7 +57,8 @@ export function T(
   // spec: WinnerMulti s pl
   function winnerMulti(gameoverView, connectedView, myIndex) {
     for (let pl2 = 0; pl2 < PlayerCount; pl2++) {
-      if (playingView(gameoverView, connectedView, pl2) !== (pl2 === myIndex)) return false;
+      if (playingView(gameoverView, connectedView, pl2) !== (pl2 === myIndex))
+        return false;
     }
     return true;
   }
@@ -80,50 +98,80 @@ export function T(
   // pieceColor[cell] ?? gray fallback already renders an unrecognized key
   // distinctly, no special-casing needed there.
   function garbageRow(hole, w) {
-    return Array.from({ length: w }, (_, x) => x !== hole ? 'garbage' : false);
+    return Array.from({ length: w }, (_, x) =>
+      x !== hole ? 'garbage' : false,
+    );
   }
 
   // ── Axiom checker ─────────────────────────────────────────────────────
   function checkAxioms() {
     T6Eng.checkAxioms();
-    console.assert(Piece.every(p => p !== 'garbage'),
-      "AxiomsGarbageSentinel: no Piece may equal 'garbage' (t7/model.js's materialization sentinel)");
-    console.assert(Number.isInteger(PlayerCount) && PlayerCount > 1,
-      'AxiomsPlayer: PlayerCount must be > 1 (t7/model.js is MP-only)');
-    console.assert(Number.isInteger(HostIndex) && 0 <= HostIndex && HostIndex < PlayerCount,
-      'AxiomsHost: HostIndex must be a valid index into Player');
+    console.assert(
+      Piece.every((p) => p !== 'garbage'),
+      "AxiomsGarbageSentinel: no Piece may equal 'garbage' (t7/model.js's materialization sentinel)",
+    );
+    console.assert(
+      Number.isInteger(PlayerCount) && PlayerCount > 1,
+      'AxiomsPlayer: PlayerCount must be > 1 (t7/model.js is MP-only)',
+    );
+    console.assert(
+      Number.isInteger(HostIndex) && 0 <= HostIndex && HostIndex < PlayerCount,
+      'AxiomsHost: HostIndex must be a valid index into Player',
+    );
   }
 
-  function checkInvariants(s, message, isOccupied = (c => Piece.includes(c) || c === 'garbage')) {
+  function checkInvariants(
+    s,
+    message,
+    isOccupied = (c) => Piece.includes(c) || c === 'garbage',
+  ) {
     T6Eng.checkInvariants(s.s6, message, isOccupied);
     console.assert(
       Number.isInteger(s.myIndex) && 0 <= s.myIndex && s.myIndex < PlayerCount,
-      `myIndex range failed @ ${message}`);
+      `myIndex range failed @ ${message}`,
+    );
     console.assert(
-      Number.isInteger(s.garbage) && s.garbage >= 0 && s.garbage <= MAX_SAFE_INTEGER,
-      `garbage range failed @ ${message}`);
+      Number.isInteger(s.garbage) &&
+        s.garbage >= 0 &&
+        s.garbage <= MAX_SAFE_INTEGER,
+      `garbage range failed @ ${message}`,
+    );
     console.assert(
       Number.isInteger(s.target) && 0 <= s.target && s.target < PlayerCount,
-      `target range failed @ ${message}`);
-    console.assert(s.gameoverView.length === PlayerCount,
-      `gameoverView length failed @ ${message}`);
-    console.assert(s.gameoverView.every(c => typeof c === 'boolean'),
-      `gameoverView contains non-booleans @ ${message}`);
-    console.assert(s.connectedView.length === PlayerCount,
-      `connectedView length failed @ ${message}`);
-    console.assert(s.connectedView.every(c => typeof c === 'boolean'),
-      `connectedView contains non-booleans @ ${message}`);
-    console.assert(s.remGenGarbage >= 0, `remGenGarbage >= 0 failed @ ${message}`);
+      `target range failed @ ${message}`,
+    );
+    console.assert(
+      s.gameoverView.length === PlayerCount,
+      `gameoverView length failed @ ${message}`,
+    );
+    console.assert(
+      s.gameoverView.every((c) => typeof c === 'boolean'),
+      `gameoverView contains non-booleans @ ${message}`,
+    );
+    console.assert(
+      s.connectedView.length === PlayerCount,
+      `connectedView length failed @ ${message}`,
+    );
+    console.assert(
+      s.connectedView.every((c) => typeof c === 'boolean'),
+      `connectedView contains non-booleans @ ${message}`,
+    );
+    console.assert(
+      s.remGenGarbage >= 0,
+      `remGenGarbage >= 0 failed @ ${message}`,
+    );
     // Addition:
-    console.assert(s.s6.gameover === s.gameoverView[s.myIndex],
-      `s6.gameover and gameoverView[myIndex] do not agree @ ${message}`);
+    console.assert(
+      s.s6.gameover === s.gameoverView[s.myIndex],
+      `s6.gameover and gameoverView[myIndex] do not agree @ ${message}`,
+    );
   }
 
   // ── Machine: encapsulates T7.State ───────────────────────────
   class Machine {
     // spec: Init bags H
     constructor(myIndex, bagsFn) {
-      this.s6 = new T6Eng.Machine(bagsFn);       // spec: T6.Init (bags myIndex) (H myIndex)
+      this.s6 = new T6Eng.Machine(bagsFn); // spec: T6.Init (bags myIndex) (H myIndex)
       this.myIndex = myIndex;
       this.garbage = 0;
       this.target = PlayerNext(myIndex);
@@ -152,19 +200,45 @@ export function T(
     // most of it away — safe because `JSON.stringify`, the only consumer,
     // never mutates what it's given, unlike view.js, which is why snapshot()
     // wraps `mg` read-only in the first place.
-    get level() { return this.s6.level; }
-    get combo() { return this.s6.combo; }
-    get perfectClear() { return this.s6.perfectClear; }
-    get totalClearedLines() { return this.s6.totalClearedLines; }
-    get score() { return this.s6.score; }
-    get gameover() { return this.s6.gameover; }
-    get mg() { return this.s6.s1.mg; }
-    get clearedLines() { return this.s6.s1.clearedLines; }
-    get p() { return this.s6.s1.p; }
-    get py() { return this.s6.s1.py; }
-    get px() { return this.s6.s1.px; }
-    get pr() { return this.s6.s1.pr; }
-    get gy() { return this.s6.gy; }
+    get level() {
+      return this.s6.level;
+    }
+    get combo() {
+      return this.s6.combo;
+    }
+    get perfectClear() {
+      return this.s6.perfectClear;
+    }
+    get totalClearedLines() {
+      return this.s6.totalClearedLines;
+    }
+    get score() {
+      return this.s6.score;
+    }
+    get gameover() {
+      return this.s6.gameover;
+    }
+    get mg() {
+      return this.s6.s1.mg;
+    }
+    get clearedLines() {
+      return this.s6.s1.clearedLines;
+    }
+    get p() {
+      return this.s6.s1.p;
+    }
+    get py() {
+      return this.s6.s1.py;
+    }
+    get px() {
+      return this.s6.s1.px;
+    }
+    get pr() {
+      return this.s6.s1.pr;
+    }
+    get gy() {
+      return this.s6.gy;
+    }
 
     // spec: MovePiece pl dyx — full use, delegate to s6
     movePiece(dy, dx) {
@@ -206,10 +280,13 @@ export function T(
       if (!fired) return false;
 
       const s1 = this.s6.s1; // mg/clearedLines are T1-level only — never promoted as
-                              // getters anywhere in the tower (unlike gameover/level/
-                              // combo/perfectClear/totalClearedLines, which are)
+      // getters anywhere in the tower (unlike gameover/level/
+      // combo/perfectClear/totalClearedLines, which are)
       const [genGarbage, remGarbage] = genRemGarbage(
-        this.garbage, s1.clearedLines, this.s6.perfectClear);
+        this.garbage,
+        s1.clearedLines,
+        this.s6.perfectClear,
+      );
       const remGenGarbage = Math.max(0, genGarbage - this.garbage); // req-multi-garbage-cancel
 
       // Materialization — unconditional (no PlayerCount === 1 branch, never
@@ -225,7 +302,10 @@ export function T(
         let overflow = remGarbage >= HM; // pushes the entire board off — no scan needed
         if (!overflow) {
           for (let y = HM - remGarbage; y < HM; y++) {
-            if (s1.mg[y].some(T1Eng.occ)) { overflow = true; break; }
+            if (s1.mg[y].some(T1Eng.occ)) {
+              overflow = true;
+              break;
+            }
           }
         }
         gameover2 = overflow;
@@ -257,7 +337,8 @@ export function T(
       if (remGenGarbage > 0 && !gameover2) {
         // req-multi-garbage-send: the target becomes its first successor that
         // is playing, per pl's own (just-updated) view.
-        const view = (pl2) => playingView(this.gameoverView, this.connectedView, pl2);
+        const view = (pl2) =>
+          playingView(this.gameoverView, this.connectedView, pl2);
         this.target = nextTarget(view, this.myIndex, this.target);
       }
 
@@ -269,7 +350,7 @@ export function T(
     fallStep(bagNew, holesFn) {
       if (this.winner) return false;
       if (this.movePiece(-1, 0)) return true; // req-piece-fall
-      return this.fixPiece(bagNew, holesFn);  // req-piece-fix
+      return this.fixPiece(bagNew, holesFn); // req-piece-fix
     }
 
     // spec: DropPiece pl holes H1 bagNew H2 s := FixPiece pl holes H1 bagNew H2
@@ -316,8 +397,10 @@ export function T(
     // GarbageMessages arriving between two of pl's own fixes — never reached
     // in an ordinary match, but not excluded by the model either.
     receiveGarbage(amount) {
-      this.garbage = (this.garbage <= MAX_SAFE_INTEGER - amount)
-        ? this.garbage + amount : MAX_SAFE_INTEGER;
+      this.garbage =
+        this.garbage <= MAX_SAFE_INTEGER - amount
+          ? this.garbage + amount
+          : MAX_SAFE_INTEGER;
       if (CHECK_INVARIANTS) checkInvariants(this, 'receiveGarbage');
     }
 
@@ -330,7 +413,8 @@ export function T(
     receiveGameover(from) {
       this.gameoverView[from] = true;
       if (this.target === from) {
-        const view = (pl2) => playingView(this.gameoverView, this.connectedView, pl2);
+        const view = (pl2) =>
+          playingView(this.gameoverView, this.connectedView, pl2);
         this.target = nextTarget(view, this.myIndex, from);
       }
       if (CHECK_INVARIANTS) checkInvariants(this, 'receiveGameover');
@@ -342,7 +426,8 @@ export function T(
     receiveDisconnect(from) {
       this.connectedView[from] = false;
       if (this.target === from) {
-        const view = (pl2) => playingView(this.gameoverView, this.connectedView, pl2);
+        const view = (pl2) =>
+          playingView(this.gameoverView, this.connectedView, pl2);
         this.target = nextTarget(view, this.myIndex, from);
       }
       if (CHECK_INVARIANTS) checkInvariants(this, 'receiveDisconnect');

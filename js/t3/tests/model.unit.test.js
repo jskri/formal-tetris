@@ -5,8 +5,17 @@ import * as TI from './testInstance.js';
 import { assertSnapshotsEqual, gridsEqual } from '../../t1/tests/oracle.js';
 
 function makeEngine() {
-  return T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-            TI.PW, TI.FY, TI.FX);
+  return T(
+    TI.Piece,
+    TI.InitialMainGrid,
+    TI.ForbiddenGrid,
+    TI.RotGrid,
+    TI.InitialY,
+    TI.InitialX,
+    TI.PW,
+    TI.FY,
+    TI.FX,
+  );
 }
 
 describe('Machine constructor — Init', () => {
@@ -39,8 +48,10 @@ describe('Machine.holdPiece — req-hold-swap', () => {
     const eng = makeEngine();
     const m = new eng.Machine('A');
     m.holdPiece('B'); // hold = old current ('A'), current = 'B'
-    while (m.movePiece(-1, 0)) { /* fall */ }
-    m.fixPiece('S');  // resets swapped
+    while (m.movePiece(-1, 0)) {
+      /* fall */
+    }
+    m.fixPiece('S'); // resets swapped
     const currentBeforeSwap = m.s2.s1.p;
     const heldBeforeSwap = m.hold;
     const fired = m.holdPiece('Z'); // irrelevant: hold slot is occupied
@@ -65,7 +76,9 @@ describe('Machine.holdPiece — req-hold-limit', () => {
     const m = new eng.Machine('A');
     m.holdPiece('B');
     assert.strictEqual(m.swapped, true);
-    while (m.movePiece(-1, 0)) { /* fall */ }
+    while (m.movePiece(-1, 0)) {
+      /* fall */
+    }
     m.fixPiece('S');
     assert.strictEqual(m.swapped, false);
     assert.strictEqual(m.holdPiece('Z'), true);
@@ -90,10 +103,27 @@ describe('Machine.holdPiece — narrow blast radius', () => {
     m.holdPiece('B');
     const after = eng.snapshot(m);
 
-    for (const f of ['mg', 'gameover', 'clearedLines', 'score', 'level', 'combo',
-                      'perfectClear', 'totalClearedLines']) {
-      if (f === 'mg') assert.ok(gridsEqual(after.mg, before.mg), 'mg should be untouched by holdPiece');
-      else assert.deepStrictEqual(after[f], before[f], `field ${f} should be untouched by holdPiece`);
+    for (const f of [
+      'mg',
+      'gameover',
+      'clearedLines',
+      'score',
+      'level',
+      'combo',
+      'perfectClear',
+      'totalClearedLines',
+    ]) {
+      if (f === 'mg')
+        assert.ok(
+          gridsEqual(after.mg, before.mg),
+          'mg should be untouched by holdPiece',
+        );
+      else
+        assert.deepStrictEqual(
+          after[f],
+          before[f],
+          `field ${f} should be untouched by holdPiece`,
+        );
     }
     assert.notStrictEqual(after.p, before.p);
     assert.notStrictEqual(after.hold, before.hold);
@@ -125,7 +155,9 @@ describe('Machine.movePiece / rotatePiece / fixPiece — hold/swapped pass-throu
     const m = new eng.Machine('A');
     m.holdPiece('B');
     const heldBefore = m.hold;
-    while (m.movePiece(-1, 0)) { /* fall */ }
+    while (m.movePiece(-1, 0)) {
+      /* fall */
+    }
     m.fixPiece('S');
     assert.strictEqual(m.hold, heldBefore);
     assert.strictEqual(m.swapped, false);
@@ -146,7 +178,9 @@ describe('Machine.fallStep', () => {
     const eng = makeEngine();
     const m = new eng.Machine('B');
     m.holdPiece('A');
-    while (m.movePiece(-1, 0)) { /* fall */ }
+    while (m.movePiece(-1, 0)) {
+      /* fall */
+    }
     assert.strictEqual(m.fallStep('A'), true);
     assert.strictEqual(m.swapped, false);
   });

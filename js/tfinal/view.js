@@ -8,9 +8,16 @@
 // to know about that layer at all).
 
 import {
-  cellOrigin, drawBackground, drawGridLines, drawGrid,
-  holdBoxGeometry, drawHoldBox, drawPanel, drawBanners,
-  previewGeometry, drawPreview,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawGrid,
+  holdBoxGeometry,
+  drawHoldBox,
+  drawPanel,
+  drawBanners,
+  previewGeometry,
+  drawPreview,
 } from '../t5/view.js';
 
 // mgBeforeClear (from precomputeLock() in both controllers) is a plain 2D
@@ -28,10 +35,21 @@ function wrapGrid(g) {
 // to white. `progress` is a curve value from the controller's timer — 0
 // (normal colors) through 1+ (a Tetris's pulse can briefly exceed 1; the fill
 // alpha is clamped below regardless).
-export function renderClearFlash(canvas, constants, snapshot, mgBeforeClear, rows, progress, pieceColor = {}) {
+export function renderClearFlash(
+  canvas,
+  constants,
+  snapshot,
+  mgBeforeClear,
+  rows,
+  progress,
+  pieceColor = {},
+) {
   const ctx = canvas.getContext('2d');
   const gridAreaWidth = constants.gridAreaWidth ?? canvas.width;
-  const cellSize = Math.min((gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
   const holdGeom = holdBoxGeometry(constants, cellSize);
   const previewGeom = previewGeometry(constants, cellSize);
   const panelPx = constants.PANEL_PX ?? 0;
@@ -63,7 +81,10 @@ export function drawGarbageFlash(canvas, constants, rowCount, progress) {
   if (rowCount <= 0) return;
   const ctx = canvas.getContext('2d');
   const gridAreaWidth = constants.gridAreaWidth ?? canvas.width;
-  const cellSize = Math.min((gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
   const panelPx = constants.PANEL_PX ?? 0;
 
   ctx.save();

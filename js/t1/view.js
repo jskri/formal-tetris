@@ -10,7 +10,10 @@
 
 export function render(canvas, constants, snapshot, pieceColor = {}) {
   const ctx = canvas.getContext('2d');
-  const cellSize = Math.min(canvas.width / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    canvas.width / constants.WM,
+    canvas.height / constants.HM,
+  );
 
   drawBackground(ctx, canvas, constants, cellSize);
   drawGrid(ctx, snapshot.mg, constants, cellSize, pieceColor);
@@ -32,7 +35,13 @@ export function drawBackground(ctx, canvas, constants, cellSize) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const { FY, FX, FH, FW, HM } = constants;
-  const { cx, cy } = cellOrigin(FY + FH - 1, FX, cellSize, HM, panelPxOf(constants));
+  const { cx, cy } = cellOrigin(
+    FY + FH - 1,
+    FX,
+    cellSize,
+    HM,
+    panelPxOf(constants),
+  );
   ctx.fillStyle = '#3A0000';
   ctx.fillRect(cx, cy, FW * cellSize, FH * cellSize);
 }
@@ -110,5 +119,10 @@ export function drawGameOver(ctx, canvas, constants, cellSize) {
   ctx.fillText('GAME OVER', centerX, canvas.height / 2 - cellSize, maxWidth);
 
   ctx.font = `${Math.floor(canvas.height * 0.03)}px sans-serif`;
-  ctx.fillText('press any key to restart', centerX, canvas.height / 2 + cellSize, maxWidth);
+  ctx.fillText(
+    'press any key to restart',
+    centerX,
+    canvas.height / 2 + cellSize,
+    maxWidth,
+  );
 }

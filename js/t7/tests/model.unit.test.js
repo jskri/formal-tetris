@@ -2,22 +2,36 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { T } from '../model.js';
 import * as TI from './testInstance.js';
-import { oracle7 } from './oracle.js';
 import { assertSnapshotsEqual } from '../../t1/tests/oracle.js';
 
 function makeEngine() {
-  return T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-           TI.PW, TI.FY, TI.FX, TI.NextLen, TI.Player, TI.HostIndex);
+  return T(
+    TI.Piece,
+    TI.InitialMainGrid,
+    TI.ForbiddenGrid,
+    TI.RotGrid,
+    TI.InitialY,
+    TI.InitialX,
+    TI.PW,
+    TI.FY,
+    TI.FX,
+    TI.NextLen,
+    TI.Player,
+    TI.HostIndex,
+  );
 }
 
-function bagsFnFrom(bag) { return () => bag; }
+function bagsFnFrom(bag) {
+  return () => bag;
+}
 
 function makeHolesFn(w) {
   const holes = [];
   return (y) => {
     while (holes.length <= y) holes.push(Math.floor(Math.random() * w));
     const x = holes[y];
-    if (!(0 <= x && x < w)) throw new Error(`makeHolesFn: hole out of range: ${x}`);
+    if (!(0 <= x && x < w))
+      throw new Error(`makeHolesFn: hole out of range: ${x}`);
     return x;
   };
 }
@@ -32,34 +46,73 @@ describe('Machine — field shape', () => {
     assert.ok(Array.isArray(m.connectedView));
     assert.strictEqual(m.gameoverView.length, TI.Player.length);
     assert.strictEqual(m.connectedView.length, TI.Player.length);
-    assert.ok(!('connected' in m), 'connected must not be a Machine field (§6.9)');
-    assert.ok(!('messages' in m), 'messages must not be a Machine field (§6.9)');
+    assert.ok(
+      !('connected' in m),
+      'connected must not be a Machine field (§6.9)',
+    );
+    assert.ok(
+      !('messages' in m),
+      'messages must not be a Machine field (§6.9)',
+    );
   });
 
-  test('s6 is nested, not flattened (unlike T2–T6\'s own inner engines)', () => {
+  test("s6 is nested, not flattened (unlike T2–T6's own inner engines)", () => {
     const eng = makeEngine();
     const m = new eng.Machine(0, bagsFnFrom(['A', 'B']));
     assert.ok('s6' in m);
-    assert.ok(!('mg' in m) || typeof Object.getOwnPropertyDescriptor(m, 'mg') === 'undefined',
-      'mg is a read-through getter, not a flattened own field');
+    assert.ok(
+      !('mg' in m) ||
+        typeof Object.getOwnPropertyDescriptor(m, 'mg') === 'undefined',
+      'mg is a read-through getter, not a flattened own field',
+    );
     assert.deepStrictEqual(m.mg, m.s6.s1.mg);
   });
 
   test('checkAxioms rejects PlayerCount <= 1 and an out-of-range HostIndex', () => {
-    const eng1 = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                   TI.PW, TI.FY, TI.FX, TI.NextLen, [0], 0);
+    const eng1 = T(
+      TI.Piece,
+      TI.InitialMainGrid,
+      TI.ForbiddenGrid,
+      TI.RotGrid,
+      TI.InitialY,
+      TI.InitialX,
+      TI.PW,
+      TI.FY,
+      TI.FX,
+      TI.NextLen,
+      [0],
+      0,
+    );
     const originalAssert = console.assert;
     let tripped = false;
-    console.assert = (cond) => { if (!cond) tripped = true; };
+    console.assert = (cond) => {
+      if (!cond) tripped = true;
+    };
     try {
       eng1.checkAxioms();
       assert.strictEqual(tripped, true, 'PlayerCount = 1 must trip an axiom');
 
       tripped = false;
-      const eng2 = T(TI.Piece, TI.InitialMainGrid, TI.ForbiddenGrid, TI.RotGrid, TI.InitialY, TI.InitialX,
-                     TI.PW, TI.FY, TI.FX, TI.NextLen, TI.Player, 99);
+      const eng2 = T(
+        TI.Piece,
+        TI.InitialMainGrid,
+        TI.ForbiddenGrid,
+        TI.RotGrid,
+        TI.InitialY,
+        TI.InitialX,
+        TI.PW,
+        TI.FY,
+        TI.FX,
+        TI.NextLen,
+        TI.Player,
+        99,
+      );
       eng2.checkAxioms();
-      assert.strictEqual(tripped, true, 'out-of-range HostIndex must trip an axiom');
+      assert.strictEqual(
+        tripped,
+        true,
+        'out-of-range HostIndex must trip an axiom',
+      );
     } finally {
       console.assert = originalAssert;
     }
@@ -99,9 +152,19 @@ describe('fixPiece — materialization (§4-T7c)', () => {
     // re-deriving that relocation by hand a second time, and avoids
     // doesNotThrow silently passing over a false return (see below).
     let fired;
-    assert.doesNotThrow(() => { fired = m.dropPiece(['A', 'B'], holesFn); });
-    assert.strictEqual(fired, true, 'dropPiece must actually fire here — a resting piece must be fixable');
-    assert.strictEqual(m.mg.length, TI.InitialMainGrid.length, 'mg must never grow past HM');
+    assert.doesNotThrow(() => {
+      fired = m.dropPiece(['A', 'B'], holesFn);
+    });
+    assert.strictEqual(
+      fired,
+      true,
+      'dropPiece must actually fire here — a resting piece must be fixable',
+    );
+    assert.strictEqual(
+      m.mg.length,
+      TI.InitialMainGrid.length,
+      'mg must never grow past HM',
+    );
     assert.strictEqual(m.gameover, true);
   });
 
@@ -110,16 +173,23 @@ describe('fixPiece — materialization (§4-T7c)', () => {
     const m = new eng.Machine(0, bagsFnFrom(['A', 'B']));
     m.garbage = 1;
     m.s6.s1.py = m.s6.gy; // same requirement — otherwise fixPiece is a guaranteed no-op
-                          // and this test would pass vacuously (countingHolesFn never called)
+    // and this test would pass vacuously (countingHolesFn never called)
     let calls = 0;
-    const countingHolesFn = (y) => { calls++; return 0; };
+    const countingHolesFn = (_y) => {
+      calls++;
+      return 0;
+    };
     const fired = m.fixPiece(['A', 'B'], countingHolesFn);
-    assert.strictEqual(fired, true, 'fixPiece must actually fire for this test to check anything');
+    assert.strictEqual(
+      fired,
+      true,
+      'fixPiece must actually fire for this test to check anything',
+    );
     assert.ok(calls <= TI.InitialMainGrid.length);
   });
 });
 
-describe('Target round-robin — the 3-player worked trace from T7.v\'s own comment', () => {
+describe("Target round-robin — the 3-player worked trace from T7.v's own comment", () => {
   test('A -> B -> C initially; A -> C once B is gameover; A -> A (self) once C is also gameover', () => {
     const [A, B, C] = [0, 1, 2];
     const eng = makeEngine();
@@ -128,14 +198,20 @@ describe('Target round-robin — the 3-player worked trace from T7.v\'s own comm
 
     m.gameoverView[B] = true; // B observed gameover
     m.connectedView[B] = true;
-    const viewAfterB = (pl2) => eng.playingView(m.gameoverView, m.connectedView, pl2);
+    const viewAfterB = (pl2) =>
+      eng.playingView(m.gameoverView, m.connectedView, pl2);
     m.target = eng.nextTarget(viewAfterB, A, B); // mirrors receiveGameover's redirect from B
     assert.strictEqual(m.target, C);
 
     m.gameoverView[C] = true;
-    const viewAfterC = (pl2) => eng.playingView(m.gameoverView, m.connectedView, pl2);
+    const viewAfterC = (pl2) =>
+      eng.playingView(m.gameoverView, m.connectedView, pl2);
     m.target = eng.nextTarget(viewAfterC, A, C);
-    assert.strictEqual(m.target, A, 'no one else alive: target becomes self (req-multi-target-nonself\'s winner exception)');
+    assert.strictEqual(
+      m.target,
+      A,
+      "no one else alive: target becomes self (req-multi-target-nonself's winner exception)",
+    );
   });
 });
 
@@ -172,7 +248,11 @@ describe('receiveGarbage / receiveGameover / receiveDisconnect — field updates
     const eng = makeEngine();
     const m = new eng.Machine(0, bagsFnFrom(['A', 'B']));
     m.s6.s1.gameover = true; // simulate self already gameover
-    assert.doesNotThrow(() => { m.receiveGarbage(1); m.receiveGameover(1); m.receiveDisconnect(2); });
+    assert.doesNotThrow(() => {
+      m.receiveGarbage(1);
+      m.receiveGameover(1);
+      m.receiveDisconnect(2);
+    });
   });
 });
 
@@ -207,7 +287,7 @@ describe('winnerMulti gates every guarded method', () => {
   });
 });
 
-describe('dropPiece — calls T7\'s own fixPiece, not this.s6.dropPiece (§4-T7i)', () => {
+describe("dropPiece — calls T7's own fixPiece, not this.s6.dropPiece (§4-T7i)", () => {
   test('a drop that generates garbage sends it (materialization not bypassed)', () => {
     const eng = makeEngine();
     const m = new eng.Machine(0, bagsFnFrom(['A', 'B']));

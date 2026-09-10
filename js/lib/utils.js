@@ -9,7 +9,7 @@ export function mod(a, n) {
 
 // Deep-copy a boolean[][] grid: fresh outer array, fresh rows.
 export function copyGrid(g) {
-  return g.map(r => r.slice());
+  return g.map((r) => r.slice());
 }
 
 export function emptyRow(w) {

@@ -39,7 +39,11 @@ function playingView7(gameoverViewRow, connectedViewRow, pl2) {
 function winnerMulti7(s, pl, params) {
   if (params.PlayerCount <= 1) return false;
   for (let pl2 = 0; pl2 < params.PlayerCount; pl2++) {
-    if (playingView7(s.gameoverView[pl], s.connectedView[pl], pl2) !== (pl2 === pl)) return false;
+    if (
+      playingView7(s.gameoverView[pl], s.connectedView[pl], pl2) !==
+      (pl2 === pl)
+    )
+      return false;
   }
   return true;
 }
@@ -56,7 +60,8 @@ function nextTarget7(playing, self, pl, params) {
 
 // spec: GeneratedGarbage
 function generatedGarbage7(clearedLines, perfectClear) {
-  const normal = clearedLines < 4 ? Math.max(0, clearedLines - 1) : clearedLines;
+  const normal =
+    clearedLines < 4 ? Math.max(0, clearedLines - 1) : clearedLines;
   return normal + (perfectClear ? 10 : 0);
 }
 
@@ -72,7 +77,13 @@ function genRemGarbage7(garbage, clearedLines, perfectClear) {
 // needing an explicit clamp (§4-T7c's clamp is an array-representation
 // necessity that the functional representation doesn't share).
 function garbageGrid7(garbage, holesFn, w) {
-  return oracle1.mkGrid((y, x) => (0 <= y && y < garbage && 0 <= x && x < w && x !== holesFn(y)), garbage, w, 0, 0);
+  return oracle1.mkGrid(
+    (y, x) => 0 <= y && y < garbage && 0 <= x && x < w && x !== holesFn(y),
+    garbage,
+    w,
+    0,
+    0,
+  );
 }
 
 // Replaces the innermost s1 inside an oracle6-shaped state, mirroring
@@ -99,9 +110,13 @@ function makeParams7(TI) {
 function initState7(bagsFnPerPlayer, params) {
   const n = params.PlayerCount;
   const s6 = [];
-  for (let pl = 0; pl < n; pl++) s6.push(oracle6.initState6(bagsFnPerPlayer[pl], params));
+  for (let pl = 0; pl < n; pl++)
+    s6.push(oracle6.initState6(bagsFnPerPlayer[pl], params));
   const gameoverView = Array.from({ length: n }, (_, obs) =>
-    Array.from({ length: n }, (_, obsd) => (obsd === obs ? oracle6.snapshotOf6(s6[obs]).gameover : false)));
+    Array.from({ length: n }, (_, obsd) =>
+      obsd === obs ? oracle6.snapshotOf6(s6[obs]).gameover : false,
+    ),
+  );
   return {
     s6,
     garbage: Array(n).fill(0),
@@ -119,7 +134,8 @@ function movePiece7(pl, dy, dx, s, params) {
   if (winnerMulti7(s, pl, params)) return null;
   const s6New = oracle6.movePiece6(dy, dx, s.s6[pl], params);
   if (!s6New) return null;
-  const s6 = s.s6.slice(); s6[pl] = s6New;
+  const s6 = s.s6.slice();
+  s6[pl] = s6New;
   return { ...s, s6 };
 }
 
@@ -128,7 +144,8 @@ function rotatePiece7(pl, cw, s, params) {
   if (winnerMulti7(s, pl, params)) return null;
   const s6New = oracle6.rotatePiece6(cw, s.s6[pl], params);
   if (!s6New) return null;
-  const s6 = s.s6.slice(); s6[pl] = s6New;
+  const s6 = s.s6.slice();
+  s6[pl] = s6New;
   return { ...s, s6 };
 }
 
@@ -137,7 +154,8 @@ function holdPiece7(pl, bagNew, s, params) {
   if (winnerMulti7(s, pl, params)) return null;
   const s6New = oracle6.holdPiece6(bagNew, s.s6[pl], params);
   if (!s6New) return null;
-  const s6 = s.s6.slice(); s6[pl] = s6New;
+  const s6 = s.s6.slice();
+  s6[pl] = s6New;
   return { ...s, s6 };
 }
 
@@ -146,7 +164,8 @@ function rotateKickPiece7(pl, cw, s, params) {
   if (winnerMulti7(s, pl, params)) return null;
   const s6New = oracle6.rotateKickPiece6(cw, s.s6[pl], params);
   if (!s6New) return null;
-  const s6 = s.s6.slice(); s6[pl] = s6New;
+  const s6 = s.s6.slice();
+  s6[pl] = s6New;
   return { ...s, s6 };
 }
 
@@ -164,7 +183,11 @@ function fixPiece7(pl, holesFn, bagNew, s, params) {
   // the mg conversion correctly for it).
   const s1New = s6New.s4.s3.s2.s1;
   const snapNew = oracle6.snapshotOf6(s6New);
-  const [genGarbage, remGarbage] = genRemGarbage7(s.garbage[pl], snapNew.clearedLines, snapNew.perfectClear);
+  const [genGarbage, remGarbage] = genRemGarbage7(
+    s.garbage[pl],
+    snapNew.clearedLines,
+    snapNew.perfectClear,
+  );
   const remGenGarbage = Math.max(0, genGarbage - s.garbage[pl]);
 
   // spec: let garbageGrid := GarbageGrid remGarbage holes (W InitialMainGrid)
@@ -177,19 +200,30 @@ function fixPiece7(pl, holesFn, bagNew, s, params) {
   const oldMg = s1New.mg;
   const garbageGrid = garbageGrid7(remGarbage, holesFn, params.WM);
   const newMg = oracle1.gridUnion(
-                  garbageGrid,
-                  oracle1.gridTranslate(oldMg, remGarbage, 0));
+    garbageGrid,
+    oracle1.gridTranslate(oldMg, remGarbage, 0),
+  );
   const croppedMg = oracle1.gridIntersect(newMg, oracle1.Full(oldMg));
 
   const overflow = !oracle1.subseteq(newMg, croppedMg);
-  const forbiddenHit = !oracle1.subseteq(oracle1.gridIntersect(params.ForbiddenGrid, croppedMg), oracle1.EmptyGrid);
+  const forbiddenHit = !oracle1.subseteq(
+    oracle1.gridIntersect(params.ForbiddenGrid, croppedMg),
+    oracle1.EmptyGrid,
+  );
   const newGameover = s1New.gameover || overflow || forbiddenHit;
 
-  const s6Final = withS1_6(s6New, { ...s1New, mg: croppedMg, gameover: newGameover });
-  const s6 = s.s6.slice(); s6[pl] = s6Final;
+  const s6Final = withS1_6(s6New, {
+    ...s1New,
+    mg: croppedMg,
+    gameover: newGameover,
+  });
+  const s6 = s.s6.slice();
+  s6[pl] = s6Final;
 
-  const garbage = s.garbage.slice(); garbage[pl] = 0;
-  const remGenGarbageArr = s.remGenGarbage.slice(); remGenGarbageArr[pl] = remGenGarbage;
+  const garbage = s.garbage.slice();
+  garbage[pl] = 0;
+  const remGenGarbageArr = s.remGenGarbage.slice();
+  remGenGarbageArr[pl] = remGenGarbage;
 
   const gameoverView = s.gameoverView.map((row) => row.slice());
   gameoverView[pl][pl] = newGameover;
@@ -197,7 +231,8 @@ function fixPiece7(pl, holesFn, bagNew, s, params) {
   let target = s.target;
   if (remGenGarbage > 0 && !newGameover) {
     target = s.target.slice();
-    const playingView = (pl2) => playingView7(gameoverView[pl], s.connectedView[pl], pl2);
+    const playingView = (pl2) =>
+      playingView7(gameoverView[pl], s.connectedView[pl], pl2);
     target[pl] = nextTarget7(playingView, pl, s.target[pl], params);
   }
 
@@ -206,12 +241,21 @@ function fixPiece7(pl, holesFn, bagNew, s, params) {
     messages = cloneMessages(s.messages);
     for (let to = 0; to < params.PlayerCount; to++) {
       if (to === pl) continue;
-      if (to === target[pl] && remGenGarbage > 0) messages[pl][to].push({ type: 'garbage', n: remGenGarbage });
+      if (to === target[pl] && remGenGarbage > 0)
+        messages[pl][to].push({ type: 'garbage', n: remGenGarbage });
       if (newGameover) messages[pl][to].push({ type: 'gameover' });
     }
   }
 
-  return { ...s, s6, garbage, target, remGenGarbage: remGenGarbageArr, gameoverView, messages };
+  return {
+    ...s,
+    s6,
+    garbage,
+    target,
+    remGenGarbage: remGenGarbageArr,
+    gameoverView,
+    messages,
+  };
 }
 
 // spec: FallStep pl holes H1 bagNew H2 s
@@ -229,7 +273,8 @@ function dropPiece7(pl, holesFn, bagNew, s, params) {
   const s1 = s6.s4.s3.s2.s1;
   if (s1.gameover) return null;
   const relocated = withS1_6(s6, { ...s1, py: s6.gy });
-  const relocatedAll = s.s6.slice(); relocatedAll[pl] = relocated;
+  const relocatedAll = s.s6.slice();
+  relocatedAll[pl] = relocated;
   return fixPiece7(pl, holesFn, bagNew, { ...s, s6: relocatedAll }, params);
 }
 
@@ -243,7 +288,8 @@ function receiveMessage7(pl, from, s, params) {
   messages[from][pl] = rest;
 
   if (msg.type === 'garbage') {
-    const garbage = s.garbage.slice(); garbage[pl] += msg.n;
+    const garbage = s.garbage.slice();
+    garbage[pl] += msg.n;
     return { ...s, garbage, messages };
   }
   if (msg.type === 'gameover') {
@@ -252,7 +298,8 @@ function receiveMessage7(pl, from, s, params) {
     let target = s.target;
     if (s.target[pl] === from) {
       target = s.target.slice();
-      const view = (pl2) => playingView7(gameoverView[pl], s.connectedView[pl], pl2);
+      const view = (pl2) =>
+        playingView7(gameoverView[pl], s.connectedView[pl], pl2);
       target[pl] = nextTarget7(view, pl, from, params);
     }
     return { ...s, gameoverView, target, messages };
@@ -263,7 +310,8 @@ function receiveMessage7(pl, from, s, params) {
   let target = s.target;
   if (s.target[pl] === from) {
     target = s.target.slice();
-    const view = (pl2) => playingView7(s.gameoverView[pl], connectedView[pl], pl2);
+    const view = (pl2) =>
+      playingView7(s.gameoverView[pl], connectedView[pl], pl2);
     target[pl] = nextTarget7(view, pl, from, params);
   }
   return { ...s, connectedView, target, messages };

@@ -1,35 +1,59 @@
 import { T } from './model.js';
 import { render } from './view.js';
 import {
-  Piece, InitialMainGrid, ForbiddenGrid,
-  RotGrid, InitialY, InitialX,
-  PW, FY, FX, PieceColor,
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+  PieceColor,
 } from './instance.js';
 
-const eng = T(Piece, InitialMainGrid, ForbiddenGrid,
-              RotGrid, InitialY, InitialX, PW, FY, FX);
+const eng = T(
+  Piece,
+  InitialMainGrid,
+  ForbiddenGrid,
+  RotGrid,
+  InitialY,
+  InitialX,
+  PW,
+  FY,
+  FX,
+);
 
 const constants = {
   HM: InitialMainGrid.length,
   WM: InitialMainGrid[0].length,
-  PW, FY, FX,
+  PW,
+  FY,
+  FX,
   FH: ForbiddenGrid.length,
   FW: ForbiddenGrid[0].length,
   rotGrid: eng.rotGrid,
 };
 
-const DAS_DELAY = 170;      // ms held before auto-repeat begins
-const ARR = 50;              // ms between repeats once shifting
+const DAS_DELAY = 170; // ms held before auto-repeat begins
+const ARR = 50; // ms between repeats once shifting
 const GRAVITY_PERIOD = 1000; // ms between automatic falls
 
 const KEYMAP = {
-  ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', ArrowDown: 'DOWN',
-  z: 'CCW', x: 'CW',
+  ArrowLeft: 'LEFT',
+  ArrowRight: 'RIGHT',
+  ArrowDown: 'DOWN',
+  z: 'CCW',
+  x: 'CW',
 };
 
 const GAMEPAD_MAP = new Map([
-  [14, 'LEFT'], [15, 'RIGHT'], [13, 'DOWN'],
-  [0, 'CCW'], [1, 'CW'],
+  [14, 'LEFT'],
+  [15, 'RIGHT'],
+  [13, 'DOWN'],
+  [0, 'CCW'],
+  [1, 'CW'],
 ]);
 
 function randomPiece() {
@@ -47,11 +71,11 @@ export function main(canvas) {
 
   // effects close over `machine` (reassigned by startGame) — must live inside main().
   const ACTIONS = {
-    LEFT:  { repeat: true,  effect: () => machine.movePiece(0, -1) },
-    RIGHT: { repeat: true,  effect: () => machine.movePiece(0, 1) },
-    DOWN:  { repeat: true,  effect: () => machine.fallStep(randomPiece()) },
-    CCW:   { repeat: false, effect: () => machine.rotatePiece(false) },
-    CW:    { repeat: false, effect: () => machine.rotatePiece(true) },
+    LEFT: { repeat: true, effect: () => machine.movePiece(0, -1) },
+    RIGHT: { repeat: true, effect: () => machine.movePiece(0, 1) },
+    DOWN: { repeat: true, effect: () => machine.fallStep(randomPiece()) },
+    CCW: { repeat: false, effect: () => machine.rotatePiece(false) },
+    CW: { repeat: false, effect: () => machine.rotatePiece(true) },
   };
 
   function startGame() {
@@ -87,7 +111,8 @@ export function main(canvas) {
     const held = computeHeld();
 
     if (machine.gameover) {
-      if (Object.keys(held).some(name => held[name] && !prevHeld[name])) startGame();
+      if (Object.keys(held).some((name) => held[name] && !prevHeld[name]))
+        startGame();
       prevHeld = held;
       repeatTimers = {};
       return;
@@ -101,7 +126,10 @@ export function main(canvas) {
           if (!t) {
             act.effect();
             repeatTimers[name] = { pressedAt: now, lastFire: now };
-          } else if (now - t.pressedAt >= DAS_DELAY && now - t.lastFire >= ARR) {
+          } else if (
+            now - t.pressedAt >= DAS_DELAY &&
+            now - t.lastFire >= ARR
+          ) {
             act.effect();
             t.lastFire = now;
           }
@@ -132,13 +160,19 @@ export function main(canvas) {
     const margin = 0.95;
     const availW = window.innerWidth * margin;
     const availH = window.innerHeight * margin;
-    const cell = Math.max(1, Math.floor(Math.min(availW / constants.WM, availH / constants.HM)));
+    const cell = Math.max(
+      1,
+      Math.floor(Math.min(availW / constants.WM, availH / constants.HM)),
+    );
     canvas.width = constants.WM * cell;
     canvas.height = constants.HM * cell;
   }
 
   function onKeyDown(e) {
-    if (machine.gameover) { startGame(); return; }
+    if (machine.gameover) {
+      startGame();
+      return;
+    }
     const name = KEYMAP[e.key];
     if (!name) return;
     e.preventDefault();

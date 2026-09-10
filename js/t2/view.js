@@ -1,16 +1,37 @@
 // view.js — renderer. Never imports from model.js or instance.js.
 
 import {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
 } from '../t1/view.js';
 
 export {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
 };
 
-export function render(canvas, constants, snapshot, pieceColor = {}, banners = null) {
+export function render(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  banners = null,
+) {
   const ctx = canvas.getContext('2d');
-  const cellSize = Math.min((canvas.width - constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (canvas.width - constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
 
   drawBackground(ctx, canvas, constants, cellSize);
   drawPanel(ctx, constants, snapshot, cellSize);
@@ -26,11 +47,11 @@ function panelMetrics(constants) {
   const margin = PANEL_PX * 0.12;
   const labelFont = Math.max(10, Math.floor(PANEL_PX * 0.11));
   const valueFont = Math.max(12, Math.floor(PANEL_PX * 0.17));
-  const bannerFont = Math.max(10, Math.floor(PANEL_PX * 0.10));
+  const bannerFont = Math.max(10, Math.floor(PANEL_PX * 0.1));
   return { margin, labelFont, valueFont, bannerFont };
 }
 
-export function drawPanel(ctx, constants, snapshot, cellSize) {
+export function drawPanel(ctx, constants, snapshot, _cellSize) {
   const { PANEL_PX } = constants;
   ctx.fillStyle = '#111111';
   ctx.fillRect(0, 0, PANEL_PX, ctx.canvas.height);
@@ -59,12 +80,17 @@ export function drawPanel(ctx, constants, snapshot, cellSize) {
   ctx.fillText(String(snapshot.level), margin, y);
 }
 
-export function drawBanners(ctx, constants, banners, cellSize) {
+export function drawBanners(ctx, constants, banners, _cellSize) {
   const { margin, labelFont, valueFont, bannerFont } = panelMetrics(constants);
   const slotHeight = bannerFont * 1.4;
 
   // below the LEVEL block: margin + label + value(x2 blocks) — mirrors drawPanel's layout.
-  let y = margin + labelFont * 1.2 + valueFont * 1.4 + labelFont * 1.2 + valueFont * 1.4;
+  let y =
+    margin +
+    labelFont * 1.2 +
+    valueFont * 1.4 +
+    labelFont * 1.2 +
+    valueFont * 1.4;
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';

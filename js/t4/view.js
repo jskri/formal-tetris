@@ -1,20 +1,49 @@
 // view.js — renderer. Never imports from model.js or instance.js.
 
 import {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
 } from '../t1/view.js';
 import {
-  labelGeometry, holdBoxGeometry, drawHoldBox, drawPanel, drawBanners,
+  labelGeometry,
+  holdBoxGeometry,
+  drawHoldBox,
+  drawPanel,
+  drawBanners,
 } from '../t3/view.js';
 
 export {
-  cellOrigin, drawBackground, drawGridLines, drawBlock, drawGrid, drawPiece, drawGameOver,
-  labelGeometry, holdBoxGeometry, drawHoldBox, drawPanel, drawBanners,
+  cellOrigin,
+  drawBackground,
+  drawGridLines,
+  drawBlock,
+  drawGrid,
+  drawPiece,
+  drawGameOver,
+  labelGeometry,
+  holdBoxGeometry,
+  drawHoldBox,
+  drawPanel,
+  drawBanners,
 };
 
-export function render(canvas, constants, snapshot, pieceColor = {}, banners = null) {
+export function render(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  banners = null,
+) {
   const ctx = canvas.getContext('2d');
-  const cellSize = Math.min((canvas.width - 2 * constants.PANEL_PX) / constants.WM, canvas.height / constants.HM);
+  const cellSize = Math.min(
+    (canvas.width - 2 * constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
+  );
   const holdGeom = holdBoxGeometry(constants, cellSize);
   const previewGeom = previewGeometry(constants, cellSize);
 
@@ -36,7 +65,8 @@ export function render(canvas, constants, snapshot, pieceColor = {}, banners = n
 // guarantees every piece has >=1 occupied cell at every rotation, so minRow/maxRow
 // are always well-defined here.
 export function effectiveRowRange(constants) {
-  let minRow = constants.PW, maxRow = -1;
+  let minRow = constants.PW,
+    maxRow = -1;
   for (const p of constants.Piece) {
     const rg = constants.rotGrid(p, 0);
     for (let y = 0; y < constants.PW; y++) {
@@ -60,18 +90,34 @@ export function previewGeometry(constants, cellSize) {
   const { margin, labelFont, labelHeight } = labelGeometry(constants);
   const { minRow, maxRow } = effectiveRowRange(constants);
   const effectiveRows = maxRow - minRow + 1;
-  const previewCellSize = Math.min(cellSize, (constants.PANEL_PX - 2 * margin) / constants.PW);
+  const previewCellSize = Math.min(
+    cellSize,
+    (constants.PANEL_PX - 2 * margin) / constants.PW,
+  );
   const gap = previewCellSize;
   const boxSize = effectiveRows * previewCellSize;
   const topGap = (constants.PW - 1 - maxRow) * previewCellSize;
   const boxTop = margin + labelHeight + topGap;
-  const availableH = constants.HM * cellSize - margin - labelHeight - topGap - margin;
+  const availableH =
+    constants.HM * cellSize - margin - labelHeight - topGap - margin;
   const perSlot = boxSize + gap;
-  const count = Math.max(0, Math.min(constants.NextLen, Math.floor((availableH + gap) / perSlot)));
+  const count = Math.max(
+    0,
+    Math.min(constants.NextLen, Math.floor((availableH + gap) / perSlot)),
+  );
   const rightOrigin = constants.PANEL_PX + constants.WM * cellSize;
   return {
-    margin, labelFont, labelY: margin, boxTop, boxSize,
-    cellSize: previewCellSize, gap, count, rightOrigin, minRow, maxRow,
+    margin,
+    labelFont,
+    labelY: margin,
+    boxTop,
+    boxSize,
+    cellSize: previewCellSize,
+    gap,
+    count,
+    rightOrigin,
+    minRow,
+    maxRow,
   };
 }
 
@@ -80,7 +126,8 @@ export function previewGeometry(constants, cellSize) {
 export function drawPreview(ctx, constants, snapshot, geom, pieceColor) {
   const { rightOrigin, cellSize, maxRow } = geom;
   ctx.fillStyle = '#AAAAAA';
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
   ctx.font = `${geom.labelFont}px sans-serif`;
   ctx.fillText('Next', rightOrigin + geom.margin, geom.labelY);
 
