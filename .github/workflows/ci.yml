@@ -36,6 +36,8 @@ jobs:
               - 'js/**/*.js'
               - 'js/package.json'
               - 'js/package-lock.json'
+              - 'js/.prettierrc'
+              - 'js/.prettierignore'
 
   build-image:
     needs: changes
@@ -106,8 +108,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: js/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('js/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: |
+          cd js/
+          npm ci
+
+      - name: Check formatting
+        run: |
+          cd js/
+          npm run format:check
+
+      - name: Run lint
+        run: |
+          cd js/
+          npm run lint
+
+      - name: Syntax check
+        run: |
+          cd js/
+          npm run syntax-check
+
       - name: Run JS tests
         run: |
           cd js/
-          npm install
           npm test
