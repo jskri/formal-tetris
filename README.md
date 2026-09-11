@@ -77,7 +77,7 @@ An additional `<lang>/tfinal/` implementation of `T7.v` adds to `<lang>/t7/`: so
 
 Each implementation builds upon the previous ones: `t7/` upon `t6/`, and so on.
 
-Rust implementations mainly rely on macroquad (rendering, main loop), gilrs (gamepad), and rodio (sound).
+Rust implementations work on Linux, macOS and Windows. They mainly rely on macroquad (rendering, main loop), gilrs (gamepad), and rodio (sound).
 
 JavaScript implementations rely on standard Web APIs: Canvas, Web audio, Gamepad, WebRTC.
 
@@ -131,13 +131,13 @@ cd js/ && npx serve -l 8000  # or `python3 -m http.server -b 127.0.0.1 8000` for
 
 ## Multiplayer mode
 
-`t7/` and `tfinal/` implement a multiplayer mode. One player must host the game, others must join. A joiner must send the host a generated code through the external channel of her choice. For each joiner, the host adds a connection with her code and generates a code that must be sent back to the joiner. Once the codes have been exchanged, the game can start.
+`t7/` and `tfinal/` implement a multiplayer mode.
 
-Note that the network code is the less reliable part of the project as it largely falls outside the models' scope. Multiplayer mode has also not been extensively tested: mainly on a local network with Linux/MacOS machines.
+**Warning**: A large part of the communication protocol, especially the Rust one, is outside the scope of `T7.v` and has, to a significant extent, been designed by an LLM. As a result, and as long as it has not been properly modeled, it is expected to be buggy. Moreover, it has not been tested exhaustively, mainly on a local network setup with Linux/macOS machines. Finally, be aware that network communication may fail if at least one player is behind a NAT. The code currently uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server, for cost reasons.
 
-**Warning**: The network communication may fail if at least one player is behind a NAT. Currently, the code uses a STUN (Session Traversal Utilities for NAT) server, `stun:stun.l.google.com:19302`, but no TURN (Traversal Using Relays around NAT) server for cost reasons.
+In multiplayer mode, one player must host the game, and others must join. A joiner must send the host a generated code through an external channel of their choice. For each joiner, the host adds a connection using that code and generates a code that must be sent back to the joiner. Once the codes have been exchanged, the game can start.
 
-**Note**: Cross-play between Rust and JavaScript implementations is not possible at the moment because different protocols are used (custom for Rust vs. WebRTC for JavaScript).
+**Note**: Cross-play between the Rust and JavaScript implementations is not possible at the moment, since they use different protocols (custom for Rust vs. WebRTC for JavaScript).
 
 
 ## Input
