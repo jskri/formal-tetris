@@ -10,12 +10,7 @@ From Tetris Require Import Notations.
 Open Scope program_scope.
 
 (* [seqz start len] is the list [start; start+1; ...; start+len-1].
- * [start] may be negative. A non-positive [len] yields the empty list.
- *
- * Note: the previous definition returned a [list ℕ] and truncated a negative
- * [start] to 0, which silently dropped the negative part of a grid box (and
- * overshot its top). Grid boxes have negative origins as soon as a piece is
- * translated below or to the left of the main grid, hence the change. *)
+ * [start] may be negative. A non-positive [len] yields the empty list. *)
 Definition seqz (start len : ℤ) : list ℤ :=
   map (λ n : ℕ, start + Z.of_nat n) (seq 0 (Z.to_nat len)).
 

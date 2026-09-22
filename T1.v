@@ -271,7 +271,7 @@ Definition Full (g : Grid) : Grid :=
   Constant g true.
 
 (*
-true iff all occupied blocks of grid g1 are also occupied in grid g2.
+true iff all occupied blocks of grid g1 are inside g2's bounds and are also occupied in grid g2.
 ⊆-transitive: ∀ g1 g2 g3, g1 ⊆ g2 → g2 ⊆ g3 → g1 ⊆ g3.
 ⊆-law1: ∀ g1 g2 g3, g1 ⊆ (g2 ∩ g3) → g1 ⊆ g2 ∧ g1 ⊆ g3.
 *)
@@ -290,23 +290,27 @@ Definition EmptyGrid : Grid :=
   ;  YX := (0, 0)
   |}.
 
-(* Algebraic structure:
-For a fixed box B, the set of grids with that exact box is in bijection with
-Bool^(B ∩ ℤ×ℤ) — one Boolean per cell — via L. Under that bijection ∪, ∩ correspond
-exactly to pointwise ||, &&. The lattice of grids-with-box-B is isomorphic to
-the pointwise Boolean lattice Bool^(cells of B), which is the complete atomic
-distributive lattice on those cells (each cell is an independent atom/coatom pair,
-Empty/Full are literal bottom/top, and the lattice is Boolean, i.e. every element
-has a complement — stronger than merely distributive)
+(*
+Algebraic structure:
+
+For a fixed box B = {(y,x) : y0 ≤ y < y1, x0 ≤ x < x1}, the set of grids with
+that exact box, i.e. {g : HW g = (y1-y0, x1-x0) ∧ YX g = (y0, x0) ∧ Contained
+g}, is in bijection with Bool^B. Under that bijection ∪, ∩ correspond exactly to
+pointwise ||, &&. The lattice of grids-with-box-B is isomorphic to the pointwise
+Boolean lattice Bool^B, which is the complete atomic distributive lattice on
+those cells (each cell is an independent atom/coatom pair, Empty g/Full g are
+literal bottom/top, and the lattice is Boolean, i.e. every element has a
+complement, which means it is stronger than merely distributive)
+
 *)
 
-(* Operators ordered from weaker binding to stronger binding. *)
-Notation "g1 ⊆ g2" := (GridInclude g1 g2) (at level 64, no associativity). (* \subseteq = ⊆ *)
-Notation "g1 ⊈ g2" := (negb (GridInclude g1 g2)) (at level 64, no associativity). (* \nsubseteq = ⊈ *)
-Notation "g1 ∪ g2" := (GridUnion g1 g2) (at level 63, left associativity). (* \cup = ∪ *)
-Notation "g1 ∩ g2" := (GridIntersect g1 g2) (at level 62, left associativity). (* \cap = ∩ *)
-Notation "g ⊕ d" := (GridTranslate g d) (at level 61, left associativity). (* \oplus = ⊕ *)
-Notation "∅" := EmptyGrid. (* \emptyset = ∅ *)
+(* Operators ordered from weaker to stronger binding. *)
+Notation "g1 ⊆ g2" := (GridInclude g1 g2) (at level 64, no associativity).
+Notation "g1 ⊈ g2" := (negb (GridInclude g1 g2)) (at level 64, no associativity).
+Notation "g1 ∪ g2" := (GridUnion g1 g2) (at level 63, left associativity).
+Notation "g1 ∩ g2" := (GridIntersect g1 g2) (at level 62, left associativity).
+Notation "g ⊕ d" := (GridTranslate g d) (at level 61, left associativity).
+Notation "∅" := EmptyGrid.
 
 
 (* ========================================================================= *)
@@ -357,6 +361,7 @@ Axiom AxiomsPW :
 Definition IsFullLine (g : Grid) (y : ℤ) : Prop :=
   ∀ x : ℤ, (X g ≤ x < X g + W g) → L g y x = true.
 
+(* The initial main grid has positive dimensions and has no full lines. *)
 Axiom AxiomsInitialMainGrid :
     H InitialMainGrid > 0
   ∧ W InitialMainGrid > 0
@@ -365,6 +370,8 @@ Axiom AxiomsInitialMainGrid :
     (* initial main grid has no full line (see NoFullLine invariant) *)
   ∧ ∀ y : ℤ, (0 ≤ y < H InitialMainGrid) → ¬ IsFullLine InitialMainGrid y.
 
+(* The forbidden grid has positive dimensions and its bounding box is included
+   inside the main grid one. *)
 Axiom AxiomsForbiddenGrid :
     H ForbiddenGrid > 0
   ∧ W ForbiddenGrid > 0
@@ -417,7 +424,7 @@ Inductive Event :=
   | Fall    (pNew : Piece)
   | Stutter.
 
-(* true iff piece p_ at pos (py_, px_) and rotated by angle pr_ is inside
+(* true iff piece p at pos pyx and rotated by angle pr is inside
  * main grid bounds and doesn't intersect it *)
 Definition Valid (g : Grid) (p : Piece) (pyx : ℤ × ℤ) (pr : ℤ) : bool :=
   let gp := RotGrid p pr ⊕ pyx in
