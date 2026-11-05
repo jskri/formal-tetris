@@ -1,14 +1,11 @@
 // spec: tests/test_instance.rs — test fixture (§2, §9, `implementation.md`).
 //
-// `include!`s `t1`'s fixture directly (not `t5`'s) — a third level of
-// `#[path]`-module nesting hits a genuine `rustc` resolution quirk, avoided
-// by not chaining through `t5`'s copy. Cost: `TestInstanceWide` is
-// re-declared below rather than reached through an intermediate copy.
+// `include!`s `t1`'s fixture directly, because nested `#[path]` module
+// includes resolve unreliably. `TestInstanceWide` is re-declared below.
 //
-// Identical to `t5/tests/test_instance.rs`: no new `t6::model::Params`
-// trait to satisfy (§6.0) — the `impl t5::model::Params` blocks below
-// already cover it. Duplicated rather than shared as compiled code (§9's
-// per-crate-fixture convention).
+// Identical to `t5/tests/test_instance.rs`: the `impl t5::model::Params`
+// blocks below already satisfy `t6::model::Params` (§6.0). Duplicated
+// rather than shared as compiled code (§9's per-crate-fixture convention).
 
 #![allow(dead_code)]
 

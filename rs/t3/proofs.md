@@ -242,7 +242,7 @@ them (`fix_piece`, unaffected by T3).
 
 ---
 
-## 6. The two new state invariants and `HoldMonotone`
+## 6. The two T3 state invariants and `HoldMonotone`
 
 ### 6.1 `SwappedImplyHoldSome` — `swapped s = true → hold s ≠ None`
 

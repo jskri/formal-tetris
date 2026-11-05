@@ -129,8 +129,8 @@ follows. ∎
 
 *Proof.* `Full g2`'s box is `g2`'s own box, but its `L` is the *unconditional* constant
 `true` (`Constant g2 true`, ignoring `g2`'s own box entirely). Substituting into
-`GridInclude`'s definition: `implb (L g1 y x) (inbox(g2,y,x) ∧ true) = implb (L g1 y x)
-(inbox(g2,y,x))` — i.e. "every occupied cell of `g1` lies in `g2`'s box", independent of
+`GridInclude`'s definition: `implb (L g1 y x) (InBox g2 y x ∧ true) = implb (L g1 y x)
+(InBox g2 y x)` — i.e. "every occupied cell of `g1` lies in `g2`'s box", independent of
 `g2`'s content, quantified over `g1`'s own box (as in L-intersect). `occupied_inside`'s
 loop visits exactly `g1`'s occupied cells and returns `false` the first time one falls
 outside `g2`'s bounds (`ay < y2 ∨ ay ≥ y2+h2 ∨ …`), `true` otherwise — a direct
@@ -139,7 +139,7 @@ transcription of that universally-quantified implication. ∎
 ### L-fully_contained_in
 `fully_contained_in(g1,y1,x1,g2,y2,x2) = true ⟺ ⟦g1⟧₍y1,x1₎ ⊆ ⟦g2⟧₍y2,x2₎` (bare
 `GridInclude`, no `Full`). *Proof.* Same quantifier-domain argument as L-intersect
-(restricted to `g1`'s box); the consequent is now `inbox(g2,y,x) ∧ L g2 y x` verbatim
+(restricted to `g1`'s box); the consequent is `InBox g2 y x ∧ L g2 y x` verbatim
 (no `Full` to simplify away), matching `fully_contained_in`'s bounds-guard-then-content
 check exactly. ∎
 
@@ -204,22 +204,21 @@ the table only enumerates the inputs `rotate_piece` can actually produce (D4).
 independent correspondence.
 
 ### L-can_rotate_piece
-`can_rotate_piece::<P>(cw, s) = true ⟺ ¬gameover s ∧ RotatePiece cw α(s) ≠ None`, i.e.
+`¬gameover s → (can_rotate_piece::<P>(cw, s) = true ⟺ RotatePiece cw α(s) ≠ None)`, i.e.
 `can_rotate_piece`'s postcondition is exactly "a plain rotation would fire," *given*
 `¬gameover s` (`can_rotate_piece` does not itself read `s.gameover` — same omission
 `can_move_piece` makes, §3's own precedent — so the equivalence is stated relative to a
 `¬gameover` hypothesis supplied by the caller, not derived here). *Proof.* Let `pr2 :=
 (s.pr as i64 + (if cw then -1 else 1)).rem_euclid(4) as u8`. By L-rem_euclid, `pr2 as ℤ =
 (pr s + (if cw then -1 else 1)) mod 4` — exactly `RotatePiece`'s own `pr2` binding.
-`can_rotate_piece`'s body is `valid::<P>(&s.mg, s.p, s.py, s.px, pr2)`; by L-valid this is
+`can_rotate_piece`'s body is `valid::<P, _>(&s.mg, s.p, s.py, s.px, pr2)`; by L-valid this is
 `Valid ⟦s.mg⟧ (s.p) (s.py,s.px) (pr2 as ℤ) = Valid (mg α(s)) (p α(s)) (pyx α(s)) pr2` —
 exactly `RotatePiece cw`'s own guard conjunct (`§4.2` below shows `rotate_piece`'s guard,
 minus `gameover`, is this same `Valid` call). `RotatePiece cw s = Some s'` iff `¬gameover
 s ∧ Valid (mg s) (p s) (pyx s) pr2`; under the hypothesis `¬gameover s`, this reduces to
-exactly `can_rotate_piece`'s value. ∎ No caller of `can_rotate_piece` in this codebase
-relies on the `gameover`-unconditional direction of this lemma — `t6::model`'s
-`rotate_kick_piece` checks `s1.gameover` itself, immediately adjacent to the call
-(`implementation.md` §0.2, §4-T6b), the same division of labor `fix_piece`'s `self.gameover
+exactly `can_rotate_piece`'s value. ∎ Every caller supplies the `¬gameover` hypothesis —
+`t6::model`'s `rotate_kick_piece` checks `s1.gameover` itself, immediately adjacent to the
+call (`t6/implementation.md` §0.2, §4-T6b), the same division of labor `fix_piece`'s `self.gameover
 || can_move_piece(-1,0,self)` guard already uses for `can_move_piece`.
 
 ---

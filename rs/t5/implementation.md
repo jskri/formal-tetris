@@ -42,10 +42,10 @@ dependencies)
 | `t4::model::Params` | the parameter trait; `t5::model::Params` extends it (skill §7.4) — `T5.v` adds no new abstract parameter |
 | `t4::model::Machine<P>` | the wrapped engine, reached as `self.s4` |
 | `t4::model::{check_invariants, check_axioms, assert_piece_set}` | called directly, not re-implemented |
-| `t1::model::{valid, new_piece_yx_state}` | read the shadow / relocate the piece — both already exist in `rs_t1_src_model.rs`, no patch needed |
+| `t1::model::{valid, new_piece_yx_state}` | read the shadow / relocate the piece — both provided by `t1/src/model.rs` (`t1/implementation.md` §3, §5) |
 | `t2::view`/`t1::view` sub-procedures (`draw_panel`, `draw_banners`, `draw_grid`, `draw_background`, `draw_grid_lines`, `draw_piece`, `draw_game_over`, `draw_text_label`, `draw_block`, `panel_metrics`, `desired_panel_px`) | called directly by `t5::view`, exactly as `t4::view` already calls them |
 | `t3::view::{Layout, compute_layout, draw_hold_box, Banner, RenderConstants}` | embedded/called by `t5::view`, exactly as `t4::view` already does |
-| `t4::view::{Layout, compute_layout, draw_preview}` | embedded/called by `t5::view` (§0.2 — requires a visibility patch, the same kind `t4/implementation.md` §0.2 applied to `t3::view`) |
+| `t4::view::{Layout, compute_layout, draw_preview}` | embedded/called by `t5::view` (§0.2 — these items must be `pub`, as `t4/implementation.md` §0.2 requires of `t3::view`) |
 | `t1::instance::Tetris` | the concrete instance type; `t5::instance` adds a `t5::model::Params` impl for it rather than defining a new type (§11) |
 | `t1::misc::{DAS_DELAY, ARR, window_conf, LogicalKeys, RepeatTimer, random_piece}` | `main.rs`-only primitives; `t5/main.rs` imports them directly |
 | `t3::misc::Action` | **not** reused as-is (unlike T4, which reused it verbatim) — T5 adds a genuinely new player action (`Drop`), so `t5::misc::Action` is a fresh 7-variant redefinition (§15.1), the same treatment `t3::misc::Action` gives a game action absent from `t1::misc::Action` |
@@ -55,26 +55,22 @@ field and its recomputation (`shadow_y`, `update_shadow_y`, `drop_piece`'s reloc
 Nothing in `t5` reimplements grid algebra, rotation, line clearing, scoring, the hold slot,
 or the bag/preview mechanism.
 
-### 0.2 Prerequisite patch to `t4/src/view.rs`
+### 0.2 Required visibility on `t4/src/view.rs`
 
-`t4::view::Layout`, `t4::view::compute_layout`, and `t4::view::draw_preview` are currently
-private (no `pub` on the struct, either `fn`, confirmed against `rs_t4_src_view.rs`) —
-`t4::view` is not itself wrapped by anything below T5, so, per `t4/implementation.md` §0.2's
-own precedent (`t3::view::Layout` is widened for exactly the same reason: T4 needs to splice
-into T3's render pipeline), the same widening is required one layer further up. T5
-needs to insert `draw_ghost` between `draw_grid_lines` and `draw_piece` inside its own
+T5 needs to insert `draw_ghost` between `draw_grid_lines` and `draw_piece` inside its own
 `render`, which means calling `t4::view`'s geometry and preview-drawing directly rather than
 treating `t4::view::render()` as an opaque whole (calling it as a whole would draw the active
 piece and the game-over overlay before T5 ever got a chance to draw the ghost underneath
-them). Required patch, purely additive (no signature or behavior change):
-- `pub struct Layout { pub base: t3::view::Layout, pub right_origin: f32, pub preview_label_y: f32, pub preview_box_top: f32, pub preview_cell_size: f32, pub preview_gap: f32, pub preview_box_size: f32, pub preview_count: usize, pub min_row: i64, pub max_row: i64 }`
+them). It therefore needs these `t4::view` items to be `pub` (`t4/implementation.md` §14),
+the same arrangement `t4/implementation.md` §0.2 relies on for `t3::view`:
+- `pub struct Layout { pub base: t3::view::Layout, pub right_origin: f32, pub preview_label_y: f32, pub preview_box_top: f32, pub preview_cell_size: f32, pub preview_gap: f32, pub preview_box_size: f32, pub preview_count: usize, pub max_row: i64 }`
 - `pub fn compute_layout<P: Params>(...) -> Layout`
 - `pub fn draw_preview<P: Params>(...)`
 
-No patch to `t4::model` or `t3::view`/`t2::view`/`t1::view` is needed — everything below
-`t4::view` is already `pub` for `t4::view`'s own sake (`t4/implementation.md` §0.2), and T5's
-new logic never touches the bag/preview state itself, only reads it (`machine.s4.next`) for
-rendering purposes already exposed via the field being `pub`.
+Nothing else below `t4::view` needs widening — everything T5 uses there is already `pub`
+for `t4::view`'s own sake (`t4/implementation.md` §0.2), and T5's new logic never touches the
+bag/preview state itself, only reads it (`machine.s4.next`) for rendering purposes, already
+exposed via the field being `pub`.
 
 ---
 
@@ -119,14 +115,14 @@ t5/
     main.rs                    # entry point: DROP action, Up/D-pad-up (§15)
   proofs.md              # refinement proof, delta over t4/proofs.md (§8)
   tests/
-    test_instance.rs     # include!'s t4's fixture verbatim (§9) — no new Params item needed
+    test_instance.rs     # include!s t1's fixture and restates `TestInstanceWide` (§9) — no new Params item needed
     model_unit_test.rs
     model_properties_test.rs
     model_fuzz_test.rs
     oracle.rs             # executable T5.v reference (reuses t4's oracle for s4)
 ```
 
-The workspace root's `Cargo.toml` gains `"t5"` in `members`; `t1`–`t4` remain independently
+The workspace root's `Cargo.toml` lists `"t5"` in `members`; `t1`–`t4` remain independently
 buildable, unmodified in behavior by T5's existence (only the `pub` visibility widening of
 §0.2).
 
@@ -258,7 +254,7 @@ through `self.s4`'s methods and fields. New T5-only points:
   state — already established. No case where the relocation is followed by a rejection
   exists, so no peek-then-commit restructuring is needed (contrast `t4/implementation.md`
   §4-T4d). `new_piece_yx_state` overrides *both* coordinates unconditionally
-  (`rs_t1_src_model.rs`), so `px` is read and passed explicitly to keep the column unchanged —
+  (`t1/src/model.rs`), so `px` is read and passed explicitly to keep the column unchanged —
   passing a literal here would reset the piece's column on every hard drop.
   `t4::model::fix_piece` re-asserts `bag_new` internally (its own §4-T4c convention); the
   assertion here is accepted redundancy, the same the tower already accepts in `fall_step`.
@@ -441,8 +437,8 @@ Mirror T4's suite (`t4/implementation.md` §9) on the same fixture family, plus 
 coverage.
 
 - **`test_instance.rs`** — `include!(concat!(env!("CARGO_MANIFEST_DIR"),
-  "/../t4/tests/test_instance.rs"));`, giving `TestInstance` (`NEXT_LEN = 3`) and
-  `TestInstanceWide` (`NEXT_LEN = 5`) unchanged. `T5.v` introduces no new `Params` item, so
+  "/../t1/tests/test_instance.rs"));`, giving `TestInstance` (`NEXT_LEN = 3`) and
+  `TestInstanceWide` (`NEXT_LEN = 5`) (the latter restated locally). `T5.v` introduces no new `Params` item, so
   both already satisfy `t5::model::Params` once the explicit `impl t5::model::Params for
   TestInstance {}` / `impl t5::model::Params for TestInstanceWide {}` are added alongside the
   include — same mechanical shape as `instance.rs`'s own (§6.0, §11).
@@ -494,7 +490,7 @@ A regeneration is correct iff:
 7. `check_invariants` recomputes `shadow_y` and compares against `gy`, gated on `!gameover`.
 8. `check_axioms::<P>()` delegates to `t4::model::check_axioms::<P>()` and asserts nothing
    further — `T5.v` states no axiom of its own.
-9. The `t4::view` visibility patch (§0.2) is present and additive-only.
+9. The `t4::view` items listed in §0.2 are `pub`.
 
 ---
 
@@ -648,7 +644,7 @@ falling piece → game-over overlay if applicable.
 Extends `t4/implementation.md` §15's shape. Unlike T4 (which reused `t3::misc::Action`
 verbatim, adding no new player-facing action), T5 adds `Drop`, so `Action` itself is new here.
 
-### 15.1 `t5::misc::Action` — seven variants, `Drop` added, no repeat
+### 15.1 `t5::misc::Action` — seven variants, with `Drop`, no repeat
 
 ```rust
 // spec: §15 — T3's six variants plus Drop (req-piece-drop).
@@ -717,7 +713,7 @@ left/right/down) already use gilrs's D-pad buttons for the repeating directional
 `DPadUp` is the consistent choice for the one new non-repeating action, not a new convention.
 No conflict with the face buttons already bound (`East`/`South`/`North`).
 
-### 15.2 `ACTIONS`/`fire` — `Drop` added
+### 15.2 `Action::ALL`/`fire` — with `Drop`
 
 ```rust
 fn fire<P: Params>(action: Action, machine: &mut Machine<P>) {

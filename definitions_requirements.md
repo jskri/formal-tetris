@@ -187,7 +187,7 @@ def-multi-garbage-pending: The garbage a player has received but that has not
 
 def-multi-target: The player the garbage is sent to.
 
-def-multi-winner: The last player whose game is not over is the winner.
+req-multi-winner: The last player whose game is not over is the winner.
 
 req-multi-target-nonself: A player is never her own target, except when it is
     the winner.

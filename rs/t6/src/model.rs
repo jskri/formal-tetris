@@ -16,7 +16,7 @@ pub use t5::model::Params;
 /// spec: State (`= T5.State`)
 pub type Machine<P> = t5::model::Machine<P>;
 
-// ── RotateKickPieceExt: the sole new action ─────────────────────────────────
+// ── T6MachineExt: the sole new action, plus field accessors ──────────────────
 
 /// spec: §1 — extension trait, since `Machine<P>` is a foreign type here
 /// and Rust forbids an inherent impl on it.

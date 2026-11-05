@@ -1,16 +1,16 @@
 # proofs.md — refinement proof, the JS system ⊨ `T7.v`
 
-Not a delta over `t6/proofs.md` in the sense `t5/proofs.md`→`t6/proofs.md` was. Every
-prior layer's obligation was "one `Machine` subclass refines the previous layer's
+Not a delta over `t6/proofs.md` in the sense `t5/proofs.md`→`t6/proofs.md` is. For every
+lower layer, the obligation is "one `Machine` subclass refines the previous layer's
 `Machine`." `T7.v`'s own state (`connected`, `messages`) has no counterpart inside
 any single `Machine` — it is realized by the network/controller layer instead. So
 the obligation here is **the JS *system* refines `T7.v`** — `α` and every per-event
 argument span `model.js` + `controller.js` + the physical network, not `model.js`
 alone (`implementation.md` §8, verbatim).
 
-`RefineT6` (`T7.v` lines 729–742) is a separate, already-stated fact about the two
+`T7RefinesT6` (`T7.v`'s own definition) is a separate, already-stated fact about the two
 Rocq specs (`T7.v` refines `T6.v`), taken here as given, not re-derived — consistent
-with `t7_implementation_remarks.md`: the obligation discharged in this file is JS
+with `implementation.md` §1: the obligation discharged in this file is JS
 against `T7.v`, never JS against `T6.v` directly.
 
 ## 0. Result
@@ -25,26 +25,27 @@ by the same reasoning §12 already uses for the `MAX_SAFE_INTEGER` cap (§5a).
 
 Two further points are load-bearing enough to call out up front, both argued
 in full where noted: `receiveGameover`/`receiveDisconnect`'s target
-redirect and the `from ↦ true` override in their `view` closures (§7, §8), and
+redirect, whose `view` closures read the views after the method's own field
+write (§7, §8), and
 `garbage`'s cap at `MAX_SAFE_INTEGER` (§12).
 
 ## 1. Scope
 
-Safety only, per skill convention. Excluded from `RefineT6` (hence from any
+Safety only, per skill convention. Excluded from `T7RefinesT6` (hence from any
 "this JS step *is* this `T6.v` step" claim): a materializing `Fix` — `remGarbage >
-0` — including one reached via `Drop` (`T7.v`'s own header comment, lines
-676–681). This file's own obligation (JS ⊨ `T7.v`) is not so excluded: every JS
+0` — including one reached via `Drop` (`T7.v`'s header comment, "Refinement",
+and `T7RefinesT6`'s `H4`/`H5` hypotheses). This file's own obligation (JS ⊨ `T7.v`) is not so excluded: every JS
 step, materializing or not, is argued against `T7.v`'s `Next` directly (§4–§9).
 
 ## 2. `PlayerCount = 1`
 
-`T7.v` describes this case too (header, lines 4–6) but `t7/model.js` refuses to
-construct at all unless `PlayerCount > 1` (`AxiomsPlayer`, `checkAxioms`) —
+`T7.v` describes this case too (header comment, "Design") but `t7/model.js` refuses to
+construct at all unless `PlayerCount > 1` (the `AxiomsPlayer` assertion in
+`checkAxioms`) —
 single-player is realized entirely by `t6/model.js`, selected by the controller
-before any `t7.Machine` exists (`implementation.md` §0, `t7_implementation_remarks
-.md`). So `PlayerCount = 1` is discharged by `t6/proofs.md` in full: `T7.v` reduces
+before any `t7.Machine` exists (`implementation.md` §0). So `PlayerCount = 1` is discharged by `t6/proofs.md` in full: `T7.v` reduces
 definitionally to `T6.v` at `PlayerCount = 1` in every action that branches on it
-(`FixPiece`, line 290: `if PlayerCount =? 1 then UpdatePlayer s pl s6' else ...`;
+(`FixPiece`: `if PlayerCount =? 1 then UpdatePlayer s pl s6' else ...`;
 `Init`'s `connectedView`/`connected` are `PlayerCount >? 1`, both `false`; `Receive`/
 `Disconnect`/`Notice` are unreachable since nothing is ever `connected`). Nothing in
 this file's remaining sections applies to that regime.
@@ -106,14 +107,14 @@ total functions of `σ`, matching `T7.v`'s own totality.
 
 Each method's guard is `if (this.winner) return false;` — `winnerMulti(this.
 gameoverView, this.connectedView, this.myIndex)`, a direct transcription of
-`WinnerMulti` (`T7.v` lines 172–175: `PlayerCount >? 1` is true unconditionally in
+`T7.v`'s `WinnerMulti` (`1 <? PlayerCount` is true unconditionally in
 this file's regime, §2, so the guard reduces to the `ForallPlayers` clause, which
 `winnerMulti`'s loop realizes cell-for-cell). When `this.winner`, the method
 touches nothing and returns `false` — matches `MovePiece`/`RotatePiece`/
-`HoldPiece`/`RotateKickPiece`'s `else None` branch exactly (`T7.v` lines 213–223,
-470–476, 486–490). When not, each delegates to the identical `this.s6.<method>`
+`HoldPiece`/`RotateKickPiece`'s `else None` branch exactly (each definition's own `if ! WinnerMulti s pl then
+... else None`). When not, each delegates to the identical `this.s6.<method>`
 call `T6.v`'s own definition names (`option_map (UpdatePlayer s pl) (T6.<Action>
-...)`) — `UpdatePlayer` (lines 143–153) touches only `s6` (via the delegated call)
+...)`) — `UpdatePlayer` touches only `s6` (via the delegated call)
 and, conditionally, `gameoverView`'s own `(pl, pl)` cell (`T6.gameover s6'`,
 `SelfViewAccurate`'s own coupling, §11 below); every other field (`garbage`,
 `target`, `connectedView`, `connected`, `messages`) is `unchanged` per
@@ -126,12 +127,12 @@ non-materializing `Fix` (`remGarbage = 0` after `this.s6.fixPiece`) is covered b
 
 `this.s6.fixPiece(bagNew)` runs first, unconditionally, computing full
 `T6` semantics (score/level/hold/`clearedLines`/`perfectClear`/`mg`/`gameover` from
-the piece placement alone) — exactly `T6.FixPiece bagNew H2 (s6 s pl)` (`T7.v` line
-346). If it returns `false`, `fixPiece` returns `false` immediately, with
+the piece placement alone) — exactly `T6.FixPiece bagNew H2 (s6 s pl)` (the argument of `FixPiece`'s
+`option_map`). If it returns `false`, `fixPiece` returns `false` immediately, with
 zero further mutation — matches the `None` case of `T6.FixPiece`'s result under
 `option_map`.
 
-**Case `remGarbage = 0` (`NoRemGarbage` holds, `T7.v` lines 715–720).** Then
+**Case `remGarbage = 0` (`NoRemGarbage` holds).** Then
 `effRem` computes to `0`: the shift/overwrite block does not run.
 `gameover2` is computed as `this.s6.gameover`, left unmodified by the
 skipped `if (!gameover2 && remGarbage > 0)` guard (its `remGarbage > 0` condition
@@ -142,15 +143,16 @@ recompute reads `s1.mg` — literally the same grid `this.s6.fixPiece` just prod
 untouched by the (skipped) shift — so `T1Eng.intersect(ForbiddenGrid, FY, FX, s1.mg,
 0, 0)` recomputes exactly the same boolean `T1.Correct`'s own forbidden-zone clause
 already pins `this.s6.gameover` to (this is what `Gameover pl s` states as an
-implication, `T7.v` lines 611–612, and it holds as an invariant of the `T6`-level
+implication, `T7.v`'s `Gameover`, and it holds as an invariant of the `T6`-level
 state by inheritance — not argued fresh here, only used). So `gameover2 =
 this.s6.gameover` exactly, and the whole block reduces to: `this.garbage = 0`
-(matching `T7.v`'s `garbage := λ pl2, if pl2=?pl then 0 else ...`, lines 319–324),
+(matching `FixPiece`'s `garbage := λ pl2, if pl2=?pl then 0 else ...`),
 `this.remGenGarbage` set (read-only bookkeeping field, no `T7.v` counterpart, §6.7
 of `implementation.md`; harmless — never observed by any guard), `gameoverView[my
 Index]` set to the same value it already held. The target-redirect guard
 (`remGenGarbage > 0 && !gameover2`) is exactly `T7.v`'s own guard at the
-corresponding branch (line 329, `(0 <? remGenGarbage) && !gameover'`) — under
+corresponding branch (`FixPiece`'s `target` field, `(0 <? remGenGarbage) && !
+gameover'`) — under
 `NoRemGarbage`, `remGenGarbage = genGarbage - garbage` is 0 exactly when
 `garbage ≥ genGarbage`, the same condition that forces `remGarbage = garbage -
 genGarbage = 0`; conversely `remGarbage = 0 → genGarbage ≥ garbage → remGenGarbage
@@ -160,17 +162,17 @@ independent of `remGarbage`, so this case exercises exactly the same redirect
 `T7.v` calls for, covered by §7 below. Net: under `NoRemGarbage`, `fixPiece`'s only
 observable effect is `this.s6.fixPiece(bagNew)` plus the `garbage := 0` write plus,
 possibly, the very redirect `T7.v` itself performs — i.e. it *is* `T6.Next
-e6 (fₛ pl s7)`, matching `RefineT6`'s own claim, not contradicting it (`H4` in
-`RefineT6`'s statement excludes this call from *that* proof's obligation, but
+e6 (fₛ pl s7)`, matching `T7RefinesT6`'s own claim, not contradicting it (`H4` in
+`T7RefinesT6`'s statement excludes this call from *that* proof's obligation, but
 nothing here needs re-deriving it — `NoMaterializedGarbage`'s left disjunct,
 `PlayerCount = 1`, is out of scope by §2; its right disjunct is this case).
 
-**Case `remGarbage > 0`.** `RefineT6`'s hypothesis `H4` excludes this call from the
+**Case `remGarbage > 0`.** `T7RefinesT6`'s hypothesis `H4` excludes this call from the
 T6-refinement claim entirely (`NoMaterializedGarbage` fails) — no obligation there.
 This file's own obligation (JS ⊨ `T7.v`) still applies, and is a direct
 transcription:
 - `effRem = min(remGarbage, HM)` — `T7.v`'s `Grid` algebra crops
-  unboundedly via `∩ Full mg` (line 304); the array representation needs the
+  via `∩ Full (T6.mg s6')` (`FP.CroppedMg'`); the array representation needs the
   clamp explicit to keep indices in range. `remGarbage ≥ HM ⟹ effRem = HM`: the
   shift loop's source range `[0, HM - effRem) = ∅`, so every old row is dropped —
   matching total replacement by `GarbageGrid`'s rows once its own height reaches
@@ -201,8 +203,8 @@ transcription:
   row ranges, so no cell is written twice and none is left unwritten within `[0,
   HM)`. The trailing `this.s6.updateShadowY()` call *does* have a `T7.v`
   counterpart: `FixPiece`'s materialization branch passes `CroppedMg'` to
-  `NewMainGridGameoverState`, which itself calls `T5.UpdateShadowY` (`T7.v`
-  line 312) to recompute `gy` against the new grid — exactly the refresh
+  `NewMainGridGameoverState`, which itself calls `T5.UpdateShadowY`
+  to recompute `gy` against the new grid — exactly the refresh
   `this.s6.updateShadowY()` performs here, for the same reason (`gy` was
   computed by the piece placement alone and is stale once garbage rows are
   spliced in). Not a new argument: `t5/proofs.md` §3's `gy`-refresh obligation
@@ -210,7 +212,7 @@ transcription:
   more place that obligation discharges, not a divergence from `T7.v`.
 - **Forbidden-zone recheck** (short-circuited when `gameover2` is already
   `true`, per `implementation.md`'s explicit note) is the third disjunct of `T7.v`'s
-  `gameover'` (line 308, `ForbiddenGrid ∩ croppedMg' ⊈ ∅`), evaluated on the same
+  `gameover'` (`FP.Gameover'`'s `ForbiddenGrid ∩ croppedMg' ⊈ ∅`), evaluated on the same
   post-shift `s1.mg` that *is* `croppedMg'` by construction (every write stays
   within `[0, HM)` — the array never grows past it, so cropping is free). Boolean
   `||` across the three disjuncts (`this.s6.gameover`'s initial value, `overflow`,
@@ -219,18 +221,18 @@ transcription:
   `T7.v` itself permits (its own `||` needs no evaluation order, being a pure
   boolean expression; JS's is an optimization, not a semantic difference).
 - `this.garbage = 0`, `gameoverView[myIndex] = gameover2` —
-  `T7.v` lines 319–324, 335–337, cell for cell.
-- **Redirect**: guard and computation both match `T7.v` lines
-  325–334 exactly, `playingView'`/`view` built identically (`!gameoverView' &&
+  `FixPiece`'s `garbage` and `gameoverView` fields, cell for cell.
+- **Redirect**: guard and computation both match `FixPiece`'s `target`
+  field exactly, `playingView'`/`view` built identically (`!gameoverView' &&
   connectedView`, read *after* `gameoverView[myIndex]` was just updated —
-  matching `T7.v`'s own `gameoverView'`, which folds in the same just-written
-  self-cell before being read by `NextTarget`, line 312–313). §7's termination
+  matching `FP.PlayingView'`, built on `FP.GameoverView'`, which folds in the
+  same just-written self-cell before being read by `NextTarget`). §7's termination
   lemma (used generically, not re-derived per call site) confirms this call never
-  needs `T7.v`'s `from ↦ true` override: the search here starts at `target s pl`
+  falls through to `NextTargetAux`'s `self` fallback: the search here starts at `target s pl`
   itself, a player whose own liveness this very call cannot have changed (`pl ≠
   target(pl)` by `TargetNotSelf`, so the one cell this call can move — `(pl, pl)`
   — is not the one being searched), so the wraparound candidate is provably still
-  `PlayingView`-true without any forced override (§7, case 2).
+  `PlayingView`-true (§7, case 2).
 
 ## 5a. `FixPiece`'s own `connected s pl` gate — bounded divergence, not an exact match
 
@@ -291,26 +293,26 @@ to it. Liveness (a genuinely-sent `GARBAGE`/`GAMEOVER` eventually being
 `Prop` hypothesis there, not a runtime check). The `this.gameover` guard is
 likewise a fast-path, not new semantics: if already gameover, `this.s6.fixPiece`
 inside the eventual `this.fixPiece` call would itself decline (inherited `T6`-level
-guard), so `DropPiece` would return `None` regardless via `FixPiece`'s own
-composition (`T7.v` line 484); short-circuiting before the relocation changes
+guard), so `DropPiece` would return `None` regardless via its own
+composition with `FixPiece`; short-circuiting before the relocation changes
 nothing observable, matching the same reasoning `t5/proofs.md` §6 already gives for
 this exact style of upfront check. The relocation itself (one `s1`
 field copy: `mg`/`p`/`py`/`px`/`pr`/`gameover`/`clearedLines`) is the identical
 pattern `t5/model.js`'s own `dropPiece` uses, reached through `T6.Machine`'s
 inherited flattened `s1` accessor and `gy` field with no patch to `t5/model.js`/
-`t6/model.js` — `T1.NewPieceYXState (gy s pl, px s pl) pl s`, `T7.v` line 478–479,
-wrapped in `UnchangedT7Part` (nothing outside `s6` moves), matching
+`t6/model.js` — `T7.v`'s `NewPieceYXState (gy s pl, px s pl) pl s`, i.e.
+`T6.NewPieceYXState` wrapped in `UnchangedT7Part` (nothing outside `s6` moves), matching
 that only `s1`'s seven fields are touched here. The trailing `this.fixPiece(bagNew,
 holesFn)` call is `T7`'s own `fixPiece`, not `this.s6.dropPiece` —
 so garbage generation/cancellation/materialization/redirect is not bypassed on a
-hard drop — and is covered by §5 in full, no new argument needed (`T7.v`'s own
-composition, line 484: `FixPiece pl holes H1 bagNew H2 (NewPieceYXState ...)`).
+hard drop — and is covered by §5 in full, no new argument needed (`DropPiece`'s own
+composition: `FixPiece pl holes H1 bagNew H2 (NewPieceYXState ...)`).
 
 ## 7. `NextTarget` termination lemma
 
 Used by §5 (`fixPiece`'s own redirect) and §8 (`receiveGameover`/
 `receiveDisconnect`). `NextTargetAux`'s only fallback is its `fuel = 0` case,
-returning `self` (`T7.v` lines 180–187) — every use of `nextTarget` in `model.js`
+returning `self` — every use of `nextTarget` in `model.js`
 must never actually reach it while `Correct s7` holds, or the JS/spec field values
 would diverge at a point invariants are meant to prevent.
 
@@ -319,57 +321,58 @@ post-state `s7'` of the call in question, some candidate distinct from `self` an
 from the search's starting point is found strictly before the search would need to
 wrap fully around.
 
-**Proof.** `MessageSound` (lines 556–558) plus the branch guard (`from` is the
+**Proof.** `MessageSound` plus the branch guard (`from` is the
 sender of the `GameoverMessage`/`DisconnectMessage` just popped) gives: the player
 the search is walking away from is truly not-playing post-update (`gameover s from
-= true` or `connected s from = false`, hence `Playing s' from = false`, line 534).
-`ViewSound`'s two clauses (lines 550–552), read contrapositively, give: any player
+= true` or `connected s from = false`, hence `Playing s' from = false`).
+`ViewSound`'s two clauses, read contrapositively, give: any player
 truly playing at `s'` is `PlayingView`-true to `pl` at `s'` (a view can lag calling
-someone dead who's alive — never the reverse). `NoWinner s'` (lines 538–539)
+someone dead who's alive — never the reverse). `NoWinner s'`
 supplies two distinct truly-playing players; at most one can be `pl` herself
 (excluded from candidacy, `!(pl2 =? self)`), so at least one genuine candidate
 `Y ≠ pl` exists and is `PlayingView`-true. `NextTargetAux`'s walk visits every
-other player exactly once, in cyclic order (`PlayerCyclicPermutation`, lines
-59–61), before it could ever revisit the walk's own starting point — so `Y` is
+other player exactly once, in cyclic order (`PlayerCyclicPermutation`), before it could ever revisit the walk's own starting point — so `Y` is
 found at some step strictly before the wraparound. ∎
 
 **Two call sites, two conclusions.**
 1. `receiveGameover`/`receiveDisconnect` (§8): the walk starts at `from`, the very
-   player whose status just became "not playing". `T7.v`'s `view'` forces
-   `view'(from) = true` (line 364); `model.js`'s `view` closures in both methods
-   carry the same override (`pl2 === from ? true : playingView(...)`). The
-   override matters exactly when `NoWinner s'` fails: without it, the walk would
-   reach the wraparound point with `view(from)` evaluating to the *post-update*
-   value — `false` — and fall through to `NextTargetAux`'s own `self` fallback,
-   disagreeing with `T7.v`'s own result there, which is `from` itself (a no-op,
-   since `from` was already `target s pl`). The claim above shows this case never
-   arises while `Correct` holds — but matching `T7.v`'s literal computation on
-   every state the code can reach, not only the invariant-constrained subset, is
-   the actual obligation, so the override is part of `model.js` regardless.
+   player whose status just became "not playing". `ReceiveMessage`'s `view'`
+   forces `view'(from) = false` and otherwise reads the pre-state `PlayingView s
+   pl`. `model.js`'s `view` closures in both methods read `playingView` *after*
+   the method's own field write (`gameoverView[from] = true`, resp.
+   `connectedView[from] = false`); that write is the only difference from the
+   pre-state view, and it makes `from` not-playing — so the two closures agree on
+   every player. When `NoWinner s'` holds, the claim above shows the walk stops at
+   a genuine candidate before wrapping. When it fails, both walks may exhaust
+   their fuel and return `self` (`NextTargetAux`'s `fuel = 0` case, `nextTarget`'s
+   trailing `return self`) — so they agree there too. Matching `T7.v`'s literal
+   computation on every state the code can reach, not only the
+   invariant-constrained subset, is the actual obligation, and it holds.
 2. `fixPiece`'s own redirect (§5): the walk starts at `target s pl`, a player whose
    liveness *this* call cannot have changed (the only cell `fixPiece` can move is
    `(pl, pl)`, and `target(pl) ≠ pl` by `TargetNotSelf`). So the wraparound
    candidate, `target s pl` itself, is provably still `PlayingView`-true regardless
-   of whether `NoWinner s'` holds — no override is needed here, and `T7.v` uses
-   none at this call site either (`playingView'` unmodified, line 313).
+   of whether `NoWinner s'` holds — `FP.PlayingView'` differs from `PlayingView s
+   pl` only at `pl`'s own cell, which the search never returns.
 
 ## 8. `receiveGarbage`/`receiveGameover`/`receiveDisconnect` — cross-machine argument
 
 Each realizes one `Receive` event: a queue pop between exactly one `(from, pl)`
-pair (`T7.v` lines 358–406). This is an in-order, step-by-step argument, not a
-reordering one — `messages from to`'s FIFO shape (`LastMessagesGameoverDisconnect`,
-lines 572–577) exists precisely so "not yet delivered" *is* the queue; there is
+pair (`T7.v`'s `ReceiveMessage`). This is an in-order, step-by-step argument, not a
+reordering one — `messages from to`'s FIFO shape (`LastMessagesGameoverDisconnect`)
+exists precisely so "not yet delivered" *is* the queue; there is
 nothing left to reorder once α is defined per §3.
 
 - **Enqueued exactly once, by exactly one action.** A `GarbageMessage`/
-  `GameoverMessage` is appended only inside `SendMessages` (`T7.v` lines 270–281),
-  called only from `FixPiece`, only when `connected s pl` (line 343) — realized as
+  `GameoverMessage` is appended only inside `SendMessages`,
+  called only from `FixPiece`, only when `connected s pl` (its `messages` field)
+  — realized as
   `handleFixResult` (`controller.js`), called only from
   `fixFamily`, only when the preceding `fixPiece`/`dropPiece` call returned `true`
   (`fixFamily`'s own `fired`/`wasFix` guard) — one JS call per one successful
   `T7.v` `FixPiece` step, matching one
   Rocq append per step. A `DisconnectMessage` is appended only inside
-  `DisconnectPlayer`, only for `pl ≠ Host` (line 433) — realized by **two**
+  `DisconnectPlayer`, only for `pl ≠ Host` (its `! (pl =? Host)` guard) — realized by **two**
   independent call sites in `controller.js`, each guarded by the same
   `declaredDisconnected` flag, checked and immediately set before any send: the
   heartbeat branch (`startHeartbeat`'s host case)
@@ -382,7 +385,7 @@ nothing left to reorder once α is defined per §3.
   `p.declaredDisconnected`) — so exactly one `DISCONNECT` is ever broadcast per
   `pl`, matching `DisconnectPlayer`'s own single-append shape regardless of
   which JS trigger realized it — matching `DisconnectPlayer`'s own guard (`if
-  connected s pl then ... else None`, line 423): once `connected s pl` flips
+  connected s pl then ... else None`): once `connected s pl` flips
   false, a repeat firing of the same event is already excluded at the Rocq
   level, and `declaredDisconnected` is exactly the JS-side realization of that
   same fact (there is no other place `connected`'s JS-side truth, §3, could
@@ -399,10 +402,10 @@ nothing left to reorder once α is defined per §3.
   are called with precisely that message's payload, never a stale or reordered
   one.
 - **The queue only shrinks, never grows, independent of other players' concurrent
-  steps.** `messages s' from to` (`T7.v`'s pattern `m :: rest ↦ rest`, lines
-  362–363) shrinks by exactly the popped message, for the one `(from, to)` pair
+  steps.** `messages s' from to` (`ReceiveMessage`'s `messages'`, `m :: rest ↦
+  rest`) shrinks by exactly the popped message, for the one `(from, to)` pair
   addressed — every other pair's queue is `messages s` unchanged (all three
-  branches, lines 368–402). JS realizes this the same way: `applyIncoming` reads
+  branches). JS realizes this the same way: `applyIncoming` reads
   and consumes exactly the one message it was invoked with; nothing else in
   `model.js`/`controller.js` mutates any other channel's buffer as a side effect
   of processing this one. This is `OtherS6Unchanged`'s counterpart for the
@@ -413,24 +416,23 @@ nothing left to reorder once α is defined per §3.
   - `receiveGarbage(amount)`: `this.garbage = (this.garbage <= MAX_SAFE_INTEGER -
     amount) ? this.garbage + amount : MAX_SAFE_INTEGER` ≙
     `garbage := λ pl2, if pl2=?pl then garbage s pl2 + n else garbage s pl2`
-    (line 369) up to the cap argued in §12 — no `from` needed on either side
+    up to the cap argued in §12 — no `from` needed on either side
     (sender-agnostic `+=`), matching `T7.v`'s own branch, which never reads
-    `from` either (lines 366–375). No other field moves, either side.
+    `from` either. No other field moves, either side.
   - `receiveGameover(from)`: `this.gameoverView[from] = true` ≙ the
-    `(pl, from)` cell of `gameoverView` (line 385, `obs =? pl && obsd =? from`);
+    `(pl, from)` cell of `gameoverView` (`(obs =? pl) && (obsd =? from)`);
     redirect guard and computation covered by §7 case 1. No other field moves
-    (`s6`, `garbage`, `connectedView` all pass through unchanged both sides —
-    lines 378, 386–387).
+    (`s6`, `garbage`, `connectedView` all pass through unchanged both sides).
   - `receiveDisconnect(from)`: `this.connectedView[from] = false` ≙ the
-    `(pl, from)` cell of `connectedView` (line 398, same shape as `receiveGameover`'s
+    `(pl, from)` cell of `connectedView` (same shape as `receiveGameover`'s
     `gameoverView` cell); redirect present on both sides, covered by §7 case 1
     identically to `receiveGameover`'s.
 
 ## 9. `noticeDisconnection` — stutter w.r.t. `s6`, single-machine
 
 `connectedView[myIndex] = false` ≙ the `(pl, pl)` cell of
-`connectedView` (`T7.v` line 449) — no other field moves, either side. `T7.v`'s own
-guard (`! connected s pl && connectedView s pl pl`, line 443) is *not* checked in
+`connectedView` (`NoticeDisconnection`) — no other field moves, either side. `T7.v`'s own
+guard (`! connected s pl && connectedView s pl pl`) is *not* checked in
 JS: the caller (`noticeHostLost`) only invokes this
 when its own heartbeat timeout or `watchConnection`'s `onFailed` callback (its
 own connection to the host reaching `connectionState === 'failed'`) has just
@@ -450,8 +452,8 @@ proof: `controller.js` never reads a return value from this call.
 ## 10. `Disconnect`
 
 - **`pl = Host` — realized by nobody.** `DisconnectPlayer`'s effect when `pl =
-  Host` sets `connected' pl1 = false` for *every* `pl1` at once (line 431: the
-  `pl =? Host` disjunct makes the guard `false` unconditionally) — "if the host is
+  Host` sets `connected' pl1 = false` for *every* `pl1` at once (the
+  `pl =? Host` disjunct selects `false` for every `pl1`) — "if the host is
   disconnected, everyone is." No JS code realizes this as a step: the host
   process ceasing to exist *is* the fact `connected := λ _, false` becomes true of
   (`α σ`) at the next real step any surviving player takes (`implementation.md` §8
@@ -468,11 +470,11 @@ proof: `controller.js` never reads a return value from this call.
   is added), on `pc.onconnectionstatechange` reaching `'failed'`. Either one, on
   first firing for a given `pl`: `connected` — only `pl`'s own entry flips
   (`connected' pl1 = if pl1 =? pl then false else connected s pl1` when `pl ≠
-  Host`, since the `pl =? Host` disjunct is false, line 431) — realized as
+  Host`, since the `pl =? Host` disjunct is false) — realized as
   `p.declaredDisconnected = true` for that one player, §3's `connected α(σ)`
   reading that flag becoming permanently false for `pl`, unaffected for anyone
   else; `messages` — `DisconnectMessage` appended from `pl` to every `to ≠ pl`
-  (line 433–436) — realized as `applyIncoming(msg)` (the host's own local delivery,
+  — realized as `applyIncoming(msg)` (the host's own local delivery,
   §8) plus `broadcastFromHost(tag(msg), i)` (every other connected player), one
   send per recipient, matching one append per `(pl, to)` pair for every `to ≠ pl`.
   Whichever site fires first, the argument is the same — nothing here depends on
@@ -484,7 +486,7 @@ both realized in the code, as above; there is no third, `onclose`-based path.
 
 ## 11. Representation invariant — `Correct`, by induction
 
-Base case, `Init` (`T7.v` lines 197–209) vs. `Machine`'s constructor: `s6Init` ≙
+Base case, `T7.v`'s `Init` vs. `Machine`'s constructor: `s6Init` ≙
 `new T6Eng.Machine(bagsFn)`, inherited `T6.Correct` (not
 re-derived); `garbage = 0`, `target = PlayerNext(myIndex)`; `gameoverView` — `T7.v`'s
 `Init` sets the `(obs, obs)` diagonal to `T6.gameover(s6Init obs)` and everything
@@ -547,8 +549,7 @@ Inductive step, one clause per method:
   `controller.js`'s relay: a `GameoverMessage`/`DisconnectMessage` is only ever
   enqueued (§8/§10) at the same step the corresponding truth (`gameover`/
   `connected`) becomes false→won't-revert — never before, per the enqueue sites
-  identified in §8/§10 — and `SendMessages`'s own `to =? pl` exclusion (`T7.v`
-  line 274) is realized by `handleFixResult` never addressing a message to
+  identified in §8/§10 — and `SendMessages`'s own `to =? pl` exclusion is realized by `handleFixResult` never addressing a message to
   `myIndex` (`to = preTarget`, always `≠ myIndex` by `TargetNotSelf`) and by the
   host's `DISCONNECT` broadcast excluding the disconnected player itself
   (`broadcastFromHost(tag(msg), i)`, excludes index `i`) — realizing

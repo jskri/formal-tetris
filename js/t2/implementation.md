@@ -54,14 +54,17 @@ needs (the inner T1 state's `clearedLines`, §4-T2a). There is exactly one copy 
 The refinement mapping (`T2.v` Refinement section):
 - `fₑ : T2.Event → T1.Event` is the constructor-wise identity.
 - `fₛ : T2.State → T1.State` is the projection `s1`.
-- `RefineT1 : ∀ e2 s2 s2', T2.Next e2 s2 = Some s2' → T1.Next (fₑ e2) (fₛ s2) = Some (fₛ s2')`.
+- `T2RefinesT1` (`T2.v`), the conjunction of
+  `∀ p, fₛ (T2.Init p) = T1.Init p` and
+  `∀ s2 s2' e2, T2.Next e2 s2 = Some s2' → T1.Next (fₑ e2) (fₛ s2) = Some (fₛ s2')`,
+  proved as `SpecRefine` (`T2Proofs.v`).
 
 Consequence for codegen: the `s1` half of every T2 transition **is** a T1 transition.
 So `model.js`'s machine holds a real `T1.Machine` and delegates the `s1` update to it; only
 the five T2 fields need new JS logic, and only `FixPiece` changes them non-trivially.
 
 Scope (`proofs.md`, full structure in §8 below): safety/refinement only. Fall-speed (§15) and on-screen
-banners (§14) are controller concerns outside the refinement, exactly as fall timing was
+banners (§14) are controller concerns outside the refinement, exactly as fall timing is
 outside T1.
 
 ---
@@ -113,11 +116,13 @@ and are reached through the inner engine.
 | `ComboPoints` | `comboPoints(level, combo)` |
 | `PerfectClearPoints` | `perfectClearPoints(perfectClear, clearedLines, level)` |
 | `Points` | `points(clearedLines, level, combo, perfectClear)` |
-| `clearedLines` (read of `s1'.(clearedLines)`) | `this.s1.clearedLines` (now a T1 field, set on the pre-clear grid) |
+| `clearedLines` (read of `s1'.(clearedLines)`) | `this.s1.clearedLines` (a T1 field, set on the pre-clear grid) |
 | `EmptyGridb` | `emptyGridb(g)` |
 | `fₑ` | not emitted — JS dispatch already maps controller event → method |
 | `fₛ` | not emitted — `this.s1` IS the projection |
-| `Correct`, `LevelCorrect`, `NonDecreasing*`, `ScoreRisesOnClear`, `CorrectStep` | proofs.md only; not emitted |
+| `Correct`, `CorrectWithoutGameover`, `LevelCorrect`, `NonDecreasing*`, `ScoreRisesOnClear`, `CorrectStep` | proofs.md only; not emitted |
+| `UnchangedT2Part` | not emitted — a wrapping model updates the embedded `s1` in place and leaves the T2 fields untouched |
+| `T2RefinesT1`, and the converse-direction definitions `RunT1`, `RunT2`, `gₑ`, `T2AllowsAllT1` | proofs.md only; not emitted |
 
 ---
 
@@ -309,13 +314,14 @@ numeric fields are `Number.isSafeInteger` (the cap, §4-T2e, guarantees this). T
 `T2.Correct`'s extra `LevelCorrect` conjunct and the cap-soundness obligation (`t2/proofs.md`
 §5; cap soundness per this doc's §8.4 below).
 
-### 6.8 Flattened-access retrofit (T5's `implementation.md` §0.3) — no change needed here
+### 6.8 Flattened access (`t5/implementation.md` §0.3)
 
-T5's `implementation.md` §0.3 retrofits T2–T5's `model.js` so that reaching `T1Eng` and
-the innermost `T1.Machine` stays a one-hop access regardless of how many models are
-stacked on top. T2 needs no change for either part: `this.s1` is already T2.Machine's
-own field (literally named `s1`, not a nested one), and `T1Eng` is already returned
-directly (`t2/model.js`'s own `T1Eng` constant, not a re-export of something deeper).
+Every model from T3 on exports `T1Eng` and gives its `Machine` a `get s1()` getter, so
+that reaching `T1Eng` and the innermost `T1.Machine` stays a one-hop access regardless of
+how many models are stacked on top. T2 already satisfies this with nothing extra:
+`this.s1` is T2.Machine's own field (literally named `s1`, not a nested one), and
+`T1Eng` is returned directly (`t2/model.js`'s own `T1Eng` constant, not a re-export of
+something deeper).
 
 ---
 
@@ -347,18 +353,18 @@ closes over `T1Eng`. There is no separate `checkAxioms` for T2.
 
 `t2/proofs.md` establishes that `model.js` simulates `T2.v`, reusing:
 1. `t1/model.js ⊨ T1.v` (`t1/proofs.md`) for the `s1` half.
-2. `RefineT1` (T2.v): every T2 transition's `s1` component is the corresponding T1
+2. `T2RefinesT1` (`T2.v`, proved in `T2Proofs.v`): every T2 transition's `s1` component is the corresponding T1
    transition — so `movePiece`/`rotatePiece`/the move-branch of `fallStep` need no new
    argument beyond "delegates to the verified T1 method, scalars untouched".
 3. New per-field obligations for `fixPiece` only: `score`, `level`, `combo`,
    `perfectClear`, `totalClearedLines` equal their `T2.FixPiece` values. Each is a direct
-   transcription (§6.4) of a `let`-binding; the one subtlety, `clearedLines`, is now read
+   transcription (§6.4) of a `let`-binding; the one subtlety, `clearedLines`, is read
    from the inner state (`this.s1.clearedLines` = `s1'.(clearedLines)`). `T1.v` sets that
    field to `FullLineCount u` on the post-union pre-clear grid `u`; `t1/proofs.md`'s
    L-clearedLines establishes the JS `t1/model.js` writes exactly that value. So `T2` consumes a
    correct count with no re-derivation and no difference-of-counts.
 4. `LevelCorrect` preservation (the extra `T2.Correct` conjunct, not covered by
-   `RefineT1`): `level` is `1 = 1 + natDiv(0, 10)` at init (`totalClearedLines = 0`), and
+   `T2RefinesT1`): `level` is `1 = 1 + natDiv(0, 10)` at init (`totalClearedLines = 0`), and
    `fixPiece` recomputes `level := 1 + natDiv(total2, 10)` from the **same** `total2` it
    just wrote to `this.totalClearedLines`; `movePiece`/`rotatePiece` leave both fields
    unchanged. Hence `this.level === 1 + natDiv(this.totalClearedLines, 10)` holds after
@@ -374,16 +380,16 @@ closes over `T1Eng`. There is no separate `checkAxioms` for T2.
 
 The new arithmetic (`score`, `points`, `level`, `totalClearedLines`) is unbounded in
 `T2.v`: `score` and `totalClearedLines` grow without any model bound, unlike T1's bounded
-state. There is **no** `T2JsBounds.v` and **no** machine-checked "never overflows" claim —
-that claim would be false, since a long enough game exceeds any fixed bound. Instead
+state (`t1/proofs.md`'s `StateBounded`). There is **no** "never overflows" claim — that
+claim would be false, since a long enough game exceeds any fixed bound. Instead
 `model.js` applies a **saturating cap** at `MAX_SAFE_INTEGER` to the three accumulators
 (`score`, `combo`, `totalClearedLines`) via `capAdd` (§4-T2e). proofs.md states two things
 about this cap, both elementary:
 
 - **Safety of representation.** `capAdd(a,b,MAX)` returns a safe integer for all
   `0 ≤ a ≤ MAX`, `0 ≤ b` (it tests `b > MAX − a` before adding, never forming an unsafe
-  sum). So every field stays a safe integer at every step — the JS analogue of T1's
-  `NoOverflow`, but achieved by saturation rather than by a structural bound.
+  sum). So every field stays a safe integer at every step — the counterpart of T1's
+  integer-range safety (`t1/proofs.md` §6), but achieved by saturation rather than by a structural bound.
 - **Monotonicity preserved.** Saturation is monotone and ≥ identity-on-the-left
   (`capAdd(a,b) ≥ a` for `b ≥ 0`), so `NonDecreasingScore` / `NonDecreasingLevel` and
   `totalClearedLines` monotonicity still hold under capping. `ScoreRisesOnClear` is
@@ -406,12 +412,13 @@ Mirror T1's suite (`t1/implementation.md` §9) on the **small fixture**.
 - `testInstance.js` — re-exports T1's `tests/testInstance.js` (PW=2, one L-piece, 4×4
   grid, the structural `rotGrid`) verbatim; adds nothing (T2 has no new params). Re-export
   so the T2 suites import from one place.
-- `oracle.js` — faithful `T2.v` interpreter. Reuses T1's oracle for the `s1` part
-  (`oracleInit`/`oracleNext` over the inner state) and adds the five scalar fields,
-  reading `clearedLines` from the inner T1 oracle state (the T1 oracle now sets it on the
+- `oracle.js` — faithful `T2.v` interpreter. Reuses T1's oracle (`oracle` from
+  `t1/tests/oracle.js`) for the `s1` part and adds the five scalar fields, reading
+  `clearedLines` from the inner T1 oracle state (which the T1 oracle sets on the
   pre-clear union grid), then `score`/`level`/`combo`/`perfectClear`/
-  `totalClearedLines` per `T2.FixPiece`. Exposes `oracleInit`, `oracleNext`,
-  `states2Equal` (compares all six components), `applyEvent2`.
+  `totalClearedLines` per `T2.FixPiece`. Exports one object, `oracle2`, with
+  `makeParams` (T1's, re-exported), `initState`, `movePiece`, `rotatePiece`, `fixPiece`,
+  `fallStep`, `snapshotOf`, and `states2Equal` (compares all six components).
 - `model.unit.test.js` — golden vectors for `lineClearPoints`/`comboPoints`/
   `perfectClearPoints`/`points` (all `clearedLines ∈ {0,1,2,3,4,5}`, `combo ∈ {0,1,2}`,
   `perfectClear ∈ {false,true}`, a couple of `level`s); `fullLineCount`/`emptyGridb`;
@@ -807,6 +814,6 @@ T1's shell with the script importing `./controller.js`:
   main(document.getElementById('game'));
 </script>
 ```
-Placeholder canvas size; `sizeCanvas` overwrites it (now including the panel) on load and
+Placeholder canvas size; `sizeCanvas` overwrites it (including the panel) on load and
 resize. `overflow: hidden`, viewport meta, full-height flex centring as T1.
 

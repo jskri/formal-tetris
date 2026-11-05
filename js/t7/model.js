@@ -405,11 +405,9 @@ export function T(
     }
 
     // spec: ReceiveMessage pl from — GameoverMessage branch. `view` matches
-    // T7.v's shared `view'` exactly, including the `from ↦ true` override:
-    // that forces NextTargetAux's round-robin to always terminate on a real
-    // match — at the latest when it wraps back around to `from` itself —
-    // rather than ever falling through to NextTargetAux's own `self`
-    // fallback (fuel = 0), which this call must never reach.
+    // T7.v's shared `view'` exactly: it reads the views after the write
+    // above, which differ from the pre-state ones only at `from`, now
+    // not-playing — the same as `view'`'s `from ↦ false` case.
     receiveGameover(from) {
       this.gameoverView[from] = true;
       if (this.target === from) {
@@ -422,7 +420,7 @@ export function T(
 
     // spec: ReceiveMessage pl from — DisconnectMessage branch. Same target
     // redirect as GameoverMessage (T7.v uses one shared `view'` for both),
-    // with the same `from ↦ true` override — see receiveGameover.
+    // with the same `from ↦ false` reading — see receiveGameover.
     receiveDisconnect(from) {
       this.connectedView[from] = false;
       if (this.target === from) {

@@ -218,7 +218,7 @@ impl<P: Params> Machine<P> {
     }
 
     /// spec: RotateKickPiece — full use, same shape as `move_piece`.
-    /// `t6::model::RotateKickPieceExt` is imported at this module's top
+    /// `t6::model::T6MachineExt` is imported at this module's top
     /// (`use ... as _`) so `self.s6.rotate_kick_piece(cw)` resolves.
     pub fn rotate_kick_piece(&mut self, cw: bool) -> bool {
         if winner_multi(&self.gameover_view, &self.connected_view, self.my_index) {

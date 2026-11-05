@@ -10,20 +10,6 @@ Open Scope nat_scope.
 
 Module T1P := T1Proofs.
 
-(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
- * hypotheses, lemma premises or event constructors. Same rules as T1Proofs.v:
- * - a fact is taken out of a conjunction by stating it, e.g.
- *   [assert (F : fact) by (apply L in H; tauto)],
- * - a conjunction is proven by first stating all its conjuncts, then closing
- *   every branch with the same tactic (e.g. [split_top; assumption]),
- * - a lemma with several premises is applied with [eapp] or [apply ... in],
- *   not by passing hypotheses positionally.
- * In addition:
- * - a disjunction is taken apart with [decompose], and every case is closed
- *   with the same tactic,
- * - a case analysis on an event closes every case with the same tactic. *)
-
-
 (* ========================================================================= *)
 (* Events: what they change                                                  *)
 (* ========================================================================= *)

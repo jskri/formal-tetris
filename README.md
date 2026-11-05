@@ -31,7 +31,7 @@ The models address the logical core of the game, not I/O or rendering. They are 
 
 Each model Tx is in a file `Tx.v`. Proofs of state invariants and step invariants are in a file `TxProofs.v`, together with a proof that Tx refines Tx-1 (T1 has no predecessor to refine).
 
-Proof status: All proved (but T7's step invariants and refinement are not yet formulated).
+Proof status: All proved.
 
 
 ## Checking the proofs
@@ -151,12 +151,13 @@ In multiplayer mode, one player must host the game, and others must join. A join
 | rotate piece clockwise         | x           | button 1    |
 | rotate piece counter-clockwise | z           | button 0    |
 | hold piece                     | space       | button 3    |
+| mute sound (`tfinal/` only)    | m           |             |
 
 No separate configuration file exists at the moment. To change the input, modify directly the sources:
 
-- in Rust, edit `fn key` / `fn gamepad_button`. These are defined once, in the `src/misc.rs` of the earliest model that introduces them (`t1`, `t3`, or `t5`, depending on which actions that model adds); later models import or re-export that same definition rather than redefining it, so edit it at its source.
+- in Rust, edit `fn key` / `fn gamepad_button` in `src/misc.rs`. Each of `t1`, `t3` and `t5` defines its own `Action` set with these functions; `t2` uses `t1`'s, `t4` uses `t3`'s, `t6`/`t7` re-export `t5`'s, and `tfinal` uses `t7`'s. So, for `t5` to `tfinal`, edit `t5/src/misc.rs`.
 
-- in JavaScript, edit `KEYMAP`/`GAMEPAD_MAP` in the corresponding `controller.js`.
+- in JavaScript, edit `KEYMAP`/`GAMEPAD_MAP` in the corresponding `controller.js` (and, for `tfinal/`, also in `sp_controller.js`, the single-player controller).
 
 
 
@@ -338,8 +339,12 @@ No separate configuration file exists at the moment. To change the input, modify
 │           ├── main.rs
 │           └── sound.rs
 └── js
+    ├── .prettierignore
+    ├── .prettierrc
+    ├── eslint.config.js
     ├── package.json
     ├── package-lock.json
+    ├── syntax-check.js
     ├── test-runner.js
     ├── lib
     │   └── utils.js

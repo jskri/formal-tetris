@@ -1,20 +1,20 @@
-# proofs.md — refinement proof, `final/ ⊨ T7.v`
+# proofs.md — refinement proof, `tfinal/ ⊨ T7.v`
 
-Not a fresh derivation. `final/` introduces no `model.rs` of its own: multiplayer drives
+Not a fresh derivation. `tfinal/` introduces no `model.rs` of its own: multiplayer drives
 `t7::model::Machine<Instance>` through `t7::session::Session`, single-player (and the shared
 mid-match/waiting-room filler) drives `t6::model::Machine<SingleInstance>` directly — the same
 two engines `t7/proofs.md` and `t6/proofs.md` already prove refine `T7.v` and `T6.v`
 respectively (`t7/proofs.md` §2: `T7.v` reduces definitionally to `T6.v` at `PlayerCount = 1`,
 and `t7::model::Machine::new`'s own `assert!(player_count > 1)` makes single-player's regime
 the only one the filler/single-player path can ever be in — §9 below). This file's own
-obligation is narrower: catalogue everything `final/` adds over `t7`'s and `t6`'s own public
+obligation is narrower: catalogue everything `tfinal/` adds over `t7`'s and `t6`'s own public
 API, and show each addition is *no-use* with respect to the refinement mapping — it never calls
 a `Machine`-mutating method beyond the set `t7/proofs.md`/`t6/proofs.md` already cover, in an
 order or with arguments that differ from what's already proven there.
 
 ## 0. Result
 
-`final/`'s entire new surface — `sound.rs`, `anim.rs`, `highscores.rs`, and
+`tfinal/`'s entire new surface — `sound.rs`, `anim.rs`, `highscores.rs`, and
 `main.rs`'s own added local state and call sites — is either read-only against
 already-computed `Machine` state, or a side effect (audio synthesis/playback, a
 JSON file on disk) entirely disjoint from `Σ`. No new call to a mutating
@@ -25,16 +25,16 @@ to another mutating call, or given different arguments. `t7/proofs.md`'s and
 ## 1. Scope
 
 Safety only, inherited from `t7/proofs.md` §1 / `t6/proofs.md`'s own scope note. Nothing in
-`final/` touches liveness either way.
+`tfinal/` touches liveness either way.
 
-## 2. No `model.rs` in `final/` — same classes, not wrapped
+## 2. No `model.rs` in `tfinal/` — same classes, not wrapped
 
 ```
-$ ls final/src/
+$ ls tfinal/src/
 anim.rs  highscores.rs  main.rs  sound.rs
 ```
 
-No `final/model.rs`, no new `Params`/instance type. `main.rs` imports `t7::model::Machine`
+No `tfinal/model.rs`, no new `Params`/instance type. `main.rs` imports `t7::model::Machine`
 (via `t7::session::{Instance, Session}`), `t7::session::fire`/`fire_and_broadcast`, and
 `t7::app::{fire_single, fresh_single, after_action, process_input, step_playing_transition,
 SingleInstance, RunState, …}` — the identical classes and free functions `t7/proofs.md` and
@@ -42,7 +42,7 @@ SingleInstance, RunState, …}` — the identical classes and free functions `t7
 monkey-patched — no projection lemma is needed for any `Machine` method beyond "this is literally
 the class/function already proven," because it literally is. This holds one level further down
 than the bare `Machine` type itself: `t7::app` is itself `t7/main.rs`'s own screen/dispatch
-machinery, promoted to a public library module and reused verbatim
+machinery, a public module of `t7` reused verbatim
 (`implementation.md` §0 of this file: "no `instance.rs`… every new module is
 either pure rendering/audio data or a thin, independently-testable persistence layer").
 `t7::model::Machine<Instance>`'s and `t6::model::Machine<SingleInstance>`'s own mutating
@@ -128,7 +128,7 @@ only a sound trigger (§4), touching no `Machine` field.
 
 ## 7. Multiplayer (`App::Playing`) — every call site checked
 
-`final/`'s `App::Playing` arm inlines the same shape `t7::app::step_playing_gameplay` already
+`tfinal/`'s `App::Playing` arm inlines the same shape `t7::app::step_playing_gameplay` already
 implements (rather than calling that function directly) for one reason: the gravity tick must
 itself go through the sound/anim-decorated dispatch, not a bare `fall_step` call that would
 bypass it — a gravity-driven lock is common enough (most locks happen from gravity, not a held
@@ -173,7 +173,7 @@ key) that a silent one would make the game read as broken. Checked against every
   points, `session.rs`, already argued in `t7/proofs.md` §8/§10).
 - **`step_playing_transition(&playing.session, filler_is_none, &mut playing.own_gameover_since,
   ...)`** — the same `t7::app` free function `t7/main.rs`'s own `Playing` arm calls, same
-  arguments; `final/` adds only an `sound.play(...)` at each of its four outcome arms
+  arguments; `tfinal/` adds only an `sound.play(...)` at each of its four outcome arms
   (`ToWinner`/`ToHostLost`/`GameoverWaitStarted`-first-observed/`EnteredFiller`), strictly after
   the function has already returned its outcome — no-use.
 - **`drive_filler(...)`** mirrors `t7::app::drive_filler_input`'s own body (`process_input` over
@@ -219,7 +219,7 @@ key) that a silent one would make the game read as broken. Checked against every
 
 ## 9. `PlayerCount = 1` — discharged by `t6/proofs.md`, never constructed otherwise
 
-`final/`'s single-player path (`App::Single`, and the shared filler used by `Waiting`/`S8`)
+`tfinal/`'s single-player path (`App::Single`, and the shared filler used by `Waiting`/`S8`)
 never touches `t7::model::Machine` at all — it is `t6::model::Machine<SingleInstance>`
 throughout, the same regime `t7/proofs.md` §2 already discharges in full
 (`t7::model::Machine::new`'s own `assert!(player_count > 1)` makes this the only regime
@@ -230,10 +230,10 @@ multiplayer, `t6/proofs.md` for single-player) doing the refinement work underne
 
 ## 10. Conclusion
 
-`final/`'s obligation reduces entirely to `t7/proofs.md` (multiplayer, `App::Playing`/
+`tfinal/`'s obligation reduces entirely to `t7/proofs.md` (multiplayer, `App::Playing`/
 `Waiting`) and `t6/proofs.md` (single-player, `App::Single` and the shared filler), verbatim,
 plus §§3–8 above showing every addition — `sound.rs`, `anim.rs`, `highscores.rs`, and `main.rs`'s
 own new local state and call sites — is no-use: no new `Machine`-mutating call is introduced, no
 existing one is removed, reordered relative to another mutating call, or given different
-arguments. `final/ ⊨ T7.v` (multiplayer) and `final/ ⊨ T6.v` (single-player, via `T7.v`'s own
+arguments. `tfinal/ ⊨ T7.v` (multiplayer) and `tfinal/ ⊨ T6.v` (single-player, via `T7.v`'s own
 `PlayerCount = 1` delegation, `t7/proofs.md` §2) both hold.

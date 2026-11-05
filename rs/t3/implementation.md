@@ -40,7 +40,7 @@ operational check that provides evidence for this, it is not itself the definiti
 |------|-----------|
 | `t1::model::Params` | the parameter trait; `t3::model::Machine<P>` bounds on it directly — no `T3Params` wrapper trait exists, since neither T2 nor T3 add parameters (skill §7.4) |
 | `t1::model::Machine<P>` | the innermost engine, reached as `self.s2.s1` |
-| `t1::model::new_piece_state::<P>` | `HoldPiece`'s one piece of non-trivial logic (§4-T3a) — already present in `t1::model`: no prerequisite patch to `t1/model.rs` is needed here, since `new_piece_state` mutates a `&mut Machine<P>` in place and was already emitted as one of T1's "helpers for refining models", `t1/implementation.md` §6, with no call site inside `T1.v`/`T1Proofs.v`'s own actions but a full `proofs.md` lemma nonetheless |
+| `t1::model::new_piece_state::<P>` | `HoldPiece`'s one piece of non-trivial logic (§4-T3a) — provided by `t1::model` as one of T1's "helpers for refining models" (`t1/implementation.md` §6): it mutates a `&mut Machine<P>` in place, has no call site inside `T1.v`'s own actions, and has its own lemma in `t1/proofs.md` |
 | `t2::model::Params` (alias of `t1::model::Params`) / `t2::model::Machine<P>` | the middle engine; `t3::model::Machine<P>` holds one as its `s2` field |
 | `t2::model::{check_invariants}` | called directly, not re-implemented |
 | `t1::instance::Tetris` | the concrete `Params` impl; re-exported through `t2::instance` and then `t3::instance` (§11) |
@@ -86,8 +86,8 @@ t3/
     lib.rs               # pub mod instance; misc; model; view — same role as t1's/t2's lib.rs
     instance.rs          # re-exports t2::instance's Params impl (§11, §13)
     model.rs              # T3 engine: wraps t2::model::Machine, adds hold/swapped (§5–§7)
-    view.rs                # renderer: hold box (new) + t2's panel/banners (shifted) + grid (§14)
-    misc.rs                # T3's six-variant Action (`Hold` added), reused by t4/main.rs (§15.1)
+    view.rs                # renderer: hold box + t2's panel/banners (shifted) + grid (§14)
+    misc.rs                # T3's six-variant Action (including `Hold`), reused by t4/main.rs (§15.1)
     main.rs                 # entry point: hold/swap action, fall speed and banner timing
                              # inherited from t2's shape (§15)
   proofs.md              # refinement proof, delta over t2/proofs.md (§8)
@@ -129,8 +129,9 @@ through nested inner engines.
 | `NewPieceState` | not redefined — reached as `t1::model::new_piece_state::<P>` (§4-T3a) |
 | `NextT2Event`, `Next` | not emitted — `main.rs`'s action dispatch already maps input → method |
 | `fₑ`, `fₛ` | not emitted |
-| `score`, `level`, `clearedLines` (T3-level read-through helpers) | `proofs.md` only; not emitted as functions — call sites read the underlying fields directly (`self.s2.score`, etc.) |
-| `SwappedImplyHoldSome`, `GameoverImplyNotSwapped`, `Correct`, `NonDecreasingScore`, `NonDecreasingLevel`, `ScoreRisesOnClear`, `HoldMonotone`, `CorrectStep` | `proofs.md` only; not emitted |
+| `score`, `level`, `clearedLines`, `perfectClear` (T3-level read-through helpers) | `proofs.md` only; not emitted as functions — call sites read the underlying fields directly (`self.s2.score`, etc.) |
+| `SwappedImplyHoldSome`, `GameoverImplyNotSwapped`, `Correct`, `NonDecreasingScore`, `NonDecreasingLevel`, `ScoreRisesOnClear`, `HoldMonotone`, `CorrectStep`, `CorrectWithoutGameover` | `proofs.md` only; not emitted |
+| `T3RefinesT2`, and the converse-direction definitions `RunT2`, `RunT3`, `T3AllowsAllT2` | `proofs.md` only; not emitted |
 
 ---
 
@@ -343,11 +344,12 @@ its own `pub const CHECK_AXIOMS: bool = true;` (module-level, alongside `CHECK_I
      only — confirmed by its definition, `t1/src/model.rs`): `TypeOK`, `Gameover`,
      `NoFullLine` are **trivial** (`mg`/`gameover` pass through unchanged — `new_piece_state`
      never assigns them, §0.1). `PieceOccupiedInsideBounds`/`PieceOnFreeBlocks` are the
-     only two that need `AxiomsRotGrid`'s `FullyContainedIn (RotGrid p 0) (InitialY p)
-     (InitialX p) ForbiddenGrid FY FX` (stated `∀ p : Piece` — so it applies to `p2`
-     regardless of which piece that turns out to be) combined with `AxiomsForbiddenGrid`'s
-     `BBoxInsideBBox` — the *same* lemma `T1Proofs.v` already uses for `Init`'s and
-     `FixPiece`'s spawn (`t1/proofs.md`), re-invoked here, not re-derived. This is the same
+     only two that need `AxiomsRotGrid`'s spawn clause `(RotGrid p 0 ⊕ InitialYX p) ⊆
+     ForbiddenGrid` (stated `∀ p : Piece` — so it applies to `p2` regardless of which piece
+     that turns out to be) combined with `AxiomsForbiddenGrid`'s `Full ForbiddenGrid ⊆ Full
+     InitialMainGrid`. `T1Proofs.v` already packages exactly this as `NewPieceStateCorrect`
+     (via `NewPieceInsideBounds`/`NewPieceFree`), the same lemmas it uses for `Init`'s and
+     `FixPiece`'s spawn — re-invoked here, not re-derived. This is the same
      obligation `t1/proofs.md`'s own `L-new_piece_state` lemma already discharges for
      `new_piece_state` in isolation — T3's obligation here is only that `hold_piece` calls
      it with a `p2` that is genuinely `∈ Piece` (guaranteed: `p2` is either `self.hold`'s
@@ -417,7 +419,7 @@ Mirror T2's suite shape (`t2/implementation.md` §9) on T1's fixture (`PW=3`, tw
   step including `Hold`; the narrow-blast-radius property above, generalized over random
   pre-states; differential oracle over every state component (§9 below).
 - `model_fuzz_test.rs` — same dependency-free PRNG-driven shape as T1's/T2's: `N` seeds ×
-  `M` steps, structural + the three new invariants + oracle differential, generic over the
+  `M` steps, structural + the three T3 invariants + oracle differential, generic over the
   same fixture, no new dependency.
 - `oracle.rs` — a from-scratch reimplementation of `hold`/`swapped` only (not the `s2`
   half: `t2/tests/oracle.rs` already differentially checks T2's fields against its own
@@ -447,7 +449,7 @@ A regeneration is correct iff:
    (§4-T3a).
 3. `tests/` passes on the fixture: unit + fuzz fully; properties under `proptest`.
 4. The differential oracle (`oracle.rs`) agrees with `model.rs` on `hold`/`swapped` over
-   every generated trace, on top of `t2::tests::oracle`'s own agreement on the `s2`
+   every generated trace, on top of `t2/tests/oracle.rs`'s own agreement on the `s2`
    component.
 5. `hold_piece` reads `self.s2.s1.p` into a local **before** calling
    `t1::model::new_piece_state`, which mutates `self.s2.s1` in place (§4-T3e ordering).
@@ -523,15 +525,17 @@ unmodified as `base`; the hold box is carved out of the **top** of that same pan
 at the panel's own scale, not an independently sized box:
 
 ```rust
-struct Layout {
-    base: t2::view::Layout,
-    hold_label_y: f32,  // y where the "Hold" text baseline sits
-    hold_box_top: f32,  // y where the hold box's border starts
-    hold_box_size: f32, // side length of the (square) hold box
-    panel_top: f32,     // y where SCORE/LEVEL/banners start — below the hold box
+// `pub`, with `compute_layout` and `draw_hold_box` (§14.4): `t4::view` embeds this
+// `Layout` as its `base` and calls both (`t4/implementation.md` §0.2).
+pub struct Layout {
+    pub base: t2::view::Layout,
+    pub hold_label_y: f32,  // y where the "Hold" text baseline sits
+    pub hold_box_top: f32,  // y where the hold box's border starts
+    pub hold_box_size: f32, // side length of the (square) hold box
+    pub panel_top: f32,     // y where SCORE/LEVEL/banners start — below the hold box
 }
 
-fn compute_layout(constants: &t1::view::RenderConstants) -> Layout {
+pub fn compute_layout(constants: &t1::view::RenderConstants) -> Layout {
     let base = t2::view::compute_layout(constants);
     let m = t2::view::panel_metrics(base.panel_width);
     let hold_label_y = m.margin_y + m.label_font as f32;

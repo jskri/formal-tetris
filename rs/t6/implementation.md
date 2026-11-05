@@ -43,7 +43,7 @@ itself the definition.
 | `t5::model::Params` | the parameter trait, reused directly as `t6::model::Params` (§6.0) — `T6.v` adds no new abstract parameter |
 | `t5::model::Machine<P>` | reused directly as `t6::model::Machine<P>` via a type alias (§1, §6.1) — not wrapped in a new field |
 | `t5::model::{check_axioms, check_invariants, CHECK_AXIOMS, CHECK_INVARIANTS}` | reached by their `t5::model::` path, not redefined (§7) — `T6.Correct = T5.Correct`, no new axiom |
-| `t1::model::{valid, new_piece_yx_state}` | `new_piece_yx_state` relocates `px` for each kick attempt; `valid` underlies the new `can_rotate_piece` (§0.2) — both already `pub` in `rs_t1_src_model.rs`, no visibility patch needed |
+| `t1::model::{can_rotate_piece, new_piece_yx_state}` | `can_rotate_piece` is the exclusivity guard, `new_piece_yx_state` relocates `px` for each kick attempt (§0.2) — both `pub` in `t1/src/model.rs` |
 | `t5::view` (all of it) | re-exported by `t6::view` (§14) — no new visual state; `render::<P>` already type-checks against `t6::model::Machine<P>` since it *is* `t5::model::Machine<P>` |
 | `t5::instance` (all of it) | re-exported by `t6::instance` (§11) |
 | `t5::misc::{Action, any_action_just_pressed}` | re-exported by `t6::misc` (§15) — no new player-facing action, no new keybinding |
@@ -53,47 +53,42 @@ itself the definition.
 `rotate_kick_piece`. Nothing in `t6` reimplements grid algebra, rotation validity, line
 clearing, scoring, the hold slot, the bag/preview mechanism, or the shadow/ghost computation.
 
-### 0.2 Prerequisite patch to `t1/src/model.rs`: `can_rotate_piece`
+### 0.2 T1-level helpers used by T6: `can_rotate_piece`, `new_piece_yx_state`
 
 The kick logic needs to know whether a plain rotation *would* fire, without performing it —
-`RotateKickPiece` fires only when `T5.RotatePiece` would not (`T6.v`'s own exclusivity guard).
-`t1::model::rotate_piece` computes its guard inline, once, and has no reason to factor it out
-for its own sake; only this wrapper needs the guard as a standalone, side-effect-free
-predicate. This is implementation freedom — `T6.v` names no such definition — with a direct
-structural precedent already in `t1::model`: `t1::model::can_move_piece` factors `move_piece`'s
-own guard out the same way, *excluding* the `gameover` check (left to the caller).
-`can_rotate_piece` follows the identical shape:
+`RotateKickPiece` fires only when `T5.RotatePiece` would not (`T6.v`'s `plainRotFires`
+exclusivity guard). `t1::model` provides exactly that predicate, `can_rotate_piece(cw, s)`
+(`t1/implementation.md` §3, §5):
 
 ```rust
-// spec: the guard `RotatePiece` computes inline, factored into a named, side-effect-free
-// predicate — same division of labor as `can_move_piece` (gameover excluded, checked by the
-// caller). No `T1.v` counterpart: `T1.RotatePiece` needs no such definition, only a caller
-// wrapping kick logic around it does.
 pub fn can_rotate_piece<P: Params>(cw: bool, s: &Machine<P>) -> bool {
     let delta = if cw { -1 } else { 1 };
     let pr2 = (s.pr as i64 + delta).rem_euclid(4) as u8;
-    valid::<P>(&s.mg, s.p, s.py, s.px, pr2)
+    valid::<P, _>(&s.mg, s.p, s.py, s.px, pr2)
 }
 ```
 
-`can_rotate_piece(cw, s)` is true iff `s.rotate_piece(cw)` would fire on a machine currently in
-state `s` that is not already `gameover` — the same equivalence `can_move_piece` already
-carries relative to `move_piece`. `t1/proofs.md` gains `L-can-rotate-piece`, a
-definitional-equivalence lemma (no independent Rocq statement to be equivalent to beyond the
-guard expression it's extracted from), the same shape `L-can-move-piece` already has.
+It is implementation freedom — neither `T1.v` nor `T6.v` names such a definition:
+`t1::model::rotate_piece` computes its guard inline, and only a wrapper adding kick logic needs
+the guard as a standalone, side-effect-free predicate. It follows the shape of
+`t1::model::can_move_piece`, *excluding* the `gameover` check (left to the caller), so
+`can_rotate_piece(cw, s)` is true iff `s.rotate_piece(cw)` would fire on a machine in state `s`
+that is not already `gameover`. `t1/proofs.md`'s `L-can_rotate_piece` states this as a
+definitional-equivalence lemma, the same shape as `L-can_move_piece`.
 
-`new_piece_yx_state` needs **no** patch: it already exists in `t1::model` (added for T5's
-`drop_piece`), overrides both `py`/`px` unconditionally, and is exactly what relocates `px`
-for each kick attempt while holding `py` fixed.
+`t1::model::new_piece_yx_state` (the image of `T1.NewPieceYXState`, also used by T5's
+`drop_piece`) overrides both `py`/`px` unconditionally, and is exactly what relocates `px` for
+each kick attempt while holding `py` fixed.
 
-This patch is a prerequisite for T6 codegen but is not itself part of T6's own output.
+T6 calls both through `t1::model::` and redefines neither.
 
-### 0.3 No flattening retrofit needed
+### 0.3 Nested-state access
 
-`t5/implementation.md` §0.2's `t4::view` visibility widening, and every prior layer's own
-patches, are already in place and untouched by T6. Every layer reaches nested state via direct,
-explicit field-chain access (`machine.s4.s3.s2.s1.…`), never through an interposed getter — so
-there is no flattening accessor to retrofit at this layer either.
+Every layer up to T5 reaches nested state via direct, explicit field-chain access
+(`machine.s4.s3.s2.s1.…`), with no flattening getter, and T6's own `rotate_kick_piece` does the
+same. `T6MachineExt` (§6.1) additionally provides a few accessor methods (`mg`, `gameover`,
+`cleared_lines`, …) for a model that wraps `t6::model::Machine<P>` as a field (T7), so that it
+reads and writes those fields without spelling out the `s4.s3.s2.s1` chain at each site.
 
 ---
 
@@ -112,8 +107,8 @@ pub type Machine<P> = t5::model::Machine<P>;
 
 — literally the same type, not a new struct embedding it. Rust has no inheritance, and
 coherence rules forbid adding an inherent `impl<P> t5::model::Machine<P> { … }` block from the
-`t6` crate — inherent impls are only legal in the crate that defines the type. The one new
-method is instead added via an **extension trait** (§6.1) — the idiomatic Rust mechanism for
+`t6` crate — inherent impls are only legal in the crate that defines the type. The new
+methods are instead added via an **extension trait** (§6.1) — the idiomatic Rust mechanism for
 "add a method to a type you don't own, no new field."
 
 Refinement mapping (`T6.v`'s own `fₑ := id`, `fₛ := id`): both trivial, and trivial in an even
@@ -132,9 +127,9 @@ events; `RotateKick` is excluded, the same shape as T3/T5 excluding `Hold`/`Drop
   only after establishing, via a pure check, that the plain call would otherwise not have
   fired — see §4-T6b.
 
-Rejected alternative, and why: a composite method (e.g. `rotate_with_kick(cw)` trying both in
-sequence, exposed as the "main" rotate entry point on `Machine<P>` itself) was considered and
-rejected. `T6.v` defines no event combining `RotatePiece` and `RotateKickPiece` — that
+Rejected alternative, and why: `Machine<P>` has no composite method (e.g.
+`rotate_with_kick(cw)` trying both in sequence, exposed as the "main" rotate entry point).
+`T6.v` defines no event combining `RotatePiece` and `RotateKickPiece` — that
 combination is a caller's sequencing decision, not a model definition. The sequencing belongs
 in `main.rs` (§15.2), which already owns orchestration the model doesn't speak to (DAS timing,
 gamepad polling, restart-on-gameover).
@@ -150,7 +145,7 @@ t6/
     lib.rs               # pub mod instance; misc; model; view — same role as t5's
     misc.rs               # pub use t5::misc::*; — no new player-facing action (§15)
     instance.rs            # pub use t5::instance::*; — no new Params trait to impl (§11)
-    model.rs                 # T6 engine: Machine<P> alias + RotateKickPieceExt (§5–§7)
+    model.rs                 # T6 engine: Machine<P> alias + T6MachineExt (§5–§7)
     view.rs                   # pub use t5::view::*; — no new visual state (§14)
     main.rs                    # entry point: CW/CCW try a kick on plain-rotation failure (§15)
   proofs.md              # refinement proof, delta over t5/proofs.md (§8)
@@ -162,9 +157,8 @@ t6/
     oracle.rs             # executable T6.v reference for rotate_kick_piece only (§9)
 ```
 
-The workspace root's `Cargo.toml` gains `"t6"` in `members`; `t1`–`t5` remain independently
-buildable, unmodified in behavior by T6's existence (only the additive `can_rotate_piece`
-patch, §0.2).
+The workspace root's `Cargo.toml` lists `"t6"` in `members`; `t1`–`t5` remain independently
+buildable, unaffected in behavior by T6's existence.
 
 ---
 
@@ -176,18 +170,19 @@ Only T6-introduced names appear here; T1–T5 names keep their own maps and are 
 | `T6.v` | Rust |
 |--------|------|
 | `State` (`= T5.State`) | `pub type Machine<P> = t5::model::Machine<P>;` — a type alias, not a new struct |
-| `RotateKickPiece` | `RotateKickPieceExt::rotate_kick_piece(&mut self, cw: bool) -> bool` (extension trait, §6.1) |
-| `Event`, `Next` | implicit (`main.rs` dispatch + method args, as T1–T5); the `Event5` case is realized by identity, not a forward call |
-| `fₑ`, `fₛ` | `proofs.md` only; not emitted (both `id`, and trivially so — §1) |
+| `RotateKickPiece` | `T6MachineExt::rotate_kick_piece(&mut self, cw: bool) -> bool` (extension trait, §6.1) |
+| `Event`, `Next`, `NextT5Event` | implicit (`main.rs` dispatch + method args, as T1–T5); the `Event5` case (`NextT5Event = T5.Next`) is realized by identity, not a forward call |
+| `fₑ`, `fₛ`, `T6RefinesT5` | `proofs.md` only; not emitted (`fₑ`, `fₛ` are both `id`, and trivially so — §1) |
+| `CorrectStep` (`= T5.CorrectStep`) | `proofs.md` only; not emitted |
 | `Correct` (`= T5.Correct`) | not emitted — no new invariant; `check_invariants` is `t5::model::check_invariants`, reached by its own path, never redefined |
-| `s5`, `MovePiece`, `RotatePiece`, `FixPiece`, `HoldPiece`, `mg`, `p`, `pyx`, `pr`, `gameover`, `clearedLines`, `score`, `level`, `combo`, `perfectClear`, `totalClearedLines`, `hold`, `swapped`, `d`, `gy`, `px`, `NewPieceYXState`, `CorrectWithoutGameover` (T6.v's "helpers for refining models" section) | not emitted — each is `T5.v`'s own, reached unchanged through `Machine<P>` being `t5::model::Machine<P>` itself; `proofs.md` cites them by their `t5::model`/`t1::model` paths directly |
+| `s5`, `UnchangedT6Part` (both `id`), `MovePiece`, `RotatePiece`, `FixPiece`, `HoldPiece`, `mg`, `p`, `pyx`, `pr`, `gameover`, `clearedLines`, `score`, `level`, `combo`, `perfectClear`, `totalClearedLines`, `hold`, `swapped`, `d`, `gy`, `px`, `NewPieceYXState`, `CorrectWithoutGameover` (T6.v's "helpers for refining models" section) | not emitted — each is `T5.v`'s own, reached unchanged through `Machine<P>` being `t5::model::Machine<P>` itself; `proofs.md` cites them by their `t5::model`/`t1::model` paths directly |
 
 ---
 
 ## 4. Per-definition translation rules (T6-specific)
 
 - **§4-T6a. `can_rotate_piece`** — lives in `t1::model`, not `t6::model` (§0.2). Not a `T6.v`
-  definition itself; the prerequisite predicate `rotate_kick_piece`'s guard is built from.
+  definition itself; the predicate `rotate_kick_piece`'s guard is built from.
 
 - **§4-T6b. `rotate_kick_piece(cw)`:**
   ```rust
@@ -222,14 +217,14 @@ Only T6-introduced names appear here; T1–T5 names keep their own maps and are 
   scalar with no side effect beyond itself — unlike a T4-style `fix_piece`, where "undoing a
   draw" isn't a clean no-op. `self.rotate_piece(cw)` is `t5::model::Machine<P>`'s own inherent
   method — reachable directly, no trait import needed for that call (only
-  `RotateKickPieceExt` itself needs importing at the call site, §6.1). `check_invariants` is
+  `T6MachineExt` itself needs importing at the call site, §6.1). `check_invariants` is
   `t5::model::check_invariants` — not redefined, since `T6.Correct = T5.Correct`.
 
 ---
 
 ## 5. Free functions emitted by `model.rs` (`T6.v` source order)
 
-None. `T6.v` defines no free function of its own; `can_rotate_piece` is emitted in
+None. `T6.v` defines no free function of its own; `can_rotate_piece` is provided by
 `t1::model` (§0.2), not redefined here.
 
 ---
@@ -246,7 +241,7 @@ pub use t5::model::Params;
 Unlike `t4::model::Params`/`t5::model::Params` (each of which declares its own — possibly
 empty — trait extending its predecessor's, per skill §7.4), `t6::model` reuses
 `t5::model::Params` directly with no wrapper trait at all. The stronger precedent here is
-`t2::model`/`t3::model` (`rs_t2_src_model.rs`, `rs_t3_src_model.rs`): both introduce a new
+`t2::model`/`t3::model` (`t2/src/model.rs`, `t3/src/model.rs`): both introduce a new
 wrapping `Machine<P: Params>` struct with zero new abstract parameters, and both bind `Params`
 by importing `t1::model::Params` directly rather than declaring `pub trait Params:
 t1::model::Params {}`. T6 has even less reason for a local trait than T2/T3 did — it doesn't
@@ -261,14 +256,34 @@ implement it that doesn't already implement `t5::model::Params`, and nothing in 
 // spec: State (= T5.State)
 pub type Machine<P> = t5::model::Machine<P>;
 
-pub trait RotateKickPieceExt {
+pub trait T6MachineExt<P: Params> {
     fn rotate_kick_piece(&mut self, cw: bool) -> bool;
+    fn mg(&self) -> &Vec<Vec<Option<t1::model::PieceOrExtra<P>>>>;
+    fn mg_mut(&mut self) -> &mut Vec<Vec<Option<t1::model::PieceOrExtra<P>>>>;
+    fn px(&self) -> i64;
+    fn gameover(&self) -> bool;
+    fn gameover_mut(&mut self) -> &mut bool;
+    fn cleared_lines(&self) -> i64;
+    fn perfect_clear(&self) -> bool;
+    fn s1_mut(&mut self) -> &mut t1::model::Machine<P>;
 }
 
-impl<P: Params> RotateKickPieceExt for Machine<P> {
+impl<P: Params> T6MachineExt<P> for Machine<P> {
     fn rotate_kick_piece(&mut self, cw: bool) -> bool { /* §4-T6b */ }
+    fn mg(&self) -> &Vec<Vec<Option<t1::model::PieceOrExtra<P>>>> { &self.s4.s3.s2.s1.mg }
+    fn mg_mut(&mut self) -> &mut Vec<Vec<Option<t1::model::PieceOrExtra<P>>>> { &mut self.s4.s3.s2.s1.mg }
+    fn px(&self) -> i64 { self.s4.s3.s2.s1.px }
+    fn gameover(&self) -> bool { self.s4.s3.s2.s1.gameover }
+    fn gameover_mut(&mut self) -> &mut bool { &mut self.s4.s3.s2.s1.gameover }
+    fn cleared_lines(&self) -> i64 { self.s4.s3.s2.s1.cleared_lines }
+    fn perfect_clear(&self) -> bool { self.s4.s3.s2.perfect_clear }
+    fn s1_mut(&mut self) -> &mut t1::model::Machine<P> { &mut self.s4.s3.s2.s1 }
 }
 ```
+
+`rotate_kick_piece` is T6's one new action. The other methods are plain accessors with no
+`T6.v` counterpart (§0.3): each returns, or lends mutably, exactly the field its name says,
+and none has any other effect.
 
 No `Machine::new` is defined at this layer: `T6.v` declares no new `Init` and there is no new
 field to initialize (§0). `t5::model::Machine::<P>::new(...)` is `Machine::<P>::new(...)` here
@@ -278,7 +293,7 @@ or similar indirection, because there is no such field.
 
 ### 6.2 Read-through access
 
-No new getters. `main.rs`/`view.rs` read `machine.s4.…`/`machine.gy` exactly as `t5`'s own do
+No new getters beyond `T6MachineExt`'s accessors (§6.1). `main.rs`/`view.rs` read `machine.s4.…`/`machine.gy` exactly as `t5`'s own do
 (§6.6, `t5/implementation.md`) — `Machine<P>` being an alias means every one of `t5::model`'s
 public fields is already `machine.<field>`, not `machine.<something>.<field>`.
 
@@ -304,7 +319,7 @@ Delta over `t5/proofs.md`.
    per-method transfer argument: they are `t5::model::Machine<P>`'s own methods, identical by
    the type alias, not delegating calls that would need one.
 3. **`rotate_kick_piece` — no-use, full fresh argument.** Guard/exclusivity via
-   `can_rotate_piece` (cite `t1/proofs.md`'s `L-can-rotate-piece`, §0.2, as an imported fact:
+   `can_rotate_piece` (cite `t1/proofs.md`'s `L-can_rotate_piece`, §0.2, as an imported fact:
    `can_rotate_piece(cw, s)` iff `rotate_piece(cw)` would fire on a non-`gameover` `s`). Kick
    attempts are both computed from `orig_px`, not chained. Mutate-then-restore is sound because
    `px` has no accumulated side effect to undo — contrast `t4/proofs.md`'s `fix_piece`, where
@@ -321,7 +336,7 @@ Delta over `t5/proofs.md`.
 
 Mirror T5's suite on the same fixture, plus:
 
-- **`test_instance.rs`** — the same content as `rs_t5_tests_test_instance.rs`: its own
+- **`test_instance.rs`** — the same content as `t5/tests/test_instance.rs`: its own
   `include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../t1/tests/test_instance.rs"));`, the
   re-declared `TestInstanceWide` `t1::model::Params` impl, and the `t4::model::Params`
   (`NEXT_LEN`) impls — `t5/tests/test_instance.rs`'s own header explains why each `tests/`
@@ -375,8 +390,8 @@ A regeneration is correct iff:
    right attempt is computed relative to the original position, not the failed left one.
 5. `rotate_kick_piece` reuses `self.rotate_piece(cw)` for the actual mutation — it does not
    reimplement rotation validity, mutation, or `gy`-refresh itself.
-6. The `t1::model::can_rotate_piece` patch (§0.2) is present and additive-only; no existing
-   `t1::model` item changes signature or behavior.
+6. `t1::model` provides `can_rotate_piece` (§0.2) per `t1/implementation.md`, and
+   `t6::model` calls it rather than redefining it.
 7. `t6::model` defines no `Params` trait and no `Machine::new` — both reached exclusively
    through the `t5::model` alias.
 
@@ -397,8 +412,8 @@ for Tetris {}`.
 
 ## 12. Generator determinism rules
 
-Inherit `t1`–`t5/implementation.md` §12's "reuse over restatement" verbatim. The §0.2 patch to
-`t1::model` is a prerequisite of T6 codegen, not part of T6's own output.
+Inherit `t1`–`t5/implementation.md` §12's "reuse over restatement" verbatim. `can_rotate_piece`
+(§0.2) belongs to `t1::model`, not to T6's own output.
 
 ---
 
@@ -456,8 +471,8 @@ fn fire<P: Params>(action: Action, machine: &mut Machine<P>) {
 }
 ```
 
-`rotate_kick_piece` is only reachable here because `use t6::model::RotateKickPieceExt;` is in
-scope — an extension trait's methods are invisible without importing the trait itself, unlike
+`rotate_kick_piece` is only reachable here because `T6MachineExt` is imported
+(`use t6::model::{Machine, Params, T6MachineExt};`) — an extension trait's methods are invisible without importing the trait itself, unlike
 `t5::model::Machine`'s inherent methods (`rotate_piece`, `move_piece`, …), which need no such
 import. This two-call sequencing is a `main.rs`-level orchestration decision, not a `T6.v`
 definition (§1's rejected alternative): the model defines two mutually exclusive events;

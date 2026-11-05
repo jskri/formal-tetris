@@ -46,7 +46,7 @@ evidence for this, it is not itself the definition.
 | `t1::model::{intersect, new_piece_yx_state, PieceOrExtra, Cell}` | `intersect` re-checks the forbidden zone after materialization; `new_piece_yx_state` relocates the piece for `drop_piece`; `PieceOrExtra`/`Cell` are `mg`'s own cell type and occupancy trait |
 | `t5::model::Machine::update_shadow_y` | recomputes the shadow after materialization splices rows into `mg` directly, outside any `t6::model` action (§4-T7c); `pub` (`t5/implementation.md` §6.9) |
 | `t6::view::render` | called once, on `machine.s6`, for this player's own board — never for an opponent's (§14.3's mini-grid strip is genuinely new drawing code, not a scaled-down `render` call) |
-| `t1::view::Colored` | `Garbage` implements it (§11); `Piece` already does (`rs_t1_src_instance.rs`, unaffected — T7 reuses the exact same `Piece` type and its existing `Colored` impl, §11) |
+| `t1::view::Colored` | `Garbage` implements it (§11); `Piece` already does (`t1/src/instance.rs`, unaffected — T7 reuses the exact same `Piece` type and its existing `Colored` impl, §11) |
 | `t1::misc::{DAS_DELAY, ARR, window_conf, LogicalKeys, RepeatTimer, random_piece}` | UI-layer primitives — `DAS_DELAY`/`ARR`/`RepeatTimer` reached from `app.rs`'s `process_input`, `window_conf`/`LogicalKeys` from `main.rs`'s own frame loop |
 | `t6::misc::Action` | reused verbatim (§15.1) — T7 adds no new *player-facing* action; network events are not player input |
 
@@ -160,7 +160,7 @@ t7/
                                    #   joiners over real loopback UDP, no display server
 ```
 
-The workspace root's `Cargo.toml` gains `"t7"` in `members`; `t1`–`t6` remain independently
+The workspace root's `Cargo.toml` lists `"t7"` in `members`; `t1`–`t6` remain independently
 buildable, unmodified in behavior by T7's existence.
 
 ### 0.4 `net.rs`/`session.rs`/`app.rs`/`text.rs` as public library modules
@@ -204,6 +204,8 @@ Only T7-introduced names appear here; T1–T6 names keep their own maps, reached
 | `T7.v` | Rust |
 |--------|------|
 | `Player` (Parameter) | `usize` roster index (§0.2) |
+| `PlayerEqbEq`, `PlayerCyclicPermutation` (axioms) | not checked — both hold by construction for indices `0..player_count` compared with `==` and `PlayerNext = (i + 1) % player_count` |
+| `ForallPlayersAux`/`ForallPlayers` | not emitted — `proofs.md` only |
 | `Host` | index `0` in the frozen roster, by convention (§15.1) |
 | `PlayerEqb` | `usize`'s own `==` (§0.2) |
 | `PlayerNext` | `(i + 1) % player_count`, a plain expression, not a named function |
@@ -219,6 +221,7 @@ Only T7-introduced names appear here; T1–T6 names keep their own maps, reached
 | `gameover` (helper) | `self.s6.gameover()`/`self.s6.gameover_mut()` — same |
 | `clearedLines` (helper) | `self.s6.cleared_lines()` — same |
 | `UpdatePlayer`, `UnchangedT7Part` | not emitted — each method mutates `self` directly, field by field |
+| `MovePiece`, `RotatePiece` | `Machine::move_piece(&mut self, dy, dx) -> bool`, `Machine::rotate_piece(&mut self, cw) -> bool` — delegate to `self.s6` under the `WinnerMulti` guard (§6.2) |
 | `PlayingView` | `playing_view(gameover_view: &[bool], connected_view: &[bool], pl2: usize) -> bool` — free function, no observer parameter (§0.2's reasoning: a `Machine` only ever evaluates its own view) |
 | `WinnerMulti` | `winner_multi(gameover_view: &[bool], connected_view: &[bool], my_index: usize) -> bool` |
 | `NextTargetAux`/`NextTarget` | `next_target(playing: impl Fn(usize) -> bool, self_: usize, pl: usize, player_count: usize) -> usize` — fuel-bounded loop, `player_count` fuel, the same "`Fixpoint` on a strictly-decreasing measure → loop with an explicit fuel count" idiom `shadow_y` already uses (`t5/implementation.md` §4-T5a) |
@@ -226,7 +229,9 @@ Only T7-introduced names appear here; T1–T6 names keep their own maps, reached
 | `GeneratedGarbage` | `generated_garbage(cleared_lines: i64, perfect_clear: bool) -> i64` |
 | `GenRemGarbage` | `gen_rem_garbage(garbage: i64, cleared_lines: i64, perfect_clear: bool) -> (i64, i64)` — `(genGarbage, remGarbage)` |
 | `GarbageGrid` | not emitted as a distinct grid value — folded directly into `fix_piece`'s materialization (§4-T7c), same fusion `t1::model::fix_piece` already applies to `GridUnion`/`ClearFullLines` (skill §3.2) |
-| `NewMainGridGameoverState` | not emitted — folded into `fix_piece`, sets `self.s6.s4.s3.s2.s1.mg`/`.gameover` directly |
+| `NewMainGridGameoverState` | not emitted — folded into `fix_piece`, sets `mg`/`gameover` directly (through `T6MachineExt`'s `mg_mut`/`gameover_mut`) |
+| `FP.Mg'`, `FP.CroppedMg'`, `FP.Gameover'`, `FP.GameoverView'`, `FP.PlayingView'` | not emitted — realized inline by `fix_piece`'s materialization, overflow scan and forbidden-zone recheck (§4-T7c) |
+| `FP.RemGenGarbage` | the `rem_gen_garbage` field, set by `fix_piece` (§4-T7d) |
 | `ValidHoles` | checked per call, at each `holes(y)` invocation — an `assert!`, uncaught, mirroring `t4::model::assert_piece_set`'s role for `bag_new` |
 | `SendMessages` | not emitted — `fix_piece` leaves `self.rem_gen_garbage` and `self.gameover_view[self.my_index]` for the caller to read after the call and act on (§4-T7d); wire-message construction is `net.rs`'s job (§15.3) |
 | `FixPiece` | `Machine::fix_piece(&mut self, bag_new: &[P::Piece], holes: impl Fn(i64) -> i64) -> bool` |
@@ -238,21 +243,17 @@ Only T7-introduced names appear here; T1–T6 names keep their own maps, reached
 | `RotateKickPiece` | `Machine::rotate_kick_piece(&mut self, cw: bool) -> bool` |
 | `DropPiece` | `Machine::drop_piece(&mut self, bag_new: &[P::Piece], holes: impl Fn(i64) -> i64) -> bool` |
 | `Event`, `Next` | implicit (network dispatch in `session.rs` + input dispatch in `session::fire`/`app.rs`, each calling the matching method directly) |
-| `NoWinner`, `Playing`, `SelfViewAccurate`, `ViewSound`, `MessageSound`, `NoSelfMessage`, `LastMessagesGameoverDisconnect`, `TargetNotSelf`, `TargetPlaying`, `Gameover`, `Correct`, `OtherS6Unchanged`, `GameoverMonotone`, `GameoverViewMonotone`, `DisconnectedMonotone`, `DisconnectedViewMonotone`, `CorrectStep` | `proofs.md` only |
+| `NoWinner`, `Playing`, `SelfViewAccurate`, `ViewSound`, `MessageSound`, `NoSelfMessage`, `LastMessagesGameoverDisconnect`, `TargetNotSelf`, `TargetPlaying`, `Gameover`, `S6Correct`, `Correct`, `OtherS6Unchanged`, `GameoverMonotone`, `GameoverViewMonotone`, `DisconnectedMonotone`, `DisconnectedViewMonotone`, `CorrectStep` | `proofs.md` only |
 | `fₑ`, `fₛ`, `T7RefinesT6`, `NoRemGarbage`, `NoMaterializedGarbage` | `proofs.md` only |
 
-**`T6MachineExt`.** `t6::model::Machine<P>` is `t5::model::Machine<P>` itself, a type alias, not
-a struct this crate wraps (`t6/implementation.md`'s own `T6.State = T5.State` note) — so `t7`
-cannot reach `mg`/`gameover`/`cleared_lines`/etc. through a field chain rooted at `self.s6` the
-way earlier layers reach their own wrapped state, and cannot add an inherent `impl` on a foreign
-type either. `t6::model::T6MachineExt` (defined in `t6/src/model.rs`, alongside the same-shaped
-`rotate_kick_piece` extension `t6/implementation.md` §4-T6b already documents) is the accessor
-trait this reaches through instead: `mg`/`mg_mut`/`px`/`gameover`/`gameover_mut`/`cleared_lines`/
-`perfect_clear`/`s1_mut`, used throughout `fix_piece`/`drop_piece`/`check_invariants` (§6.3,
-§6.5, §6.10). Purely additive — no existing `t6` behavior changes — but it is worth being
-explicit that `t6/implementation.md` itself documents only `rotate_kick_piece` among
-`T6MachineExt`'s methods, not this fuller accessor set; that gap is in `t6/implementation.md`,
-not this file, and is out of this file's own scope to close.
+**`T6MachineExt`.** `t6::model::Machine<P>` is `t5::model::Machine<P>` itself, a type alias,
+not a struct with its own fields (`t6/implementation.md`'s `T6.State = T5.State` note). `t7`
+reads and writes the T1/T2-level fields it needs through `t6::model::T6MachineExt`'s accessor
+methods (`t6/implementation.md` §0.3, §6.1) — `mg`/`mg_mut`/`px`/`gameover`/`gameover_mut`/
+`cleared_lines`/`perfect_clear`/`s1_mut` — rather than spelling out the `s6.s4.s3.s2.s1` chain at
+each site, throughout `fix_piece`/`drop_piece`/`check_invariants` (§6.3, §6.5, §6.10). The same
+trait carries `rotate_kick_piece` (`t6/implementation.md` §4-T6b), so one import
+(`use t6::model::T6MachineExt as _;`) brings all of them into scope.
 
 ---
 
@@ -294,63 +295,60 @@ not this file, and is out of this file's own scope to close.
   full T6 semantics: score, level, hold, `cleared_lines`, `perfect_clear`, and its own
   `mg`/`gameover` from the piece placement alone, already committed by the time this runs.
   ```rust
-  let cleared_lines = self.s6.s4.s3.s2.s1.cleared_lines;
-  let perfect_clear = self.s6.s4.s3.s2.perfect_clear;
+  let cleared_lines = self.s6.cleared_lines();
+  let perfect_clear = self.s6.perfect_clear();
   let (gen_garbage, rem_garbage) = gen_rem_garbage(self.garbage, cleared_lines, perfect_clear);
   self.rem_gen_garbage = (gen_garbage - self.garbage).max(0); // spec: FP.RemGenGarbage
 
-  let hm = self.s6.s4.s3.s2.s1.mg.len() as i64;
-  let wm = self.s6.s4.s3.s2.s1.mg[0].len() as i64;
+  let hm = self.s6.mg().len() as i64;
+  let wm = self.s6.mg()[0].len() as i64;
   let eff_rem = rem_garbage.min(hm); // remGarbage is unbounded; clamp for array indices (D9/§4g)
 
-  let mut gameover2 = self.s6.s4.s3.s2.s1.gameover;
+  let mut gameover2 = self.s6.gameover();
   if !gameover2 && rem_garbage > 0 {
       gameover2 = if rem_garbage >= hm {
           true // pushes the entire board off — no scan needed
       } else {
           // must read the top rows BEFORE the shift below overwrites them
-          (hm - rem_garbage..hm).any(|y| {
-              (0..wm).any(|x| self.s6.s4.s3.s2.s1.mg[y as usize][x as usize].is_some())
-          })
+          (hm - rem_garbage..hm)
+              .any(|y| (0..wm).any(|x| self.s6.mg()[y as usize][x as usize].is_some()))
       };
   }
 
   // shift always runs, regardless of gameover2 — the stored grid always reflects
-  // materialization, whatever caused gameover2. Decreasing index order (D9's guard-before-
-  // index applies here too, in a different shape): a destination index (`i + eff_rem`) can
-  // coincide with a later source index, so increasing order would read an already-overwritten
-  // row.
+  // materialization, whatever caused gameover2. rotate_right(eff_rem) moves the top
+  // eff_rem rows to the front (about to be overwritten below) and shifts the rest up by
+  // eff_rem, moving Vec handles rather than cloning row contents.
   if eff_rem > 0 {
-      for i in (0..hm - eff_rem).rev() {
-          self.s6.s4.s3.s2.s1.mg[(i + eff_rem) as usize] = self.s6.s4.s3.s2.s1.mg[i as usize].clone();
-      }
+      self.s6.mg_mut().rotate_right(eff_rem as usize);
       for y in 0..eff_rem {
-          self.s6.s4.s3.s2.s1.mg[y as usize] = garbage_row::<P>(holes(y), wm);
+          fill_garbage_row::<P>(&mut self.s6.mg_mut()[y as usize], holes(y));
       }
       self.s6.update_shadow_y(); // §0.1 — the freshly-spawned piece's shadow is now stale
   }
 
   if !gameover2 {
-      gameover2 = t1::model::intersect(
-          P::forbidden_grid(), P::FY, P::FX, &self.s6.s4.s3.s2.s1.mg, 0, 0,
-      );
+      gameover2 = t1::model::intersect(P::forbidden_grid(), P::FY, P::FX, self.s6.mg(), 0, 0);
   }
-  self.s6.s4.s3.s2.s1.gameover = gameover2;
+  *self.s6.gameover_mut() = gameover2;
   ```
   Short-circuit: if `self.s6`'s own `gameover` is already `true` (set by the plain-fix path,
   before any garbage logic runs), neither the overflow scan nor the final `intersect` recheck
   runs — the shift/overwrite still runs unconditionally, only the boolean computation is
   skipped, matching the `if !gameover2` guards above.
 
-- **§4-T7c′. `garbage_row` — the one function with no `T7.v` counterpart at the free-function
-  level** (`GarbageGrid`'s per-row content, realized directly for the `Vec<Vec<_>>`
-  representation instead of as a `Grid` record, skill §2):
+- **§4-T7c′. `fill_garbage_row` — the one function with no `T7.v` counterpart at the
+  free-function level** (`GarbageGrid`'s per-row content, realized directly for the
+  `Vec<Vec<_>>` representation instead of as a `Grid` record, skill §2). It overwrites an
+  existing row in place, reusing its allocation (the board width never changes), rather than
+  building a fresh `Vec`:
   ```rust
-  fn garbage_row<P: Params>(hole: i64, w: i64) -> Vec<Option<t1::model::PieceOrExtra<P>>> {
+  fn fill_garbage_row<P: Params>(row: &mut [Option<t1::model::PieceOrExtra<P>>], hole: i64) {
+      let w = row.len() as i64;
       assert!(0 <= hole && hole < w, "ValidHoles: hole {hole} outside [0, {w})"); // spec: ValidHoles
-      (0..w)
-          .map(|x| if x == hole { None } else { Some(t1::model::PieceOrExtra::Extra(Garbage)) })
-          .collect()
+      for (x, cell) in row.iter_mut().enumerate() {
+          *cell = if x as i64 == hole { None } else { Some(t1::model::PieceOrExtra::Extra(Garbage)) };
+      }
   }
   ```
 
@@ -445,8 +443,8 @@ not this file, and is out of this file's own scope to close.
           return false; // req-flow — guards the relocation below, not just the trailing fix
       }
       let gy = self.s6.gy;
-      let px = self.s6.s4.s3.s2.s1.px;
-      t1::model::new_piece_yx_state::<P>(gy, px, &mut self.s6.s4.s3.s2.s1); // spec: NewPieceYXState
+      let px = self.s6.px();
+      t1::model::new_piece_yx_state::<P>(gy, px, self.s6.s1_mut()); // spec: NewPieceYXState
       self.fix_piece(bag_new, holes) // req-piece-drop; re-checks winner_multi, harmlessly redundant
   }
   ```
@@ -456,9 +454,9 @@ not this file, and is out of this file's own scope to close.
 ## 5. Free functions emitted by `model.rs` (`T7.v` source order)
 
 `playing_view`, `winner_multi`, `next_target`, `generated_garbage`, `gen_rem_garbage`,
-`garbage_row` (§4). None are generic over `Params` beyond what they actually touch (skill §1):
+`fill_garbage_row` (§4). None are generic over `Params` beyond what they actually touch (skill §1):
 `playing_view`/`winner_multi`/`next_target` take plain `&[bool]`/closures, no `P` at all;
-`generated_garbage`/`gen_rem_garbage` take plain `i64`/`bool`; only `garbage_row` needs `P`, to
+`generated_garbage`/`gen_rem_garbage` take plain `i64`/`bool`; only `fill_garbage_row` needs `P`, to
 name `P::CellExtra`'s `Garbage` value in `PieceOrExtra::Extra`.
 
 ---
@@ -535,7 +533,7 @@ pub fn move_piece(&mut self, dy: i64, dx: i64) -> bool {
 }
 ```
 (`rotate_piece(cw)`, `hold_piece(bag_new)`, `rotate_kick_piece(cw)` — same shape, delegating to
-`self.s6`'s matching method; `rotate_kick_piece` needs `use t6::model::RotateKickPieceExt;` in
+`self.s6`'s matching method; `rotate_kick_piece` needs `T6MachineExt` in
 scope, the same import `t6/implementation.md` §15.2 already requires of its own callers.)
 
 ### 6.3 `fix_piece` — §4-T7c/§4-T7d
@@ -595,7 +593,7 @@ convention every prior layer's naming map already follows (§3).
 /// spec: T7.v's own axiom (PlayerCountPositive) is not a Params-level fact (§0.2) — checked
 /// instead as a runtime assertion in Machine::new. Pure delegation here.
 pub fn check_axioms<P: Params>() {
-    t6::model::check_axioms::<P>();
+    t5::model::check_axioms::<P>();
 }
 ```
 
@@ -735,7 +733,7 @@ pub struct Tetris;
 
 impl Params for Tetris {
     type Piece = t1::instance::Piece; // the exact same real Piece type — its own Colored impl
-                                       // (rs_t1_src_instance.rs) already applies, unchanged
+                                       // (t1/src/instance.rs) already applies, unchanged
     type CellExtra = Garbage;
 
     const PW: i64 = <t1::instance::Tetris as Params>::PW;
@@ -820,7 +818,7 @@ alternative — there's nothing to interleave with.
 
 ### 14.2 Garbage gauge
 
-Vertical bar, one `cellSize`-height segment per unit of `machine.garbage`, clamped at `HM`,
+Vertical bar, one `cell_size`-height segment per unit of `machine.garbage`, clamped at `HM`,
 single flat color (`GARBAGE_GAUGE_COLOR`), positioned in the panel margin — no `T7.v`
 counterpart (rendering only). Deliberately distinct from `GARBAGE_BLOCK_COLOR` (§11), which is
 what a locked garbage cell in `mg` renders as via `Colored`: the gauge warns about garbage not
@@ -1228,7 +1226,7 @@ enum WireMessage {
 ```
 `Garbage`/`Gameover`/`Disconnect`/`State` are always sent as `Routed`, never `Untagged` — the
 split into `Payload` (every message kind) and the minimal `Untagged`/`Routed` discriminator
-exists so a `Routed` envelope cannot wrap another envelope (no more `WireMessage` self-reference)
+exists so a `Routed` envelope cannot wrap another envelope
 and so the lobby-vs-application distinction — only application traffic carries `from`/`to`/
 `match_gen`, only it is filtered by `match_gen` — lives at the type's top level rather than being
 implicit in which variant a message happens to be. `Destination::Broadcast` means "every player

@@ -253,25 +253,34 @@ is within `MAX_SAFE_INTEGER` in magnitude (D10).
 
 Every integer-valued subterm reachable in `model.js`'s translated definitions is one
 of: a parameter/dimension (bounded above); `py,px` (confined by
-`PieceOccupiedInsideBounds` to the main-grid box extended by at most `PW-1` — the
-`T1JsBounds.v` lemma `StateBounded`/`StateBounded_of_Correct` reads this envelope off
-`Correct`); `pr ∈ [0,3]`; an offset `oy = y+y1-y2`/`ox = x+x1-x2` inside
-`fullyContainedIn`/`intersect`/`occupiedInside`/`union`, each operand bounded by the
-same envelope, so the difference stays within `±B`; and `clearedLines`, bounded above
-by `HM`. Every one of these lies in `(−2^53,2^53)` given `B ≪ 2^53`, by
-`T1JsBounds.v`'s `InJSRange_of_absB`. `NoOverflow_of_StateBounded` and
-`Overflow_safe_reachable` (`T1JsBounds.v`) extend this pointwise bound to every
-reachable state along every trace, closing the `number ≡ ℤ` assumption underlying
-every simulation lemma in §9.
+`PieceOccupiedInsideBounds` to the main-grid box extended by at most `PW-1`, i.e.
+`|py|,|px| ≤ B` — §7's `StateBounded`, read off `Correct`); `pr ∈ [0,3]`; an offset
+`oy = y+y1-y2`/`ox = x+x1-x2` inside `fullyContainedIn`/`intersect`/`occupiedInside`/
+`union`, each operand bounded by the same envelope, so the difference stays within
+`±B`; and `clearedLines`, bounded above by `HM`. Every one of these is an integer `n`
+with `|n| ≤ B ≤ MAX_SAFE_INTEGER`, hence exactly representable as a JS `number`, and
+every `+`/`-`/comparison on such operands is exact. Since `StateBounded` holds at
+every reachable state (§7), this pointwise bound holds along every trace, closing the
+`number ≡ ℤ` assumption underlying every simulation lemma in §9.
 
 ## 7. State-bound invariant
 
-`StateBounded` (`T1JsBounds.v`) is the coupling invariant linking `Correct` to the
-numeric envelope used in §6: under `Correct`, `PieceOccupiedInsideBounds` confines
-`(py,px)` to within `PW-1` of `[0,HM)×[0,WM)`, and `TypeOK` pins `HM,WM`. Since
-`Correct` is preserved by every action (§9, transferred via α from `T1Proofs.v`'s own
-invariant-preservation theorem), `StateBounded` is preserved along every reachable
-trace, and with it the integer-range hypothesis of §6.
+`StateBounded(s) :≡ −(PW−1) ≤ py < HM ∧ −(PW−1) ≤ px < WM` is the coupling
+invariant linking `Correct` to the numeric envelope used in §6.
+
+**`Correct s → StateBounded s`.** `TypeOK` gives `0 ≤ pr ≤ 3` and pins `mg`'s box to
+`InitialMainGrid`'s, which `AxiomsInitialMainGrid` places at origin `(0,0)`, so
+`Full (mg s)` covers exactly `[0,HM)×[0,WM)`. `AxiomsRotGrid` (at `r = pr`) gives
+`RotGrid p pr` the box `[0,PW)²` with at least one occupied cell `(y0,x0)`, so
+`PieceGrid s ⊕ pyx s` has the occupied cell `(py+y0, px+x0)`.
+`PieceOccupiedInsideBounds` puts that cell inside `[0,HM)×[0,WM)`; with
+`0 ≤ y0,x0 ≤ PW−1` this yields both conjuncts. Since `|py|,|px| ≤ max(HM,WM)+PW−1`,
+`StateBounded` gives the `|py|,|px| ≤ B` bound used in §6.
+
+**Reachability.** `Correct` holds at `Init` and is preserved by every action (§9,
+transferred via α from `T1Proofs.v`'s own invariant-preservation theorem), so
+`StateBounded` holds at every reachable state, and with it the integer-range
+hypothesis of §6.
 
 ## 8. `Init`
 

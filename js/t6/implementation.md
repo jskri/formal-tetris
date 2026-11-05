@@ -32,87 +32,36 @@ Outputs: `model.js`, `view.js`, `controller.js`, `instance.js`, `index.html`,
 | file | role in T6 |
 |------|-----------|
 | `lib/utils.js` | shared primitives |
-| `t1/model.js` | the T1 engine (patched, §0.2) — reached as `T5Eng.T1Eng` (flattened) |
+| `t1/model.js` | the T1 engine, including `canRotatePiece` (§0.2) — reached as `T5Eng.T1Eng` (flattened, §0.3) |
 | `t5/model.js` | the T5 engine — imported as `T5` (alias for `T`); called as `T5(...)` |
 | `t5/instance.js` | re-exported by T6's own `instance.js` (§11) |
 | `t5/view.js` | re-exported by T6's own `view.js` (§14) — no new visual state |
 
-### 0.2 Prerequisite: `t1/model.js` patch (must land before T6 codegen)
+### 0.2 T1-level helper used by T6: `canRotatePiece`
 
-Two additions to `t1/model.js`'s free-function list, needed for different reasons:
-`newPieceYXState` for T5's `DropPiece`, `canRotatePiece` for T6's kick logic.
-
-`T1.v` defines:
-```
-Definition NewPieceYXState (pyNew pxNew : Z) (s : State) : State :=
-  {| py := pyNew
-  ;  px := pxNew
-     (* rest is unchanged *)
-  ;  mg := mg s; p := p s; pr := pr s; gameover := gameover s;
-     clearedLines := clearedLines s
-  |}.
-```
-`t1/model.js`:
-```js
-function newPieceYXState(pyNew, pxNew, s) {
-  return {
-    mg: s.mg,
-    p: s.p,
-    py: pyNew,
-    px: pxNew,
-    pr: s.pr,
-    gameover: s.gameover,
-    clearedLines: s.clearedLines,
-  };
-}
-```
-Both coordinates are overridden unconditionally — a caller that wants one preserved
-must pass its current value explicitly. `T5.v`'s `DropPiece` does exactly this
-(`NewPieceYXState (gy s) (px s) s` — `px s`, not a literal, to keep the column
-unchanged while relocating only the row); `t5/model.js`'s `dropPiece` matches:
-```js
-const r = T1Eng.newPieceYXState(this.gy, s1.px, s1);
-```
-(`T1Eng` here is the flattened reference, §0.3 of `t5/implementation.md`.)
-
-`canRotatePiece` is implementation freedom, with no `T1.v` counterpart. `T1.v` itself
-needs no such definition (`T1.RotatePiece` computes its own guard inline, once); only
-this implementation, wrapping T6's kick logic around it, needs to query "would
-rotation succeed" without performing it:
+`RotateKickPiece` fires only when `T5.RotatePiece` would not (`T6.v`'s `plainRotFires`
+exclusivity guard), so the kick logic must know whether a plain rotation *would* fire
+without performing it. `t1/model.js` provides exactly that predicate,
+`canRotatePiece(cw, s)` (`t1/implementation.md` §3, §5):
 ```js
 function canRotatePiece(cw, s) {
   const pr2 = mod(s.pr + (cw ? -1 : 1), 4);
   return !s.gameover && valid(s.mg, s.p, s.py, s.px, pr2);
 }
 ```
-This factors `T1.RotatePiece`'s own guard expression into a named, side-effect-free
-predicate — the same expression, not a re-derivation, so `canRotatePiece(cw, s)` is
-true iff `rotatePiece(cw)` would fire on a machine in state `s`.
+It is implementation freedom, with no `T1.v` counterpart: `T1.RotatePiece` computes its
+guard inline, and only a caller wrapping kick logic around rotation needs it as a
+standalone, side-effect-free predicate. It is the same expression as `RotatePiece`'s
+guard, not a re-derivation, so `canRotatePiece(cw, s)` is true iff `rotatePiece(cw)`
+would fire on a machine in state `s`; `t1/proofs.md`'s `L-canRotatePiece` states this
+as a definitional-equivalence lemma. T6 reaches it as `T1Eng.canRotatePiece` and never
+redefines it.
 
-Required, all landing together in the same patch:
-- `t1/model.js`'s free-function list includes `newPieceYXState` and
-  `canRotatePiece`.
-- `t1/implementation.md` §3, §5: a naming-map row and signature for each.
-- `t1/proofs.md`: `L-newPieceYXState` (field-by-field, same shape as
-  `L-newPieceState`) and `L-canRotatePiece` (a definitional-equivalence lemma, not
-  a translation lemma — it has no Rocq statement to be equivalent to beyond the
-  guard expression it's extracted from).
-- `t5/model.js`'s `dropPiece` calls `newPieceYXState(this.gy, s1.px, s1)` — three
-  arguments, explicit `px`.
-- `t5/implementation.md`, `t5/proofs.md`: describe `dropPiece` accordingly.
-- `t5/tests/oracle.js`'s independent hand-roll takes an explicit `pxNew` parameter,
-  called with `s1.px` at `dropPiece5`'s one call site.
+### 0.3 Flattened access
 
-### 0.3 Retrofit: flattened `T1Eng` and `get s1()`, across T2-T5
-
-`t5/implementation.md` §0.3 already specifies this (T3 and T4 gain `get s1()` and a
-flattened `T1Eng`; T5 gains the same, plus its `dropPiece`/`shadowY` call sites are
-updated to use the flattened `T1Eng` instead of the deep chain). T6 needs nothing
-further here — subclassing `T5Eng.Machine` (§1) inherits `get s1()` automatically,
-and `T5Eng.T1Eng` is already one hop by construction.
-
-This patch (§0.2 and this retrofit) is a prerequisite for T6 codegen but is not
-itself part of T6's own output.
+T6 relies on the flattened access convention of `t5/implementation.md` §0.3:
+subclassing `T5Eng.Machine` (§1) inherits `get s1()`, and `T5Eng.T1Eng` is already one
+hop. T6 adds nothing to it.
 
 ## 1. The refinement, and what it buys — and the structural departure
 
@@ -140,9 +89,9 @@ excluding `Hold`/`Drop`. Per skill §7.1:
   (a genuine reuse), but only after establishing, via a pure check, that the plain
   call would otherwise not have fired — see §4-T6a.
 
-Rejected alternative, and why: a composite method (e.g. `rotateWithKick(cw)` trying
-both in sequence, exposed as the "main" rotate entry point) was considered and
-rejected. `T6.v` defines no event combining `Rotate` and `RotateKick` — that
+Rejected alternative, and why: `model.js` has no composite method (e.g.
+`rotateWithKick(cw)` trying both in sequence, exposed as the "main" rotate entry
+point). `T6.v` defines no event combining `Rotate` and `RotateKick` — that
 combination is a caller's sequencing decision, not a model definition. Adding it to
 `model.js` would encode behavior `T6.v` itself doesn't specify, the same class of
 thing `t1/implementation.md` §12 already rules out for controller-only concerns (DAS
@@ -175,8 +124,11 @@ Only T6-introduced names.
 | `State` (`= T5.State`) | the `T6.Machine` instance — a subclass of `T5Eng.Machine`, not a new shape |
 | `RotateKickPiece` | `Machine.rotateKickPiece(cw)` |
 | `Event`, `Next` | implicit (controller dispatch + method args); `Event5` case is inheritance, not a forward call |
-| `fₑ`, `fₛ` | not emitted (both `id`) |
+| `NextT5Event` | not emitted — `T5.Next` on the inherited methods |
+| `fₑ`, `fₛ`, `T6RefinesT5` | not emitted (`fₑ`, `fₛ` are both `id`); proofs.md only |
 | `Correct` (`= T5.Correct`) | not emitted — no new invariant, `checkInvariants` is `T5Eng.checkInvariants` unchanged |
+| `CorrectWithoutGameover`, `CorrectStep` (`= T5`'s) | proofs.md only; not emitted |
+| `s5`, `UnchangedT6Part` (both `id`), and the aliases `MovePiece`, `RotatePiece`, `FixPiece`, `HoldPiece`, `NewPieceYXState`, `mg`, `p`, `pyx`, `px`, `pr`, `gameover`, `clearedLines`, `score`, `level`, `combo`, `perfectClear`, `totalClearedLines`, `hold`, `swapped`, `d`, `gy` (each `= T5`'s) | not emitted — `T6.Machine` inherits the corresponding T5 methods, getters and fields |
 
 ## 4. Per-definition translation rules (T6-specific)
 
@@ -204,7 +156,10 @@ unlike a rejected `rotatePiece()` call (which by construction touches nothing),
 there is no way to "try a real rotation and undo it" without first knowing whether
 it would fire — probing with `valid(...)` a second time inside the loop is
 redundant, since `rotatePiece()` already re-checks validity as part of its own
-guard. Mutating `s1.px` before calling `rotatePiece` is safe here specifically
+guard. The assignments `s1.px = origPx - 1` and `s1.px = origPx + 1` are the JS image
+of `T6.v`'s `T5.NewPieceYXState (py s, px s - 1) s` and `T5.NewPieceYXState (py s, px s
++ 1) s` (`py`, and every other field, unchanged). Mutating `s1.px` before
+calling `rotatePiece` is safe here specifically
 because `px` is a trivially-restorable scalar with no side effect beyond itself —
 unlike T4's `fixPiece`, where "undoing a draw" isn't a clean no-op. `checkInvariants`
 is `T5Eng.checkInvariants` — not redefined, since `T6.Correct = T5.Correct`.
@@ -313,8 +268,8 @@ A regeneration is correct iff:
    one.
 5. `rotateKickPiece` reuses `this.rotatePiece(cw)` for the actual mutation — it does
    not reimplement rotation validity/mutation/`gy`-refresh itself.
-6. The `t1/model.js` patch (§0.2) is present and additive-only; `t5/model.js`'s
-   `dropPiece` update (§0.2) is applied.
+6. `t1/model.js` exports `canRotatePiece` (§0.2) per `t1/implementation.md`, and
+   `t6/model.js` calls it rather than redefining it.
 
 ## 11. Instantiation (`instance.js`)
 
@@ -325,8 +280,8 @@ Pure re-export. `T6.v` declares no `Parameter` of its own — no abstract parame
 
 ## 12. Generator determinism rules
 
-Inherit predecessors' "reuse over restatement" verbatim. The §0.2/§0.3 patches are
-prerequisites of T6 codegen, not part of T6's own output.
+Inherit predecessors' "reuse over restatement" verbatim. `canRotatePiece` (§0.2)
+belongs to `t1/model.js`, not to T6's own output.
 
 ## 13. `instance.js` parameters
 
@@ -358,11 +313,9 @@ const constants = {
   Piece,
   FH: ForbiddenGrid.length,
   FW: ForbiddenGrid[0].length,
-  rotGrid: eng.T1Eng.rotGrid,   // flattened one-hop access, made available by T5Eng
-                                 // (t5/implementation.md §0.3) — t6/controller.js is
-                                 // the first controller in the tower to actually use
-                                 // it; t5/controller.js's own rotGrid line still reads
-                                 // through the deep chain (eng.T4Eng.T3Eng.T2Eng.T1Eng.rotGrid)
+  rotGrid: eng.T1Eng.rotGrid,   // flattened one-hop access (t5/implementation.md §0.3);
+                                 // t5/controller.js reads through the deep chain
+                                 // (eng.T4Eng.T3Eng.T2Eng.T1Eng.rotGrid) instead
   PANEL_PX: 0,
 };
 ```

@@ -32,65 +32,37 @@ Outputs: `model.js`, `view.js`, `controller.js`, `instance.js`, `index.html`,
 | file | role in T3 |
 |------|-----------|
 | `lib/utils.js` | shared primitives — imported transitively by `t2/model.js` |
-| `t1/model.js` | the T1 engine (patched, §0.2) — reached as `T2Eng.T1Eng` |
+| `t1/model.js` | the T1 engine, including `newPieceState` (§0.2) — reached as `T2Eng.T1Eng` |
 | `t2/model.js` | the T2 engine — imported as `T2` (alias for `T`); called as `T2(...)` |
 | `t2/instance.js` | re-exported by T3's own `instance.js` (§11) |
 
-### 0.2 Prerequisite: `t1/model.js` patch (must land before T3 codegen)
+### 0.2 T1-level helper used by T3: `newPieceState`
 
-`T1.v` gained a new `Definition`:
+`T3.v`'s `HoldPiece` calls `T1.NewPieceState` directly (`T1.NewPieceState p2 (s1 s2_)`),
+skipping T2 entirely for this one piece of logic:
 ```
-Definition NewPieceState (p_new : Piece) (s : State) : State :=
-  {| mg := mg s
-  ;  p  := p_new
-  ;  py := InitialY p_new
-  ;  px := InitialX p_new
+Definition NewPieceState (pNew : Piece) (s : State) : State :=
+  {| p := pNew
+  ;  pyx := InitialYX pNew
   ;  pr := 0
-  ;  gameover := gameover s
-  ;  clearedLines := clearedLines s
+     (* rest is unchanged *)
+  ;  mg := mg s; gameover := gameover s; clearedLines := clearedLines s
   |}.
 ```
-`T3.v`'s `HoldPiece` calls it directly (`T1.NewPieceState p2 (s1 s2_)`, T3.v's
-`HoldPiece` definition),
-skipping T2 entirely for this one piece of logic. Per "reuse over restatement"
-(`t2/implementation.md` §12): this logic is *owned* by `T1.v`, so its JS image belongs
-in `t1/model.js`, not duplicated inside `t3/model.js` — even though T3's own outer
-function already has direct closure access to `InitialY`/`InitialX` and could
-technically inline it. Reuse here is not just style: if `T1.v`'s spawn rule ever
-changes, only `t1/model.js` should need updating, and every wrapper (T3, and any future
-one) inherits the fix — the same rationale `t2/implementation.md` §4-T2a already gives
-for reusing `T1Eng.fullLineCount` instead of re-deriving `clearedLines`.
+It touches `p`, `pyx` and `pr` only; `mg`, `gameover` and `clearedLines` pass through.
+Per "reuse over restatement" (`t2/implementation.md` §12) this logic is *owned* by
+`T1.v`, so its JS image is `t1/model.js`'s `newPieceState(pNew, s)`
+(`t1/implementation.md` §3, §5), proved by `t1/proofs.md`'s `L-newPieceState`. T3
+reaches it as `T2Eng.T1Eng.newPieceState` and never re-implements it in `t3/model.js`,
+even though T3's own outer function has direct closure access to `InitialY`/`InitialX`
+and could technically inline it. Reuse here is not just style: if `T1.v`'s spawn rule
+changes, only `t1/model.js` needs updating, and every wrapper inherits the change — the
+same rationale `t2/implementation.md` §4-T2a gives for reusing `T1Eng.fullLineCount`
+instead of re-deriving `clearedLines`.
 
-**Required, additive-only changes** (nothing else in `t1/model.js` changes — `Init` and
-`FixPiece`'s bodies are untouched, since `T1.v`'s `Init`/`FixPiece` were not refactored
-to call `NewPieceState`, only `T3.v` calls it):
-
-- `t1/model.js`: add one free function, returned alongside the existing §5 list:
-  ```js
-  // spec: NewPieceState p_new s
-  function newPieceState(pNew, s) {
-    return {
-      mg: s.mg,
-      p: pNew,
-      py: InitialY(pNew),
-      px: InitialX(pNew),
-      pr: 0,
-      gameover: s.gameover,
-      clearedLines: s.clearedLines,
-    };
-  }
-  ```
-  Its return type is a full state-shaped plain object (mirroring `NewPieceState :
-  State`), not a grid/boolean/number — noted so it isn't mistaken for a bug when
-  read next to `rotGrid`/`valid`/`union`.
-- `t1/implementation.md` §3 naming map: add `NewPieceState | newPieceState(pNew, s)`.
-- `t1/implementation.md` §5: add the signature above.
-- `t1/proofs.md`: needs one new lemma, `L-newPieceState` (JS field-by-field match to
-  the Rocq record), in the same slot as the other §3 free-function lemmas. Not written
-  here — that addendum belongs to `t1/proofs.md`, flagged as a required follow-up, not
-  silently skipped.
-
-This patch is a prerequisite for T3 codegen but is not itself part of T3's output.
+`newPieceState` returns a full state-shaped plain object (mirroring `NewPieceState :
+State`), not a grid/boolean/number. `T1.v`'s own `Init`/`FixPiece` do not call
+`NewPieceState`; only `T3.v` does.
 
 ## 1. The refinement, and what it buys — and what it doesn't
 
@@ -154,8 +126,9 @@ inner engines.
 | `HoldPiece` | `Machine.holdPiece(pNew)` |
 | `NextT2Event`, `Next` | not emitted — JS dispatch already maps controller event → method |
 | `fₑ`, `fₛ` | not emitted |
-| `score`, `level`, `clearedLines` (T3-level read-through helpers) | proofs.md only; not emitted as functions — JS reads the underlying fields directly (`this.s2.score` etc.) at their few call sites |
-| `SwappedImplyHoldSome`, `GameoverImplyNotSwapped`, `Correct`, `NonDecreasingScore`, `NonDecreasingLevel`, `ScoreRisesOnClear`, `HoldMonotone`, `CorrectStep` | proofs.md only; not emitted |
+| `score`, `level`, `clearedLines`, `perfectClear` (T3-level read-through helpers) | proofs.md only; not emitted as functions — JS reads the underlying fields directly (`this.s2.score` etc.) at their few call sites |
+| `SwappedImplyHoldSome`, `GameoverImplyNotSwapped`, `Correct`, `NonDecreasingScore`, `NonDecreasingLevel`, `ScoreRisesOnClear`, `HoldMonotone`, `CorrectStep`, `CorrectWithoutGameover` | proofs.md only; not emitted |
+| `T3RefinesT2`, and the converse-direction definitions `RunT2`, `RunT3`, `T3AllowsAllT2` | proofs.md only; not emitted |
 
 ## 4. Per-definition translation rules (T3-specific)
 
@@ -343,12 +316,13 @@ in order: (§5: no free functions), `T2Eng`, `T1Eng` (flattened, §6.10), `check
      touches (`p, py, px, pr` only — confirmed by its definition, §0.2): `TypeOK`,
      `Gameover`, `NoFullLine` are **trivial** (`mg`/`gameover` pass through
      unchanged). `PieceOccupiedInsideBounds`/`PieceOnFreeBlocks` are the only two
-     that need `AxiomsRotGrid`'s `FullyContainedIn (RotGrid p 0) (InitialY p)
-     (InitialX p) ForbiddenGrid FY FX` (stated `∀ p : Piece` — so it
-     applies to `p2` regardless of which piece that turns out to be) combined with
-     `AxiomsForbiddenGrid`'s `BBoxInsideBBox` — the *same* lemma
-     `T1Proofs.v` already uses for `Init`'s and `FixPiece`'s spawn, re-invoked here,
-     not re-derived.
+     that need `AxiomsRotGrid`'s spawn clause `(RotGrid p 0 ⊕ InitialYX p) ⊆
+     ForbiddenGrid` (stated `∀ p : Piece` — so it applies to `p2` regardless of which
+     piece that turns out to be) combined with `AxiomsForbiddenGrid`'s `Full
+     ForbiddenGrid ⊆ Full InitialMainGrid`. `T1Proofs.v` already packages exactly this
+     as `NewPieceStateCorrect` (via `NewPieceInsideBounds`/`NewPieceFree`), the same
+     lemmas it uses for `Init`'s and `FixPiece`'s spawn — re-invoked here, not
+     re-derived.
    - **`LevelCorrect (s2 s)` preservation** — trivial: `score`/`level`/`combo`/
      `perfectClear`/`totalClearedLines` are untouched (T3.v's own `HoldPiece` builds
      the new `s2` via `T2.UnchangedT2Part`), so both sides of `LevelCorrect`'s
@@ -389,8 +363,9 @@ specific coverage.
   `T2Eng.T1Eng.newPieceState`, for the same independence reason T2's oracle hand-rolls
   `capAdd`/`natSub`/`natDiv` instead of importing `lib/utils.js`: a bug shared between
   the translation and a helper it reuses should still surface as a mismatch here).
-  Exposes `initState3`, `movePiece3`, `rotatePiece3`, `fixPiece3`, `fallStep3`,
-  `holdPiece3`, `snapshotOf3`.
+  Exports one object, `oracle3`, with `makeParams` (T2's, re-exported), `initState3`,
+  `movePiece3`, `rotatePiece3`, `fixPiece3`, `fallStep3`, `holdPiece3`, `snapshotOf3`,
+  `states3Equal`.
 - **`model.unit.test.js`** — golden vectors for `holdPiece`:
   - hold when `hold === null` uses `pNew` (req-hold-empty): new current piece is
     `pNew`, `hold` becomes the old current piece, `swapped` becomes `true`.
@@ -430,8 +405,8 @@ A regeneration is correct iff:
    (§4-T3e ordering).
 6. `checkInvariants` asserts both new T3 conjuncts (§6.9), delegating to
    `T2Eng.checkInvariants` rather than reimplementing it.
-7. The `t1/model.js` patch (§0.2) is present and additive-only — `Init`/`FixPiece`
-   in `t1/model.js` are byte-unchanged.
+7. `t1/model.js` exports `newPieceState` (§0.2) per `t1/implementation.md`, and
+   `t3/model.js` calls it rather than redefining it.
 
 ## 11. Instantiation (`instance.js`)
 
@@ -445,10 +420,10 @@ introduces no abstract parameters. `model.js`'s `checkAxioms` (= T1's) validates
 ## 12. Generator determinism rules
 
 Inherit `t1/implementation.md` §12 and `t2/implementation.md` §12's "reuse over
-restatement" verbatim. T3 addition: the §0.2 `t1/model.js` patch is a prerequisite of
-T3 codegen, not part of T3's own output — do not fold it into `t3/model.js` as a
-workaround if the patch is missing; surface it as a blocking TODO instead (skill §12's
-own rule: unresolved gaps are surfaced, not guessed around).
+restatement" verbatim. T3 addition: `newPieceState` (§0.2) belongs to `t1/model.js`,
+not to T3's own output — if `t1/model.js` does not export it, do not fold it into
+`t3/model.js` as a workaround; surface it as a blocking TODO instead (skill §12's own
+rule: unresolved gaps are surfaced, not guessed around).
 
 ## 13. `instance.js` parameters
 
@@ -628,7 +603,7 @@ function fallPeriod(level) {
 }
 ```
 `afterAction` (§15.5) recomputes `currentGravityPeriod = fallPeriod(machine.level)`
-whenever `machine.level` (now a getter, §6.7) changes, and `frame` fires `onTick`
+whenever `machine.level` (a getter, §6.7) changes, and `frame` fires `onTick`
 whenever `now - lastGravityAt >= currentGravityPeriod`.
 
 ### 15.5 `afterAction(now)`

@@ -22,8 +22,6 @@ Codegen-time inputs (this transformation):
   are the algebra over them (§4).
 - this file.
 - `rocq-to-js.md` — generic rules (cited as "skill §x").
-- `T1JsBounds.v` — the machine-checked ℤ-side bounds/envelope facts (referenced by
-  `proofs.md` §6; not consumed by codegen, but its lemma names are cited).
 
 Runtime input (NOT codegen-time, NOT derived from `T1.v`):
 - `instance.js` — the concrete instantiation of the abstract parameters (§13).
@@ -48,7 +46,7 @@ equivalence up to the fixed naming map is.
 | D7  | Invariant re-checks run under `CHECK_INVARIANTS` (module const, default `false`). `typeOK` is the highest-value one. | skill N4/§4c |
 | D8  | Set-parameter elements (`Piece`) must be **value-`===`** (primitives), disjoint from `false` (the sole `occ()` sentinel, since `mg` stores `Piece` ids directly as cell contents — D1), and the array a **complete, finite** enumeration; `RotGrid`/`InitialY`/`InitialX` pure. Asserted in `checkAxioms`. | skill N2/N6 |
 | D9  | Guard-before-index everywhere; bounds conjuncts first; `negb→!`, `implb a b→!a||b`. | skill N1 |
-| D10 | Integer-range safety via bound `B = max(HM,WM)+PW−1 ≤ MAX_SAFE_INTEGER`, asserted in `checkAxioms`; justified in `proofs.md §6` against `T1JsBounds.v`. | skill N5; `T1JsBounds.v` |
+| D10 | Integer-range safety via bound `B = max(HM,WM)+PW−1 ≤ MAX_SAFE_INTEGER`, asserted in `checkAxioms`; justified in `proofs.md` §6, using the `StateBounded` invariant of `proofs.md` §7. | skill N5 |
 | D11 | Only safety/invariants are claimed to transfer; no liveness. | skill N8 |
 | D12 | `W` is derived from `g[0].length`; sound because `typeOK ⇒ H>0`. Do not special-case empty grids. | skill N7 (`AxiomsInitialMainGrid` gives `H>0`) |
 | D13 | **Fusion is mandatory.** Every occurrence of `⊆`, `∩`, `∪`, `⊕`, `Full`, `∅` in `T1.v` appears only inside one of four fixed idioms (§4). Each idiom is translated as a single location/content/emptiness test with no grid ever materialized for `Full`, `∅`, or an intermediate union-before-clamp; `⊕` is absorbed into the offset arithmetic of whichever idiom it sits inside. A literal, per-operator transliteration (build a `Full` array, build a union array, then compare) is never attempted — it would be slower and would reopen exactly the masking question D-Contained (below) closes for free. | skill N10-style fusion; `proofs.md` §3 |
@@ -95,9 +93,9 @@ ForbiddenGrid, RotGrid, InitialYX, PW`), decomposed at the boundary per D14/D15:
 `InitialYX` → `InitialY, InitialX`; `ForbiddenGrid`'s Rocq-internal `YX` → the trailing
 `FY, FX` scalars; then the bound (D10). The returned object exposes (in this order):
 the free functions of §5, `checkAxioms`, `typeOK`, `checkInvariants`, `Machine`,
-`snapshot`. `stutter` and `step` are **not generated** — they are Rocq proof
-artifacts with no implementation obligation (the caller simply refrains from
-calling any method).
+`snapshot`. `Event` and `Next` are **not generated** — `Next` only dispatches each
+`Event` constructor to its action, so the caller invokes the corresponding `Machine`
+method directly, and `Stutter` is the caller not calling any method.
 
 Module-level in `model.js`: `const CHECK_INVARIANTS = false;` (D7) and the abbreviations
 `const HM = InitialMainGrid.length, WM = InitialMainGrid[0].length, B = Math.max(HM,WM)+PW-1;`.
@@ -144,10 +142,14 @@ covered collectively by the fusion rule in §4, not individually below.
 | `mg,p,py,px,pr,gameover,clearedLines` | identical field names (D14: `pyx` decomposed to `py,px`) |
 | `AxiomsPW` | — (not emitted; checked by `checkAxioms`) |
 | `AxiomsInitialYX` | — (not emitted; checked by `checkAxioms`) |
+| `Event`, `Next` | — (not emitted; the caller calls the `Machine` method matching each `Event` constructor directly, and `Stutter` is no call at all) |
+| `TypeOK` | `typeOK(s, isOccupied)` (§7) |
+| `Gameover`, `PieceOccupiedInsideBounds`, `PieceOnFreeBlocks`, `HasFullLine`, `NoFullLine`, `CorrectWithoutGameover`, `Correct` | not emitted as separate functions; `checkInvariants` (§7) asserts `Correct`'s conjuncts one by one (`NoFullLine` is `¬ HasFullLine`; `CorrectWithoutGameover` is `Correct` without `Gameover`) |
+| `NewMainGridGameoverState` | — (not emitted: no call site inside T1, and its only user, `T7.v`'s `FixPiece`, is realized by assigning `mg`/`gameover` directly, `t7/implementation.md` §3) |
 
 Emit free functions in `T1.v` source order (as filtered through the fusion rule);
-methods in source order. No functions beyond this table (except `step`, `stutter`,
-`snapshot`, `checkAxioms`, `typeOK`, `checkInvariants`). No refactors, no helpers not
+methods in source order. No functions beyond this table (except `snapshot`,
+`checkAxioms`, `checkInvariants`). No refactors, no helpers not
 listed here or in §2.
 
 ## 4. Translation rules specific to T1
@@ -312,7 +314,7 @@ producing unspecified behaviour.
   representation, not by an assertable fact.)
 - `AxiomsForbiddenGrid`: `H,W>0`, `bboxInsideBBox(ForbiddenGrid,FY,FX,InitialMainGrid,0,0)`
   — the JS realization of `Full ForbiddenGrid ⊆ Full InitialMainGrid`. `FY>=0` and
-  `FX>=0` are additionally asserted for a clearer failure message, though they are now
+  `FX>=0` are additionally asserted for a clearer failure message, though they are
   implied by `bboxInsideBBox`'s own first/third conjuncts (`y2 ≤ y1`/`x2 ≤ x1` with
   `y2=x2=0`) rather than independently required by `T1.v` — redundant, not extraneous:
   they can only fire when the aggregate check would fire anyway. (`Contained` is not
@@ -363,11 +365,14 @@ this treatment; `view.js`'s `drawGrid` reads it via `mg.height`/`mg.width`/
 4. **Non-aliasing lemma** (skill N3) — concrete-only, no Rocq image.
 5. **`typeOK` = sub-lemma (2a)** (skill N4) — base from `checkAxioms`, step per method;
    every action lemma in §6 runs under `typeOK`.
-6. **Integer-range safety §6.8** — bound `B`, quantified over all arithmetic subterms;
-   cite `T1JsBounds.v` lemmas (`InJSRange_of_absB`, `StateBounded`, `NoOverflow_of_StateBounded`,
-   `Overflow_safe_reachable`).
-7. **State-bound invariant** — link `StateBounded` / `StateBounded_of_Correct`
-   (`T1JsBounds.v`) as the coupling between `Correct` and the position envelope.
+6. **Integer-range safety §6.8** — bound `B`, quantified over all arithmetic subterms:
+   every integer subterm `n` satisfies `|n| ≤ B ≤ MAX_SAFE_INTEGER` at every reachable
+   state, given the state-bound invariant (item 7).
+7. **State-bound invariant** — define `StateBounded(s) :≡ −(PW−1) ≤ py < HM ∧
+   −(PW−1) ≤ px < WM`, prove `Correct s → StateBounded s` (from `TypeOK`,
+   `AxiomsRotGrid`, `PieceOccupiedInsideBounds`), and conclude it holds at every
+   reachable state via `T1Proofs.v`'s invariant preservation. This is the coupling
+   between `Correct` and the position envelope used by item 6.
 8. **Init** — constructor ≙ `Init p0`, field-by-field.
 9. **Each action** — guard-fail→stutter; guard-hold→field match; for `fixPiece`
    reproduce the §6 dependency-order argument.

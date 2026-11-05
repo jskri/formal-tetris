@@ -1,16 +1,16 @@
-# implementation.md — `final/`, delta over `t7/implementation.md`
+# implementation.md — `tfinal/`, delta over `t7/implementation.md`
 
-Not a fresh derivation. `final/` introduces no `model.rs` of its own and no
+Not a fresh derivation. `tfinal/` introduces no `model.rs` of its own and no
 new `Params`/`instance` type — every `T7.v`/`T6.v` correspondence
 `t7/implementation.md` already establishes applies unchanged, reached through
 the exact same types. This file's own scope is narrower: the crate layout,
-and the surface `final/` adds on top of `t7/`'s already-documented behavior —
+and the surface `tfinal/` adds on top of `t7/`'s already-documented behavior —
 procedural sound effects, two lock/garbage animations, and a single-player
 hall of fame.
 
 ## 0. Scope, and what's reused unchanged
 
-`final/` drives two engines, exactly as `t7/main.rs` already does for its own
+`tfinal/` drives two engines, exactly as `t7/main.rs` already does for its own
 `App::Single`/`App::Playing` arms:
 
 - **Single-player**: `t6::model::Machine<SingleInstance>` directly — no
@@ -19,10 +19,10 @@ hall of fame.
   never routed through it at any layer).
 - **Multiplayer**: `t7::model::Machine<Instance>`, driven through
   `t7::session::Session` — the lobby/relay/roster state machine
-  `t7/implementation.md` documents at §15, promoted to `t7`'s public API
+  `t7/implementation.md` documents at §15, which is a public API of `t7`
   (tracked separately; not part of this pass — §6 below assumes it).
 
-No `instance.rs`: `final/` calls `t7::instance::Tetris`/`t1::instance::Piece`
+No `instance.rs`: `tfinal/` calls `t7::instance::Tetris`/`t1::instance::Piece`
 directly wherever `t7/main.rs` does. No `model.rs`, no `tests/` — nothing
 introduced here is a `Machine`-level primitive with a refinement obligation of
 its own; every new module is either pure rendering/audio data or a thin,
@@ -31,7 +31,7 @@ independently-testable persistence layer.
 ## 1. File layout
 
 ```
-final/
+tfinal/
   Cargo.toml           # path deps: t1–t7; new deps: rodio (sfx), directories (hall of fame)
   src/
     main.rs             # game loop + screen state — delta over t7/main.rs (§5)
@@ -43,7 +43,8 @@ final/
 ## 2. `sound.rs`
 
 Procedural tones only — synthesized at runtime, no audio asset files, no
-music. Backend: `rodio` (`OutputStream` + `Sink`), not macroquad's own
+music. Backend: `rodio` (`DeviceSinkBuilder` opening a `MixerDeviceSink`, with a `Player` per
+played sound connected to its `mixer::Mixer`), not macroquad's own
 `audio` feature — that feature plays back sample files via `quad-snd` and has
 no oscillator-synthesis path, and no audio dependency exists anywhere in
 `t1`–`t7` today to build on.
@@ -105,7 +106,7 @@ same `now` (`get_time()`) every other per-frame calculation already uses.
   **Why this is computed locally, not read off `Machine`:** per
   `t7/implementation.md` §4-T7c, `fix_piece` fuses grid-union and line-clearing
   into one step and never exposes the intermediate "placed, not yet cleared"
-  grid as a public value — there is nothing to read it off. `final/` therefore
+  grid as a public value — there is nothing to read it off. `tfinal/` therefore
   reconstructs it itself, from the same public inputs the real call is about
   to consume: clone the current `mg`, place the active piece's cells into the
   clone using its current `py`/`px`/`pr` and `P::rot_grid(piece, pr)` (the same
@@ -164,14 +165,14 @@ same `now` (`get_time()`) every other per-frame calculation already uses.
 - **Combo / perfect-clear banners are *not* new here.** `t2::view::Banner` /
   `draw_banners` already exist and are already wired into every render call in
   `t7/main.rs`'s own `RunState`/`after_action` (populated whenever
-  `total_cleared_lines` increases). `final/` reuses this exactly as-is — no
+  `total_cleared_lines` increases). `tfinal/` reuses this exactly as-is — no
   new banner code.
 - **Gameover lockout — single-player only.** `t7/main.rs`'s multiplayer path
   already has this: `Playing.own_gameover_since` + `GAMEOVER_FILLER_DELAY_SECS`
   delay the S7→S8 filler handoff so a last-second keypress doesn't
   instantly discard the "GAME OVER" frame. `App::Single`'s own gameover
   branch has no such delay — it restarts on the very next
-  `any_action_just_pressed`. `final/` adds the identical pattern there (a
+  `any_action_just_pressed`. `tfinal/` adds the identical pattern there (a
   `gameover_since: Option<f64>` local + a `SP_GAMEOVER_LOCKOUT_SECS`
   constant), reusing the existing MP constant's role rather than inventing a
   different mechanism for the second path — see §5.
@@ -253,7 +254,7 @@ path):**
     `t7/main.rs`'s lobby screens already use for name entry), capped at
     `HOF_NAME_MAX_LEN` (20) characters for both typed and pasted input (via
     `TextInput::apply`'s parameterized `max_len`, shared with the lobby
-    fields which pass the larger `TEXT_INPUT_MAX_LEN`), and driving the same
+    fields which pass the larger `t7::text::NAME_FIELD_MAX_LEN`), and driving the same
     `drive_backspace_repeat`/`RepeatTimer` auto-repeat the lobby name fields
     already use — submitting calls `record_score` and transitions to the
     hall-of-fame display below, highlighting the just-added entry.

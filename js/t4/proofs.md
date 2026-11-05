@@ -6,8 +6,9 @@ read off the pre-transition state.
 
 ## 1. Scope
 
-Safety only. `RefineT3` (T4.v's `RefineT3` definition) has exactly two conjuncts —
-`InitRefineT3` and `NextRefineT3` — no `None`-preservation clause. This is
+Safety only. `T4RefinesT3` (`T4.v`'s own definition) has exactly two conjuncts —
+the `Init` and the `Next` one, proved in `T4Proofs.v` as `InitRefine` and
+`NextRefine` — no `None`-preservation clause. This is
 deliberate, not an omission: a forward-simulation safety argument only needs
 start/step conditions (Lynch & Vaandrager, *Information and Computation*
 121(2):214–233, 1995, §3). The converse direction — "T3 permits ⟹ T4 permits"
@@ -95,7 +96,7 @@ Two things to show, beyond what transfers from `t3/proofs.md`:
   `fallStep` when `gameover` is already `true` — `movePiece(-1,0)` fails on the
   `¬gameover` conjunct, `fixPiece` is attempted and *also* fails on the same
   conjunct, since nothing about `T3.FixPiece`'s guard is established merely by
-  `T4.fixPiece` having been called). Rocq's `d'` being unconditionally *computed* is
+  t4 `fixPiece` having been called). Rocq's `d'` being unconditionally *computed* is
   a pure-value binding with no observable effect once discarded by `option_map`
   over `None` — it does not license a stateful translation to commit an equivalent
   mutation on the rejected path. The peek-then-commit ordering in `model.js` avoids
@@ -110,7 +111,7 @@ Two things to state explicitly, not re-derive:
 - **The `hold !== null` (skip) branch matches `T3.HoldPiece`'s own branch on the
   same underlying field**, independent of any invariant: `T4.v`'s `hold` is a
   direct passthrough of T3's own field (T4.v's `hold` field definition: `hold s
-  := T3.hold (s3 s)`), so whichever branch `T4.holdPiece` takes, `T3.HoldPiece`'s internal `match
+  := T3.hold (s3 s)`), so whichever branch t4 `holdPiece` takes, `T3.HoldPiece`'s internal `match
   hold s with Some p => p | None => p_new end` takes the corresponding one.
 - **The `hold === null` (commit) branch's mutation can never precede a subsequent
   rejection** — cite `t3/proofs.md`'s `SwappedImplyHoldSome` (`swapped ⟹ hold ≠
@@ -154,8 +155,8 @@ representation and remains a `proofs.md`-only obligation beyond this weaker chec
 
 ## 7. `Init`
 
-`InitRefineT3` (T4.v's `InitRefineT3` proof) needs `unfold Init, InitPiece,
-InitPieceAndDraw; destruct (BuildInitNext ...)` to force both call sites' pair
+`InitRefine` (`T4Proofs.v`) needs `unfold fₛ, Init, InitPiece; destruct
+InitPieceAndDraw` to force both call sites' pair
 destructuring to the same term before `reflexivity` applies. The JS-side analogue:
 `initPieceAndDraw` is called exactly once in the constructor and its `p` is what
 seeds `T3Eng.Machine` — there is no JS equivalent of the definitional-unfolding

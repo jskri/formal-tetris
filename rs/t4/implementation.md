@@ -42,7 +42,7 @@ dependencies)
 | `t3::model::Machine<P>` | the wrapped engine, reached as `self.s3` |
 | `t3::model::{check_invariants}` | called directly, not re-implemented |
 | `t2::view`/`t1::view` sub-procedures (`draw_panel`, `draw_banners`, `draw_grid`, `draw_background`, `draw_grid_lines`, `draw_piece`, `draw_game_over`, `draw_text_label`, `draw_block`, `panel_metrics`, `desired_panel_px`) | called directly by `t4::view`, exactly as `t3::view` already calls them |
-| `t3::view::{Layout, compute_layout, draw_hold_box, Banner, RenderConstants}` | embedded/called by `t4::view` (§0.2 — requires a visibility patch) |
+| `t3::view::{Layout, compute_layout, draw_hold_box, Banner, RenderConstants}` | embedded/called by `t4::view` (§0.2 — these items must be `pub`) |
 | `t1::instance::Tetris` | the concrete instance type; `t4::instance` adds a `t4::model::Params` impl for it rather than defining a new type (§11) |
 | `t1::misc::{DAS_DELAY, ARR, window_conf, LogicalKeys, RepeatTimer, random_piece}` | `main.rs`-only primitives (§15.2 of `t1/implementation.md`); `t4/main.rs` imports them directly rather than re-declaring |
 | `t3::misc::{Action, any_action_just_pressed}` | T3's six-variant `Action` (§15.1 of `t3/implementation.md`); reused verbatim (§15.1 below) since `T4.v` adds no new player-facing action |
@@ -115,7 +115,7 @@ t4/
     model.rs                # T4 engine: wraps t3::model::Machine, adds bag/next (§5–§7)
     view.rs                  # renderer: preview column (Next label, right panel) + t3's
                               #   hold box/grid/panel/banners (shifted only by symmetry, §14)
-    main.rs                   # entry point: bag shuffle replaces single-piece randomness (§15)
+    main.rs                   # entry point: bag shuffle supplies piece randomness (§15)
   proofs.md              # refinement proof, delta over t3/proofs.md (§8)
   tests/
     test_instance.rs     # two fixture instances, NEXT_LEN = 3 and NEXT_LEN = 5 (§9)
@@ -163,8 +163,9 @@ through nested inner engines.
 | `HoldPiece` | `Machine::hold_piece(&mut self, bag_new: &[P::Piece]) -> bool` |
 | `Next` | not emitted — `main.rs`'s action dispatch already maps input → method |
 | `BagNonEmpty` | not a runtime check on its own — a structural invariant of the stack representation, asserted as a cheap sanity check in `check_invariants` (§6.9) |
-| `BagNextConsistent`, `Correct` | `proofs.md` only; not emitted |
-| `fₑ`, `fₛ`, `InitRefineT3`, `NextRefineT3`, `RefineT3` | `proofs.md` only; not emitted |
+| `BagNextConsistent`, `BagNextConsistentD`, `CorrectD`, `Correct`, `CorrectWithoutGameover`, `CorrectStep` | `proofs.md` only; not emitted |
+| `py`, `px`, `pr`, `p`, `mg`, `perfectClear`, `clearedLines` (accessors in `T4.v`'s "Helpers for refining models") | not emitted — Rust reads the underlying fields directly through `self.s3` |
+| `fₑ`, `fₛ`, `T4RefinesT3` | `proofs.md` only; not emitted |
 
 ---
 
@@ -361,7 +362,7 @@ pub struct Machine<P: Params> {
 impl<P: Params> Machine<P> {
     /// spec: Init. `piece_source` has no `T4.v` counterpart — it exists purely to
     /// thread through to `t1::model::Machine::new`'s cosmetic initial-occupied-cell
-    /// filler (`t1/implementation.md` §6.1), and is kept as its own parameter rather
+    /// filler (`t1/implementation.md` §6), and is kept as its own parameter rather
     /// than folded into `bags_fn`: the two draw from unrelated domains (a single piece
     /// vs. a full bag permutation), and conflating them would make `bags_fn`'s contract
     /// (referential consistency per index, §4-T4b) harder to state cleanly.
@@ -486,8 +487,9 @@ axiom (`AxiomsMaxBagLen`), so the flag is `true` here, same as `t1`/`t2`/`t3::mo
 
 Delta over `t3/proofs.md`.
 
-1. **Scope.** Safety only. `RefineT3` has exactly two conjuncts (`InitRefineT3`,
-   `NextRefineT3`) — no `None`-preservation clause, same Lynch & Vaandrager (*Information
+1. **Scope.** Safety only. `T4RefinesT3` (`T4.v`) has exactly two conjuncts, an `Init`
+   clause and a `Next` clause (proved as `InitRefine` and `NextRefine` in `T4Proofs.v`,
+   combined as `T4RefinesT3Hold`) — no `None`-preservation clause, same Lynch & Vaandrager (*Information
    and Computation* 121(2):214–233, 1995, §3) justification `t3/proofs.md` already gives:
    only start/step conditions are required for a
    forward-simulation safety argument, and the converse (behavioral completeness) is
@@ -519,9 +521,9 @@ Delta over `t3/proofs.md`.
    `TypeOK` preservation across a reset additionally needs `H`'s `PieceSet bagNew` —
    `assert_piece_set` (a runtime check) stands in for the Rocq proof term; state plainly
    that the obligation is *conditional on the check having passed*.
-7. **`Init`.** `InitRefineT3` needs `T4.v`'s `unfold Init, InitPiece, InitPieceAndDraw;
-   destruct (BuildInitNext ...)` to force both call sites' pair-destructuring to the same
-   term before `reflexivity` applies — the Rust-side analogue is that `init_piece_and_draw`
+7. **`Init`.** `InitRefine` (`T4Proofs.v`) needs `unfold fₛ, Init, InitPiece; destruct
+   InitPieceAndDraw` to force both call sites' pair-destructuring to the same term before
+   `reflexivity` applies — the Rust-side analogue is that `init_piece_and_draw`
    is called exactly once in `Machine::new` and its `p` is what seeds `t3::model::Machine`,
    so there is no Rust equivalent of the definitional-unfolding friction.
 8. **Cap soundness — not applicable** (T4 introduces no new arithmetic on `score`/`combo`/
@@ -636,7 +638,7 @@ own determinism guarantees.
 
 `t4::view` does not redefine anything `t3::view`/`t2::view`/`t1::view` already provide
 (§0.1); the caller-supplied `piece_color` closure convention (`t1/implementation.md`
-§14.5) carries through unchanged. What's genuinely T4's own: `effective_row_range`,
+§14.1) carries through unchanged. What's genuinely T4's own: `effective_row_range`,
 `draw_preview`, and `compute_layout`'s right-panel geometry.
 
 ### 14.1 Public API
@@ -663,10 +665,10 @@ right_margin = screen_width() - (origin_x + wm * cell_size)
              = (screen_width() - wm*cell_size)/2 = origin_x
 ```
 So the right (preview) panel can reuse the **same** `panel_width` already computed for the
-left panel — no separate reservation, no patch to `t1::view`'s or `t2::view`'s sizing
+left panel — no separate reservation, no change to `t1::view`'s or `t2::view`'s sizing
 math, and no restated `PANEL_FRACTION`/`PANEL_MIN_PX`/`PANEL_MAX_PX`:
 ```rust
-fn compute_layout<P: Params>(constants: &RenderConstants) -> Layout {
+pub fn compute_layout<P: Params>(constants: &RenderConstants) -> Layout {
     let base = t3::view::compute_layout(constants);        // pub (§0.2)
     let (min_row, max_row) = effective_row_range::<P>();
     let effective_rows = (max_row - min_row + 1) as f32;
@@ -689,12 +691,13 @@ fn compute_layout<P: Params>(constants: &RenderConstants) -> Layout {
     Layout {
         base, right_origin, preview_label_y, preview_box_top,
         preview_cell_size, preview_gap, preview_box_size, preview_count,
-        min_row, max_row,
+        max_row,
     }
 }
 ```
-`Layout`'s fields stay private (module-internal) — T4 is not (yet) itself wrapped by
-anything, so there's no present need to export further.
+`Layout` (with all its fields), `compute_layout` and `draw_preview` are `pub`:
+`t5::view` embeds this `Layout` as its own `base` and calls the other two directly
+(`t5/implementation.md` §0.2).
 
 ### 14.3 `effective_row_range::<P>()`
 
@@ -729,7 +732,7 @@ Bound on `t1::model::Params` only (not `t4::model::Params`), since it reads no `
 /// are drawn, no strokeRect, unlike the hold box (t3/implementation.md §14.4).
 /// Truncation past `layout.preview_count` is silent, matching the hold box's own
 /// clip/clamp precedent rather than a new failure-visibility convention.
-fn draw_preview<P: Params>(
+pub fn draw_preview<P: Params>(
     constants: &RenderConstants,
     layout: &Layout,
     next: &VecDeque<P::Piece>,

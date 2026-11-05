@@ -8,7 +8,8 @@ clearing, gameover.
 
 req-flow, req-piece-ctrl, req-piece-loc, req-piece-free, req-piece-init,
 req-piece-move-dir, req-piece-move-def, req-piece-rot, req-piece-fall,
-req-piece-fix, req-piece-fix-gameover, req-piece-fix-new, req-grid-clear
+req-piece-fix, req-piece-fix-gameover, req-piece-fix-new, req-grid-init,
+req-grid-clear
 
 (see definitions_requirements.md)
 
@@ -28,7 +29,7 @@ partially outside the main grid, but only wrt its empty blocks: all occupied
 blocks must be inside the main grid.
 
 A small grid algebra then allows us to define all operations: union (∪),
-intersection (∩), inclusion (⊆), translation (⊕), empty grid (∅) and make full
+intersection (∩), inclusion (⊆), translation (⊕), empty grid (∅) and making full
 (Full, makes all blocks occupied) (for unicode input, see the dedicated
 section below). This algebra is akin to a lattice. Operations have nice
 properties: associativity, commutativity, distributivity, neutral elements,
@@ -141,6 +142,8 @@ list of unicode characters and their latex names. Fuzzy search is supported, and
 for instance ∀ can be input with "all" instead of "\forall", or ℕ with "bn"
 instead of "\BbbN".
 
+Alternatively, snippets can be used.
+
 ## Vim
 
 The `abbreviate` command can be used.
@@ -203,7 +206,7 @@ minY = min -1 -2 = -2
 minX = min 0 -1 = -1
 topMax = max (-1+4) (-2+3) = 3
 rightMax = max (0+2) (-1+4) = 3
-out = {|H:=5; W:=4; Y:=-2; X:=-1|}
+GridUnion g1 g2 = {|H:=5; W:=4; Y:=-2; X:=-1|}
 
 ∪-associative: ∀ g1 g2 g3, (g1 ∪ g2) ∪ g3 = g1 ∪ (g2 ∪ g3)
 ∪-commutative: ∀ g1 g2, g1 ∪ g2 = g2 ∪ g1
@@ -226,8 +229,8 @@ g2 = {|H:=3; W:=4; Y:=-3; X:=-1|}
 maxY = max -1 -3 = -1
 maxX = max 0 -1 = 0
 topMin = min (-1+4) (-3+3) = 0
-rightMin := min (0+2) (-1+4) = 2
-out = {|H:=0-(-1)=1; W:=2-0=2; Y:=-1; X:=0|}
+rightMin = min (0+2) (-1+4) = 2
+GridIntersect g1 g2 = {|H:=0-(-1)=1; W:=2-0=2; Y:=-1; X:=0|}
 
 ∩-associative: ∀ g1 g2 g3, (g1 ∩ g2) ∩ g3 = g1 ∩ (g2 ∩ g3)
 ∩-commutative: ∀ g1 g2, g1 ∩ g2 = g2 ∩ g1
@@ -367,7 +370,8 @@ Axiom AxiomsInitialMainGrid :
   ∧ W InitialMainGrid > 0
   ∧ YX InitialMainGrid = (0, 0)
   ∧ Contained InitialMainGrid
-    (* initial main grid has no full line (see NoFullLine invariant) *)
+    (* req-grid-init: initial main grid has no full line (see NoFullLine
+       invariant) *)
   ∧ ∀ y : ℤ, (0 ≤ y < H InitialMainGrid) → ¬ IsFullLine InitialMainGrid y.
 
 (* The forbidden grid has positive dimensions and its bounding box is included

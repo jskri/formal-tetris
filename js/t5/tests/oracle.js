@@ -22,8 +22,7 @@ function shadowY(s1, PW, valid) {
 
 // spec: NewPieceYXState pyNew pxNew s — independent hand-roll. Both coordinates
 // are overridden unconditionally; dropPiece5 (below) passes s1.px explicitly to
-// keep the column unchanged, mirroring T1.v's NewPieceYXState — which merged the
-// narrower, since-removed NewPieceYState (py-only) into this one.
+// keep the column unchanged, mirroring T5.v's DropPiece (NewPieceYXState (gy s, px s) s).
 function newPieceYXState(pyNew, pxNew, s1) {
   return {
     mg: s1.mg,

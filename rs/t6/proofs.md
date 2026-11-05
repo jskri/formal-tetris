@@ -286,7 +286,7 @@ alias — no independent proof content, composing whichever cited T1–T5-level 
 already covers the underlying field with `α₆ = α₅`), `UnchangedT6Part` (not emitted — the
 "leave every field outside `py`/`px` alone" half of §5.1's frame lemma, stated inline rather
 than as a standalone Rust definition, matching every prior model's own treatment of its
-`UnchangedTnPart` counterpart), `NewPieceYXState` (T6-level alias for `T5.NewPieceYXState`; §5.1),
+`UnchangedT5Part` counterpart), `NewPieceYXState` (T6-level alias for `T5.NewPieceYXState`; §5.1),
 `CorrectWithoutGameover` (verbatim `T5.v` alias, not independently used by any argument above).
 No `model.rs` behavior relies on anything not accounted for above or, transitively, in
 `t5/proofs.md`, `t4/proofs.md`, `t3/proofs.md`, `t2/proofs.md`, and `t1/proofs.md`. ∎

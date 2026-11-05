@@ -5,7 +5,7 @@
 //! by the caller as a closure, as in `t1::view`/`t2::view`. Reaches
 //! rendering exclusively through `t2::view`, never `t1::view` directly —
 //! `t3::model` wraps `t2::model`, not `t1::model`, and this file mirrors
-//! that boundary. Defines only what's genuinely new: the hold box.
+//! that boundary. Defines only the hold box.
 
 use crate::model::Machine;
 use macroquad::prelude::*;
@@ -25,7 +25,7 @@ const HOLD_BOX_DIM_ALPHA: f32 = 0.4;
 
 /// spec: §14.2 — grid/panel geometry is `t2::view::compute_layout`'s own
 /// `Layout` (`base`), reused unmodified; only the hold-box geometry, carved
-/// out of the top of that panel column, is new.
+/// out of the top of that panel column, is T3-specific.
 ///
 /// Fields and `compute_layout`/`draw_hold_box` are `pub` so `t4::view` can
 /// embed this `Layout` as its own `base` and call both directly.

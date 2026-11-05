@@ -1,14 +1,9 @@
 // spec: tests/test_instance.rs — test fixture (§2, §9).
 //
-// Includes `t1`'s fixture directly rather than nesting through `t4`'s own
-// `test_instance.rs`: a third level of `include!`-based `#[path]` nesting
-// hit a reproducible `rustc` module-resolution quirk (a nested `#[path]`
-// module's own `#[path]` children resolving against an unexpected base
-// directory) — sidestepped rather than chased further. `TestInstanceWide`
-// is therefore re-declared below (five lines of `t1::model::Params`
-// delegation) instead of reached through `t4`'s copy — harmless, since
-// every model's own fixture is already a distinct compilation-unit-local
-// copy, not shared code.
+// Includes `t1`'s fixture directly, because nested `#[path]` module includes
+// resolve unreliably. `TestInstanceWide` is re-declared below (five lines of
+// `t1::model::Params` delegation); every model's fixture is a distinct
+// compilation-unit-local copy, not shared code.
 
 #![allow(dead_code)]
 

@@ -92,7 +92,7 @@ t2/
     main.rs                 # entry point: level→fall-speed, banner timing (§15)
   proofs.md              # refinement proof, delta over t1/proofs.md (§8)
   tests/
-    test_instance.rs     # test fixture — re-exports t1's tests/test_instance.rs
+    test_instance.rs     # test fixture — `include!`s t1's tests/test_instance.rs
     model_unit_test.rs
     model_properties_test.rs
     model_fuzz_test.rs
@@ -135,7 +135,9 @@ mapping and are reached through `self.s1`.
 | `EmptyGridb` | `empty_gridb(g: &[Vec<Option<P::Piece>>]) -> bool` |
 | `fₑ` | not emitted — `main.rs`'s action dispatch already maps input → method |
 | `fₛ` | not emitted — `self.s1` *is* the projection |
-| `Correct`, `LevelCorrect`, `NonDecreasing*`, `ScoreRisesOnClear`, `CorrectStep` | `proofs.md` only; not emitted |
+| `Correct`, `CorrectWithoutGameover`, `LevelCorrect`, `NonDecreasing*`, `ScoreRisesOnClear`, `CorrectStep` | `proofs.md` only; not emitted |
+| `UnchangedT2Part` | not emitted — a wrapping model updates the embedded `s1` in place and leaves the T2 fields untouched |
+| `T2RefinesT1`, and the converse-direction definitions `RunT1`, `RunT2`, `gₑ`, `T2AllowsAllT1` | `proofs.md` only; not emitted |
 
 ---
 
@@ -610,9 +612,11 @@ narrow/near-square window:
 const PANEL_FRACTION: f32 = 0.22;
 const PANEL_MIN_PX: f32 = 120.0;
 const PANEL_MAX_PX: f32 = 360.0;
-const PANEL_GRID_GAP_FRACTION: f32 = 0.08; // gap between panel and grid, relative to panel width
+pub const PANEL_GRID_GAP_FRACTION: f32 = 0.08; // gap between panel and grid, relative to panel width
 
-fn desired_panel_px() -> f32 {
+// `pub`, like PANEL_GRID_GAP_FRACTION: `t4::view` sizes its right panel with both
+// (`t4/implementation.md` §0.2).
+pub fn desired_panel_px() -> f32 {
     (screen_width() * PANEL_FRACTION).clamp(PANEL_MIN_PX, PANEL_MAX_PX)
 }
 
@@ -752,15 +756,15 @@ combo), the next consecutive clearing fix leaves `combo == 2` and shows "2-hit c
 the one after that leaves `combo == 3` and shows "3-hit combo!", and so on — the displayed
 number is simply the count of consecutive clearing fixes. This is a UI-layer display
 choice with no `T2.v` counterpart; the model's own `combo` field exists to drive
-`comboPoints`'s scoring formula (which does use `combo - 1` internally, §6.4 of this
-document), and the two uses are independent of each other. Both banners read the
+the scoring formula (`FixPiece` passes `combo' - 1` to `points`, which hands it to
+`combo_points`, §6.4 of this document), and the two uses are independent of each other. Both banners read the
 snapshotted `Banner` `main.rs` passes in (§15.2), not `machine`'s live fields — a fix that
 happens after the frame's snapshot was captured must not retroactively change what this
 frame draws.
 
 ### 14.5 Piece color parameter
 
-As `t1/implementation.md` §14.5: a `piece_color` closure parameter, no default baked into
+As `t1/implementation.md` §14.1: a `piece_color` closure parameter, no default baked into
 `view.rs`.
 
 ### 14.6 Call order inside `render`

@@ -174,6 +174,7 @@ refactors, no helpers not listed here.
 | `RotGrid` (parameter) | `Params::rot_grid(p, r)` |
 | `Valid` | `valid(g, p, py, px, pr)` |
 | `CanMovePiece` | `can_move_piece(dy, dx, s)` |
+| — (no `T1.v` counterpart) | `can_rotate_piece(cw, s)` — implementation-freedom helper: `RotatePiece`'s own guard as a named, side-effect-free predicate, excluding the `gameover` check exactly as `can_move_piece` does (left to the caller). No call site inside T1; a wrapping model (T6's `RotateKickPiece`) uses it to ask "would a plain rotation fire" without performing it |
 | `Resize` | not emitted; single call site (inside `ClearFullLines`), fused into `Machine::fix_piece` (§6) |
 | `FilterFullLines` | not emitted; exploits `L`'s totality (D2), not structurally portable (skill §4f) |
 | `ClearFullLines` | not emitted; fused into `Machine::fix_piece` (§6), per its *observable* definition (skill §4f) |
@@ -189,6 +190,7 @@ refactors, no helpers not listed here.
 | `FallStep` | `Machine::fall_step(&mut self, p_new)` |
 | `mg,p,py,px,pr,gameover,clearedLines` | `mg, p, py, px, pr, gameover, cleared_lines` (identical shape, D14) |
 | `AxiomsPW`, `AxiomsInitialYX`, … | — (not emitted; checked by `check_axioms`) |
+| `Gameover`, `PieceOccupiedInsideBounds`, `PieceOnFreeBlocks`, `HasFullLine`, `NoFullLine`, `CorrectWithoutGameover`, `Correct` | not emitted as separate functions; `check_invariants` (§6) asserts `Correct`'s conjuncts one by one (`NoFullLine` is `¬ HasFullLine`; `CorrectWithoutGameover` is `Correct` without `Gameover`) |
 
 `NewPieceState`/`NewPieceYXState`/`NewMainGridGameoverState` have no call site inside
 T1's own `Next`; `T1.v` defines them as reusable building blocks (`T1Proofs.v` proves
@@ -242,6 +244,7 @@ intersect          (g1, y1, x1, g2, y2, x2)                            -> bool
 occupied_inside    (g1, y1, x1, g2, y2, x2)                            -> bool
 valid<P: Params>   (g, p: P::Piece, py, px, pr)                        -> bool
 can_move_piece<P>  (dy, dx, s: &Machine<P>)                            -> bool
+can_rotate_piece<P>(cw, s: &Machine<P>)                                -> bool
 new_piece_state<P>              (p_new, s: &mut Machine<P>)            -> ()
 new_piece_yx_state<P>           (py_new, px_new, s: &mut Machine<P>)   -> ()
 new_main_grid_gameover_state<P> (mg, gameover, s: &mut Machine<P>)     -> ()
@@ -533,8 +536,7 @@ Temperature 0 (refinement-preserving equivalence across regenerations, not textu
 identity); single pass; reference `T1.v` by name; emit in the frozen orders (§3, §8); no
 invented behaviour/optimisations/APIs; stop and surface a TODO on unresolved ambiguity,
 rather than guessing. Any main-loop state that changes across frames (`machine`,
-`key_held`, `repeat_timers`, §15) is a field of a local owned by `main`'s loop body, never
-a `static`.
+`key_repeat`, §15) is a field of a local owned by `main`'s loop body, never a `static`.
 
 ---
 

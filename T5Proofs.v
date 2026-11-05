@@ -9,19 +9,6 @@ Module T2P := T2Proofs.
 Module T3P := T3Proofs.
 Module T4P := T4Proofs.
 
-(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
- * hypotheses, lemma premises or event constructors. Same rules as T4Proofs.v:
- * - a fact is taken out of a conjunction by stating it, e.g.
- *   [assert (F : fact) by (apply L in H; tauto)],
- * - a conjunction is proven by first stating all its conjuncts, then closing
- *   every branch with the same tactic (e.g. [split_top; assumption]),
- * - a lemma with several premises is applied with [eapp] or [apply ... in],
- *   not by passing hypotheses positionally,
- * - a disjunction is taken apart with [decompose], and every case is closed
- *   with the same tactic,
- * - a case analysis on an event closes every case with the same tactic. *)
-
-
 (* ========================================================================= *)
 (* The shadow search                                                         *)
 (* ========================================================================= *)
@@ -125,8 +112,8 @@ Proof.
     unfold T4.CorrectWithoutGameover, T3.CorrectWithoutGameover,
       T2.CorrectWithoutGameover, T1.CorrectWithoutGameover in Hc4; tauto).
   assert (EYX : T1.YX (T4.mg s4) = T1.YX T1.InitialMainGrid)
-    by (apply T1P.TypeOKSpec2 in HT; tauto).
-  assert (HR : 0 ≤ T4.pr s4 ≤ 3) by (apply T1P.TypeOKSpec2 in HT; tauto).
+    by (apply T1P.TypeOKSpec in HT; tauto).
+  assert (HR : 0 ≤ T4.pr s4 ≤ 3) by (apply T1P.TypeOKSpec in HT; tauto).
   assert (EYX0 : T1.YX T1.InitialMainGrid = (0, 0))
     by (pose proof T1.AxiomsInitialMainGrid; tauto).
   unfold T1.Y; rewrite EYX, EYX0; split_top; (reflexivity || lia).

@@ -1,5 +1,5 @@
 #![deny(warnings)]
-//! `final/` — entry point. Drives two engines: single-player directly on
+//! `tfinal/` — entry point. Drives two engines: single-player directly on
 //! `t6::model::Machine<t1::instance::Tetris>`, multiplayer through
 //! `t7::session::Session` driving `t7::model::Machine<Instance>`. The
 //! screen/menu/lobby machinery (`t7::app`/`t7::text`) is reused as a library

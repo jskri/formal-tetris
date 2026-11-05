@@ -33,95 +33,57 @@ Outputs: `model.js`, `view.js`, `controller.js`, `instance.js`, `index.html`,
 | file | role in T5 |
 |------|-----------|
 | `lib/utils.js` | shared primitives — imported transitively |
-| `t1/model.js` | the T1 engine (patched, §0.2) — reached as `T4Eng.T1Eng` (flattened, §0.3) |
+| `t1/model.js` | the T1 engine, including `newPieceYXState` (§0.2) — reached as `T4Eng.T1Eng` (flattened, §0.3) |
 | `t4/model.js` | the T4 engine — imported as `T4` (alias for `T`); called as `T4(...)` |
 | `t4/instance.js` | re-exported by T5's own `instance.js` (§11) |
 
-### 0.2 Prerequisite: `t1/model.js` patch (must land before T5 codegen)
+### 0.2 T1-level helper used by T5: `newPieceYXState`
 
-`T1.v` gains a new `Definition`:
+`T5.v`'s `NewPieceYXState` relocates the active piece by calling `T1.NewPieceYXState`
+directly (`T1.NewPieceYXState pyxNew s1`, wrapped in each layer's `UnchangedTxPart`),
+skipping T2–T4 entirely for this one piece of logic — same pattern as `T3.v`'s
+`HoldPiece` reaching `T1.NewPieceState`. `T1.v`'s definition:
 ```
-Definition NewPieceYXState (pyNew pxNew : ℤ) (s : State) : State :=
-  {| py := pyNew
-  ;  px := pxNew
+Definition NewPieceYXState (pyxNew : ℤ × ℤ) (s : State) : State :=
+  {| pyx := pyxNew
      (* rest is unchanged *)
   ;  mg := mg s; p := p s; pr := pr s; gameover := gameover s;
      clearedLines := clearedLines s
   |}.
 ```
-`T5.v`'s `NewPieceYXState` (T5-level) calls it directly (`T1.NewPieceYXState pyNew
-pxNew s1`), skipping T2–T4 entirely for this one piece of logic — same pattern as
-`T3.v`'s `HoldPiece` reaching `T1.NewPieceState`. Per "reuse over restatement"
-(`t2/implementation.md` §12): this logic is owned by `T1.v`, so its JS image belongs
-in `t1/model.js`.
+Per "reuse over restatement" (`t2/implementation.md` §12) this logic is owned by
+`T1.v`, so its JS image is `t1/model.js`'s `newPieceYXState(pyNew, pxNew, s)`
+(`t1/implementation.md` §3, §5; the Rocq pair `pyxNew` decomposes into two scalar
+arguments, `t1/implementation.md` D14), proved by `t1/proofs.md`'s
+`L-newPieceYXState`. T5 reaches it as `T1Eng.newPieceYXState` (§0.3) and never
+re-implements it.
 
-**Required, additive-only changes** (nothing else in `t1/model.js` changes):
+Both `py` and `px` are overridden unconditionally; every other field is copied through
+by reference or value. A caller that wants one coordinate unchanged passes its current
+value explicitly: `T5.v`'s `DropPiece` calls `NewPieceYXState (gy s, px s) s` — `px s`,
+not a literal, to keep the column unchanged while relocating only the row — and
+`dropPiece` matches it with `T1Eng.newPieceYXState(this.gy, s1.px, s1)` (§4-T5d).
+`newPieceYXState` is distinct from `newPieceState` (`t3/implementation.md` §0.2), which
+instead overrides `p`/`py`/`px`/`pr` for a freshly-spawned piece — the two functions
+serve different callers (`HoldPiece` spawns a different piece type; `DropPiece`
+relocates the same piece) and neither subsumes the other.
 
-- `t1/model.js`: add one free function, returned alongside the existing list:
-  ```js
-  // spec: NewPieceYXState pyNew pxNew s
-  function newPieceYXState(pyNew, pxNew, s) {
-    return {
-      mg: s.mg,
-      p: s.p,
-      py: pyNew,
-      px: pxNew,
-      pr: s.pr,
-      gameover: s.gameover,
-      clearedLines: s.clearedLines,
-    };
-  }
-  ```
-  Both `py` and `px` are overridden unconditionally; every other field is copied
-  through by reference or value. A caller that wants one coordinate unchanged must
-  pass its current value explicitly (`T5.v`'s `DropPiece` does exactly this — `px s`,
-  not a literal, to keep the column unchanged while relocating only the row).
-  Distinct from `newPieceState` (§0.2 of `t3/implementation.md`), which instead
-  overrides `p`/`py`/`px`/`pr` for a freshly-spawned piece — the two functions serve
-  different callers (`HoldPiece` spawns a different piece type; `DropPiece` relocates
-  the same piece) and neither subsumes the other.
-- `t1/implementation.md` §3 naming map: add
-  `NewPieceYXState | newPieceYXState(pyNew, pxNew, s)`.
-- `t1/implementation.md` §5: add the signature above, alongside `newPieceState`'s
-  entry, with the same note about its return type being a full state-shaped object.
-- `t1/proofs.md`: needs one new lemma, `L-newPieceYXState`, in the same slot as
-  `L-newPieceState` — a required follow-up to that file, not written here.
+### 0.3 Flattened access: `T1Eng` and `get s1()`
 
-Also add, in the same patch, an implementation-freedom helper with no `T1.v`
-counterpart — needed by T6, not by T5, but landing alongside `newPieceYXState` since
-both touch `t1/model.js`'s free-function list at the same time:
-```js
-function canRotatePiece(cw, s) {
-  const pr2 = mod(s.pr + (cw ? -1 : 1), 4);
-  return !s.gameover && valid(s.mg, s.p, s.py, s.px, pr2);
-}
-```
-This factors `T1.RotatePiece`'s own guard into a named, side-effect-free predicate —
-not a translation of any `T1.v` definition, an addition made because the guard
-expression it needs already lives in `t1/model.js`.
+Every `model.js` from T2 on wraps the one below it, so reaching `T1Eng` through the
+engine chain (`eng.T4Eng.T3Eng.T2Eng.T1Eng`) and the innermost `T1.Machine` through the
+machine chain (`this.s4.s3.s2.s1`) would take one more hop with every model stacked on
+top. To keep both at one hop, each model from T3 on exports `T1Eng: <parent>Eng.T1Eng`
+in its returned object and gives its `Machine` a getter `get s1() { return
+this.<parent-field>.s1; }` (T2 needs neither: its `T1Eng` is already direct and its
+field is literally named `s1`; `t2/implementation.md` §6.8, `t3/implementation.md`
+§6.10, `t4/implementation.md` §6.10).
 
-This patch is a prerequisite for T5 codegen but is not itself part of T5's output.
-
-### 0.3 Retrofit: flattened `T1Eng` and `get s1()`, across T2–T5
-
-Every `model.js` from T2 on nests one level deeper than the last to reach `T1Eng`
-(`eng.T1Eng` for T2, `eng.T2Eng.T1Eng` for T3, …), and `Machine` instances nest the
-same way to reach the innermost `T1.Machine` (`this.s1` for T2, `this.s2.s1` for T3,
-…). Both chains get one hop longer with every new model in the tower, with no bound
-— a real, worsening coupling problem, not a style preference. Fixed by retrofitting
-T2–T5's `model.js`:
-
-- Each model's returned object gains `T1Eng: <parent>Eng.T1Eng` (T2's own `T1Eng` is
-  already direct — no change there). E.g. `t3/model.js`: `T1Eng: T2Eng.T1Eng`.
-- Each model's `Machine` class gains `get s1() { return this.<parent-field>.s1; }`
-  (T2.Machine needs nothing — its own field is already literally named `s1`). E.g.
-  `t3/model.js`: `get s1() { return this.s2.s1; }`.
-
-Both compose automatically: a model built on `t5/model.js` (T6, subclassing
-`T5Eng.Machine` — see §1) inherits `get s1()` for free, and reaches `T1Eng` in one
-hop (`T5Eng.T1Eng`) without any T6-specific plumbing. This is purely additive to
-T2–T5 — every existing `.T4Eng.T3Eng...` access path and `.s4.s3.s2.s1` access path
-still resolves exactly as before; nothing is removed.
+T5 follows the same convention: `model.js` binds `const T1Eng = T4Eng.T1Eng` and
+returns it (§7), and `T5.Machine` has `get s1() { return this.s4.s1; }` (§6.8). A model
+built on `t5/model.js` (T6, subclassing `T5Eng.Machine`) inherits `get s1()` and reaches
+`T1Eng` in one hop (`T5Eng.T1Eng`) with no plumbing of its own. The longer access paths
+(`.T4Eng.T3Eng…`, `.s4.s3.s2.s1`) keep resolving as well.
 
 ## 1. The refinement, and what it buys
 
@@ -199,7 +161,10 @@ inner engines.
 | `NextT4Event`, `Next` | not emitted |
 | `fₑ`, `fₛ` | not emitted |
 | `mg`, `p`, `py`, `px`, `pr`, `gameover` (T5-level accessors) | proofs.md only; not emitted — each is `T4.<name>(s4 s)`, with no runtime consumer beyond what `T5.Machine`'s own read-through getters (§6.8) already expose for `gameover` |
-| `ValidPieceCannotGoDown`, `LowestShadowY`, `Correct` | proofs.md only; not emitted |
+| `clearedLines`, `score`, `level`, `hold`, `pyx`, `swapped`, `d` (further T5-level accessors) | proofs.md only; not emitted — same reason as the row above |
+| `ValidPieceCannotGoDown`, `LowestShadowY`, `Correct`, `CorrectWithoutGameover`, `CorrectStep` | proofs.md only; not emitted |
+| `GyEqShadowY` | not emitted as a function; `checkInvariants` (§6.9) asserts it as `s.gy === shadowY(s.s1)` |
+| `T4RefinesT5` | proofs.md only; not emitted (§1) |
 
 ## 4. Per-definition translation rules (T5-specific)
 
@@ -327,7 +292,8 @@ constructor(bagsFn) {
 
 Same five as T4's (`gameover`, `level`, `totalClearedLines`, `combo`,
 `perfectClear`), each one level deeper (`this.s4.<field>`) — every field
-`controller.js` reads directly outside `snapshot()`.
+`controller.js` reads directly outside `snapshot()` — plus the flattened
+`get s1() { return this.s4.s1; }` (§0.3).
 
 ### 6.9 `checkInvariants` (D7, default off)
 
@@ -347,8 +313,9 @@ function checkInvariants(s, message, isOccupied = (c => Piece.includes(c))) {
 `'garbage'` cell sentinel) — T5 itself never needs a non-default value.
 The `¬gameover` guard mirrors `LowestShadowY`'s own precondition exactly — without
 it, a freshly-spawned piece under `gameover = true` isn't guaranteed `Valid` at its
-own position, and `shadowY`'s recomputation would be checking a claim `T5.v` itself
-doesn't make in that state.
+own position, and `gy <= py` is a claim `T5.v` doesn't make in that state.
+`GyEqShadowY` (the `s.gy === expected` assert) holds unconditionally in `T5.v`; checking
+it under the same guard only weakens this diagnostic, it never makes it unsound.
 
 ### 6.10 `updateShadowY()`
 
@@ -442,10 +409,11 @@ Mirror T4's suite (`t4/implementation.md` §9) on the same small fixture, plus:
 
 - **`testInstance.js`** — `export * from '../../t4/tests/testInstance.js';`.
 - **`oracle.js`** — reuses T4's oracle for `s4`; hand-rolls `shadowY` and
-  `newPieceYState` independently (own loop, own field-copy, not importing
+  `newPieceYXState` independently (own loop, own field-copy, not importing
   `model.js`/`t1/model.js` — same independence discipline as every prior oracle).
-  Exposes `initState5`, `movePiece5`, `rotatePiece5`, `fixPiece5`, `fallStep5`,
-  `holdPiece5`, `dropPiece5`, `snapshotOf5`.
+  Exports one object, `oracle5`, with `makeParams5`, `shadowY`, `newPieceYXState`,
+  `initState5`, `movePiece5`, `rotatePiece5`, `fixPiece5`, `fallStep5`, `holdPiece5`,
+  `dropPiece5`, `snapshotOf5`, `states5Equal`.
 - **`model.unit.test.js`** — golden vectors:
   - **Overhang board, hand-crafted:** a board where the piece's column has a
     locked shelf a few rows up and open space beneath it, down to the true floor
@@ -482,7 +450,7 @@ Mirror T4's suite (`t4/implementation.md` §9) on the same small fixture, plus:
 A regeneration is correct iff:
 1. Every `T5.v` definition with a §3 mapping is realised; every "not emitted" entry
    is absent.
-2. `model.js` never reimplements a T1–T4 free function; `newPieceYState` is reached
+2. `model.js` never reimplements a T1–T4 free function; `newPieceYXState` is reached
    via `T1Eng.newPieceYXState` (flattened, §0.3), not reimplemented (§0.2).
 3. `movePiece`/`rotatePiece`/`fixPiece`/`holdPiece` each call `updateShadowY()` if
    and only if the delegated T4 call fired.
@@ -490,7 +458,8 @@ A regeneration is correct iff:
    never defers/re-checks after relocation.
 5. `checkInvariants` recomputes `shadowY` and compares, gated on `¬gameover`.
 6. `tests/` includes the overhang golden vector (§9) and passes it.
-7. The `t1/model.js` patch (§0.2) is present and additive-only.
+7. `t1/model.js` exports `newPieceYXState` (§0.2) per `t1/implementation.md`, and
+   `t5/model.js` calls it rather than redefining it.
 
 ## 11. Instantiation (`instance.js`)
 
@@ -502,9 +471,9 @@ Pure re-export. `T5.v` declares no `Parameter` of its own — no abstract parame
 ## 12. Generator determinism rules
 
 Inherit `t1/implementation.md` §12 and subsequent models' "reuse over restatement"
-verbatim. The §0.2 `t1/model.js` patch is a prerequisite of T5 codegen, not part of
-T5's own output — an unresolved gap here is surfaced as a blocking TODO, not guessed
-around.
+verbatim. `newPieceYXState` (§0.2) belongs to `t1/model.js`, not to T5's own output —
+if `t1/model.js` does not export it, surface that as a blocking TODO rather than
+guessing around it.
 
 ## 13. `instance.js` parameters
 
@@ -611,12 +580,12 @@ const constants = {
   PANEL_PX: 0,
 };
 ```
-Not the flattened `eng.T1Eng.rotGrid` the §0.3 retrofit makes available at the
+Not the flattened `eng.T1Eng.rotGrid` that §0.3 makes available at the
 top level of `eng` — `controller.js` reaches `rotGrid` through the same deep
 chain every controller from `t3/controller.js` on already used, one hop
 deeper each time a new model is stacked (`t4/controller.js`'s own line is
 `eng.T3Eng.T2Eng.T1Eng.rotGrid`, itself one hop deeper than `t3/controller.js`'s).
-The retrofit's flattened accessor is used inside `model.js` itself (§4-T5a,
+The flattened accessor is used inside `model.js` itself (§4-T5a,
 §4-T5d, §6.9) — no controller in the tower adopts it for this particular
 access until `t6/controller.js` does.
 

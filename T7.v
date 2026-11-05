@@ -14,7 +14,7 @@ req-multi-garbage-materialize, req-multi-gameover, req-multi-winner
 # Design
 
 T7 generalizes T6 for the multi-player game. It also describes the
-single-player game in the special case where the player count is one. In this
+single-player game as the special case where the player count is one. In this
 case, it is equivalent to T6.
 
 ## New stop conditions
@@ -41,7 +41,7 @@ between other players. When the host detects its connection to one player is
 down, it sends a dedicated message to other players to notify them. When the
 host itself goes offline, all players are disconnected.
 
-The network is reliable: no message loss, no duplication, no reordering.
+The network is reliable: there is no message loss, no duplication, no reordering.
 However, messages can take an arbitrary amount of time to travel. This means
 for instance that a player A can be disconnected or gameover, and another
 player B can believe it is still playing. Each player has its own view of the
@@ -87,9 +87,8 @@ cyclic permutation structure and the existence of the host.
 
 This model introduces one state per player, therefore there is not one
 refinement mapping, but one per player. However, the garbage materialization
-mechanism is genuinely new, so the mapping must exclude it, since it has no
-counterpart in T6. Another change in T7 is that the game now stops for the
-winner, although it is not gameover. But this is not a problem, since refinement
+mechanism has no counterpart in T6, so the mapping must exclude it. Also, in T7
+the game stops for the winner, although it is not gameover. But this is not a problem, since refinement
 only considers valid steps.
 
 ***************************************************************************)
@@ -676,8 +675,8 @@ Definition TargetPlaying (s : State) : Prop :=
   NoWinner s →
   ∀ pl, PlayingView s pl (target s pl) = true.
 
-(* Forbidden grid intersection is not the only cause of gameover anymore:
-another cause is an overflow following a garbage materialization. However, the
+(* Forbidden grid intersection is not the only cause of gameover: another
+cause is an overflow following a garbage materialization. However, the
 state keeps no trace of an overflow because the rest of the model doesn't need
 it. Adding this cause to the state seems artificial, so we prefer weaken
 T1.gameover by replacing the equivalence by a mere implication. *)

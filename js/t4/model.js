@@ -65,7 +65,7 @@ export function T(
     let bag_ = bagsFn(0).slice(); // length MaxBagLen (= NUM_PIECES)
     let next_ = Array(NEXT_LEN).fill(bagsFn(0)[0]); // length NextLen; values arbitrary —
     // every entry is overwritten within
-    // NextLen draws below (T4.v line 169's
+    // NextLen draws below (`InitPieceAndDraw`'s
     // own comment) — only the length has
     // to be right up front.
     let bagIdx = 1;
@@ -82,7 +82,7 @@ export function T(
     T3Eng.checkAxioms();
     console.assert(
       Number.isInteger(NEXT_LEN) && NEXT_LEN > 0,
-      'AxiomsNextLen: NextLen must be a positive integer',
+      'NextLen must be a positive integer (next_[0] is read; not a T4.v axiom)',
     );
   }
 
@@ -206,7 +206,7 @@ export function T(
       assertPieceSet(bagNew);
       if (this.gameover) return false;
       // spec draws unconditionally and discards the result when hold !== null
-      // (T4.v line 228-229); skipping the draw here instead is behaviorally
+      // (`T4.HoldPiece`); skipping the draw here instead is behaviorally
       // identical (d'' := d s in that branch means bag_/next_ are provably
       // unchanged either way) — see proofs.md §5 for why this needs no
       // fixPiece-style peek-then-commit restructuring.

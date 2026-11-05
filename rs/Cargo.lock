@@ -1523,7 +1523,6 @@ dependencies = [
  "directories",
  "gilrs",
  "macroquad",
- "proptest",
  "rodio",
  "serde",
  "serde_json",

@@ -1,16 +1,6 @@
 From Stdlib Require Import Lia Bool.
 From Tetris Require Import T1 Notations Quantifiers QuantifiersProofs.
 
-(* Proof style: proofs do not depend on the order of conjuncts, hypotheses or
- * lemma premises. A fact is taken out of a conjunction by stating it:
- * - [assert (F : fact) by (apply L in H; tauto)] for a lemma L applied to H,
- * - [assert (F : fact) by (unfold Def in H; tauto)] for a hypothesis H,
- * - [assert (F : fact) by apply Axiom] for an axiom (apply selects the
- *   conjunct by its type).
- * A conjunction is proven by first stating all its conjuncts, then closing
- * every branch with the same tactic (e.g. [split; assumption]). *)
-
-
 (* ========================================================================= *)
 (* Reflection: from the boolean quantifiers to logical ones                  *)
 (* ========================================================================= *)
@@ -35,7 +25,7 @@ Proof.
   intros; apply not_true_iff_false; rewrite InBoxTrue; cbn; lia.
 Qed.
 
-(* [g1 ⊆ g2] says: every occupied block of g1's box is a block of g2's box, and
+(* Every occupied block of g1's box is a block of g2's box, and
  * is occupied there. Note the box membership of g2 in the conclusion: it is
  * what makes ⊆ transitive. *)
 Lemma GridIncludeSpec : ∀ g1 g2 : Grid,
@@ -468,7 +458,7 @@ Proof.
   intros; unfold Correct, CorrectWithoutGameover; tauto.
 Qed.
 
-Lemma TypeOKSpec2 : ∀ s
+Lemma TypeOKSpec : ∀ s
   (HT : TypeOK s),
     HW (mg s) = HW InitialMainGrid
   ∧ YX (mg s) = YX InitialMainGrid

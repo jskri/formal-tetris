@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo -n "1/11. Making rocq user the file owner... "
+echo -n "1/12. Making rocq user the file owner... "
 sudo chown -R 1000:1000 . # rocq user
-trap 'echo -n "11/11. Restoring file ownership... " && \
+trap 'echo -n "12/12. Restoring file ownership... " && \
   sudo chown -R "$(id -u)":"$(id -g)" . && \
   echo "done."' EXIT
 echo "done."
@@ -11,51 +11,55 @@ echo ""
 
 docker run --rm -v "$PWD":/workspace -w /workspace formal-tetris-ci:latest \
   bash -c "\
-  echo '2/11. Rocq: checking proofs...' && \
+  echo '2/12. Rocq: checking proofs...' && \
   dune build --display=progress --action-stdout-on-success=swallow --action-stderr-on-success=must-be-empty && \
-  echo 'Rocq: checking proofs: OK.' && \
+  echo '2/12. Rocq: checking proofs: OK.' && \
   echo '' && \
   \
   cd rs && \
   \
-  echo '3/11. Rust: running clippy...' && \
+  echo '3/12. Rust: checking format...' && \
+  cargo fmt --all -- --check && \
+  echo '3/12. Rust: checking format: OK.' && \
+  echo '' && \
+  \
+  echo '4/12. Rust: running clippy...' && \
   cargo clippy --workspace --all-targets -- -D warnings && \
-  echo '3/11. Rust: running clippy: OK.' && \
+  echo '4/12. Rust: running clippy: OK.' && \
   echo '' && \
   \
-  echo '4/11. Rust: building...' && \
+  echo '5/12. Rust: building...' && \
   cargo build --workspace --all-targets && \
-  echo '4/11. Rust: building: OK.' && \
+  echo '5/12. Rust: building: OK.' && \
   echo '' && \
   \
-  echo '5/11. Rust: testing...' && \
+  echo '6/12. Rust: testing...' && \
   cargo test --workspace && \
-  echo '5/11. Rust: testing: OK.' && \
-  echo ''
+  echo '6/12. Rust: testing: OK.' && \
+  echo '' && \
   \
   cd ../js && \
   \
-  echo '6/11. JS: installing dependencies...' && \
+  echo '7/12. JS: installing dependencies...' && \
   npm ci && \
-  echo '6/11. JS: installing dependencies: OK.' \
+  echo '7/12. JS: installing dependencies: OK.' && \
   echo '' && \
   \
-  echo '7/11. JS: checking format...' && \
+  echo '8/12. JS: checking format...' && \
   npm run format:check && \
-  echo '7/11. JS: checking format: OK.' \
+  echo '8/12. JS: checking format: OK.' && \
   echo '' && \
   \
-  echo '8/11. JS: linting...' && \
+  echo '9/12. JS: linting...' && \
   npm run lint && \
-  echo '8/11. JS: linting: OK.' \
+  echo '9/12. JS: linting: OK.' && \
   echo '' && \
   \
-  echo '9/11. JS: checking syntax...' && \
+  echo '10/12. JS: checking syntax...' && \
   npm run syntax-check && \
-  echo '9/11. JS: checking syntax: OK.' \
+  echo '10/12. JS: checking syntax: OK.' && \
   echo '' && \
   \
-  echo '10/11. JS: testing...' && \
-  npm install && npm test && \
-  echo '10/11. JS: testing: OK.'"
-
+  echo '11/12. JS: testing...' && \
+  npm test && \
+  echo '11/12. JS: testing: OK.'"

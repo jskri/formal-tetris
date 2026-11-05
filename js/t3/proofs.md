@@ -60,12 +60,12 @@ against that:
   and/or `gameover`, both untouched.
 - **`PieceOccupiedInsideBounds`, `PieceOnFreeBlocks` — need `AxiomsRotGrid`.** Both
   depend on `p, py, px, pr`, which are rewritten to `p2, InitialY p2, InitialX p2, 0`.
-  `AxiomsRotGrid`'s `FullyContainedIn (RotGrid p 0) (InitialY p) (InitialX p)
-  ForbiddenGrid FY FX` (stated `∀ p : Piece`, so it applies to `p2`
-  regardless of which piece that is) combined with `AxiomsForbiddenGrid`'s
-  `BBoxInsideBBox ForbiddenGrid FY FX InitialMainGrid 0 0` is the
-  *same* lemma `T1Proofs.v` already uses for `Init`'s and `FixPiece`'s spawn — this
-  is a re-invocation here, not a re-derivation: the fresh piece `p2` at its spawn
+  `AxiomsRotGrid`'s `(RotGrid p 0 ⊕ InitialYX p) ⊆ ForbiddenGrid = true` (stated
+  `∀ p : Piece`, so it applies to `p2` regardless of which piece that is) combined
+  with `AxiomsForbiddenGrid`'s `Full ForbiddenGrid ⊆ Full InitialMainGrid = true` is
+  exactly what `T1Proofs.v`'s `NewPieceInvariants` packages, the *same* lemma it
+  already uses for `Init`'s and `FixPiece`'s spawn — this is a re-invocation here,
+  not a re-derivation: the fresh piece `p2` at its spawn
   position occupies only cells inside the forbidden zone's occupied set; combined
   with the pre-condition `¬gameover s` (i.e. `mg` has no occupied cell anywhere the
   forbidden zone is occupied, by `Gameover`'s biconditional), the fresh piece cannot

@@ -17,8 +17,9 @@ one imported dependency (§5), the new invariants (§6), `Init` (§7),
 > here the way `t3/proofs.md` §5 needed one for its own `hold_piece`.
 >
 > As with every model in this tower (`t1/proofs.md`–`t3/proofs.md`), this proof is a
-> **safety** argument only: `RefineT4` has exactly two conjuncts (`InitRefineT4`,
-> `NextRefineT4`), no converse/completeness clause. Lynch & Vaandrager (*Information and
+> **safety** argument only: `T4RefinesT3` has exactly two conjuncts (the `Init` and
+> the `Next` one, proved in `T4Proofs.v` as `InitRefine` and `NextRefine`), no
+> converse/completeness clause. Lynch & Vaandrager (*Information and
 > Computation* 121(2):214–233, 1995, §3) is the standard justification for why a forward
 > simulation of this shape is sufficient for trace-inclusion safety properties; converse
 > completeness is in any case false here, and non-vacuously so: `T3.FixPiece` accepts an
@@ -142,7 +143,7 @@ So on guard failure, `self.s3.fix_piece(p)`'s own zero-mutation property (`t3/pr
 combines with `self.bag`/`self.next` being syntactically unreached on this path to give:
 the entire call is a stutter, `α₄(self)` unchanged, matching `option_map`'s behavior on
 `T3.FixPiece`'s `None` — exactly the property `t1/proofs.md`–`t3/proofs.md`'s own
-stuttering-step arguments need, now extended to T4's two new fields.
+stuttering-step arguments need, extended to T4's two fields.
 
 **Guard holds.** By `t3/proofs.md` §3.3, `α₃(self.s3)` after the inner call equals
 `T3.FixPiece (next s 0) (s3 s)`'s `Some` payload. `self.draw_next_piece(bag_new)` then
@@ -281,11 +282,11 @@ is exactly `AxiomsMaxBagLen`, checked once by `check_axioms` before any `Machine
 constructed (§8).
 
 `BagNextConsistent`'s `k = min(MaxBagLen - bagLen_, NextLen)` formula: in the no-reset
-branch, `bagLen_` decreases by exactly 1 while `next_`'s newly-written tail entry is
+branch, `bagLen_` decreases by exactly 1 while `next_`'s written tail entry is
 precisely the value moved out of `bag_`'s old last live position — the pair `(bag_,
 next_)`'s joint content is preserved element-for-element across the shift, so if
 `BagNextConsistent` held for the pre-state's `k`, it holds for the post-state's `k+1` (one
-more of `bag_`'s beyond-`bagLen_'` tail is now mirrored into `next_`, by construction of the
+more of `bag_`'s beyond-`bagLen_'` tail is mirrored into `next_`, by construction of the
 single `push_back` just performed). In the reset branch, `bagLen_' = MaxBagLen`, so `k' =
 min(0, NextLen) = 0` — `BagNextConsistent` holds vacuously (no `i < 0`). ∎ (both branches)
 
@@ -314,7 +315,7 @@ let m = Machine { s3: T3Machine::new(p, piece_source), bag, next };
 `init_piece_and_draw` is `BuildInitNext` + `InitPieceAndDraw`'s literal loop translation
 (`implementation.md` §4-T4b): its body's only state-mutating operation is `draw_once`,
 proved to commute with `DrawNextPiece` in §6 above, called `NEXT_LEN + 1` times (`NEXT_LEN`
-times in the loop, once more for the final draw), in the same order Rocq's `BuildNextInit`
+times in the loop, once more for the final draw), in the same order Rocq's `BuildInitNext`
 recursion visits them — by induction on the loop count (base case: the loop's zero-length
 prefix, trivially matching `BuildInitNext`'s own base case), the `(bag, next)` pair after
 the loop equals `BuildInitNext`'s own result, and the one further `draw_once` call gives

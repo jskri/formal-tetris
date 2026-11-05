@@ -149,7 +149,7 @@ fired/not-fired boolean the call returns.
 
 ## 6. `sp_controller.js` — single-player
 
-Wraps `t6/model.js`'s `Machine` directly — no `T7Eng`, no host/joiner roles,
+Wraps `t6/model.js`'s `Machine` directly — no `t7eng`, no host/joiner roles,
 no data channel. Its own `constants`/`eng` are built from `t6/instance.js`,
 independent of `tfinal/controller.js`'s.
 

@@ -28,9 +28,9 @@ this file; `rocq-to-js.md`.
 | `t6/model.js` | T6 engine — imported as `T6`; called as `T6(...)` |
 | `t6/view.js` | wrapped, not re-exported (§14) |
 
-### 0.2 No prerequisite patch
+### 0.2 Lower layers used as is
 
-No change to `t1/model.js`–`t6/model.js`. Materialization (§4-T7c) is new T7 logic
+T7 uses `t1/model.js`–`t6/model.js` as is. Materialization (§4-T7c) is new T7 logic
 operating on the fixed-size array representation directly; it reuses `intersect`
 (already exported by `t1/model.js`) for the forbidden-zone recheck and reuses no
 other existing grid helper (those operate on the piece-over-mainGrid overlay shape,
@@ -46,7 +46,7 @@ as arguments supplied by `controller.js` at that point, not at module load.
 
 `fₑ`: `Move`/`Rotate`/`Fix`/`Fall`/`Hold`/`Drop`/`RotateKick` map to their `T6`
 event; `Receive`/`Disconnect`/`Notice`/`Stutter` map to `Stutter`. Excluded from
-`RefineT6`: a materializing `Fix` (`remGarbage > 0`), including one reached via
+`T7RefinesT6` (`T7.v`): a materializing `Fix` (`remGarbage > 0`), including one reached via
 `Drop`.
 
 Per skill §7.1:
@@ -88,6 +88,9 @@ tests/
 | `Player` (Parameter) | roster array of indices, supplied to `T(...)` at match start (§0.3) |
 | `Host` | `Player[HostIndex]` — `HostIndex` a module parameter (§7) |
 | `PlayerEqb` | not emitted — `Player` values are plain indices, compared with `===` directly (§7) |
+| `PlayerEqbEq`, `PlayerCyclicPermutation` (axioms) | not checked — both hold by construction for indices `0..PlayerCount-1` compared with `===` and `PlayerNext = i => (i + 1) % PlayerCount` |
+| `PlayerCountPositive` | subsumed by `checkAxioms`'s `PlayerCount > 1` (§4-T7a) |
+| `ForallPlayersAux`/`ForallPlayers` | not emitted — `proofs.md` only |
 | `PlayerNext` | `i => (i + 1) % PlayerCount` |
 | `PlayerCount` | `Player.length` (derived) |
 | `Message` (inductive) | not mirrored as a type — wire messages are tagged objects (`GARBAGE`/`GAMEOVER`/`DISCONNECT`/`STATE`), §15.3 |
@@ -102,7 +105,8 @@ tests/
 | `mg` (helper) | `this.s6.s1.mg` (not promoted, §6.8) |
 | `gameover` (helper) | `this.s6.gameover` |
 | `clearedLines` (helper) | `this.s6.clearedLines` |
-| `UpdatePlayer` | not emitted — each method mutates `this` directly |
+| `UpdatePlayer`, `UnchangedT7Part` | not emitted — each method mutates `this` directly |
+| `MovePiece`, `RotatePiece` | `Machine.movePiece(dy, dx)`, `Machine.rotatePiece(cw)` — delegate to `this.s6` under the `WinnerMulti` guard (§6.2) |
 | `PlayingView` | `playingView(gameoverView, connectedView, pl2)` — free function, no observer parameter |
 | `WinnerMulti` | `winnerMulti(gameoverView, connectedView, myIndex)` — free function |
 | `NextTargetAux`/`NextTarget` | `nextTarget(playing, self, pl)` — free function |
@@ -110,6 +114,8 @@ tests/
 | `GeneratedGarbage` | `generatedGarbage(clearedLines, perfectClear)` |
 | `GenRemGarbage` | `genRemGarbage(garbage, clearedLines, perfectClear)` → `[genGarbage, remGarbage]` |
 | `GarbageGrid` | not emitted as a distinct function — folded into `fixPiece`'s materialization (§4-T7c) |
+| `FP.Mg'`, `FP.CroppedMg'`, `FP.Gameover'`, `FP.GameoverView'`, `FP.PlayingView'` | not emitted — realized inline by `fixPiece`'s materialization, overflow scan and forbidden-zone recheck (§4-T7c) |
+| `FP.RemGenGarbage` | the `this.remGenGarbage` field, set by `fixPiece` (§4-T7d) |
 | `NewMainGridGameoverState` | not emitted — folded into `fixPiece`, sets `this.s6.s1.mg`/`this.s6.gameover` directly |
 | `ValidHoles` | checked per-call, at each `holesFn(y)` invocation — throws, uncaught (§4-T7h) |
 | `SendMessages` | not emitted — `fixPiece` returns only a boolean; `controller.js` reads `this.remGenGarbage`/`this.gameoverView[myIndex]` after the call to construct wire messages itself (§15.3) |
@@ -120,12 +126,13 @@ tests/
 | `FallStep` | `Machine.fallStep(bagNew, holesFn)` |
 | `HoldPiece` | `Machine.holdPiece(bagNew)` |
 | `RotateKickPiece` | `Machine.rotateKickPiece(cw)` |
+| `NewPieceYXState` (T7-level) | not emitted as a function — realized inline in `dropPiece` as `T1Eng.newPieceYXState` on `this.s6.s1` (§4-T7i) |
 | `DropPiece` | `Machine.dropPiece(bagNew, holesFn)` — relocate via `T1Eng.newPieceYXState`, then call `fixPiece` (§4-T7i), not `this.s6.dropPiece` |
 | `Event`, `Next` | implicit (controller dispatch + method calls) |
-| `NoWinner`, `Playing`, `ViewSound`, `MessageSound`, `NoSelfMessage`, `LastMessagesGameoverDisconnect`, `TargetNotSelf`, `TargetNotGameover`, `Gameover`, `Correct` | `proofs.md` only |
+| `NoWinner`, `Playing`, `ViewSound`, `MessageSound`, `NoSelfMessage`, `LastMessagesGameoverDisconnect`, `TargetNotSelf`, `TargetPlaying`, `Gameover`, `S6Correct`, `Correct` | `proofs.md` only |
 | `SelfViewAccurate` | also asserted at runtime, `checkInvariants` (§6.11) — not `proofs.md`-only |
 | `OtherS6Unchanged`, `GameoverMonotone`, `GameoverViewMonotone`, `DisconnectedMonotone`, `DisconnectedViewMonotone`, `CorrectStep` | `proofs.md` only |
-| `fₑ`, `fₛ`, `RefineT6`, `NoRemGarbage`, `NoMaterializedGarbage` | `proofs.md` only |
+| `fₑ`, `fₛ`, `T7RefinesT6`, `NoRemGarbage`, `NoMaterializedGarbage` | `proofs.md` only |
 
 ## 4. Per-definition translation rules
 
@@ -224,8 +231,7 @@ tests/
 - **§4-T7i. `DropPiece`** — realized as
   `T1Eng.newPieceYXState(this.s6.gy, s1.px, s1)` applied to `this.s6.s1` (same
   field copy `t5/model.js`'s own `dropPiece` uses, reached via `T6.Machine`'s
-  inherited flattened `s1` accessor and `gy` field — no patch needed to
-  `t5/model.js`/`t6/model.js`), then `this.fixPiece(bagNew, holesFn)` — T7's own
+  inherited flattened `s1` accessor and `gy` field, both used as is), then `this.fixPiece(bagNew, holesFn)` — T7's own
   `fixPiece`, not `this.s6.dropPiece`, so materialization isn't bypassed on a
   hard drop. `T6Eng.T4Eng.assertPieceSet(bagNew)` checked first, before any
   mutation, mirroring `t5/model.js`'s own defensive check.
@@ -340,8 +346,8 @@ the host); nothing in `model.js` buffers or queues it.
 the layer that introduces the `'garbage'` sentinel (via `garbageRow`, §5), so its own
 `mg` can legitimately contain cells no lower layer's default would accept. Delegates
 to `T6Eng.checkInvariants(s.s6, message, isOccupied)` — every layer between `T1` and
-here threads this parameter through untouched (`t2`–`t6/implementation.md` §6.9-ish
-entries), so this override actually reaches `T1Eng.typeOK`, where cell types are
+here threads this parameter through untouched (`t2/implementation.md` §6.7,
+`t3`–`t5/implementation.md` §6.9; T6 reuses T5's), so this override actually reaches `T1Eng.typeOK`, where cell types are
 checked; asserts `garbage >= 0`, `0 <= target < PlayerCount`,
 `gameoverView.length === connectedView.length === PlayerCount`.
 
@@ -544,7 +550,7 @@ border would be redundant.
 
 ### 14.3 Garbage gauge
 
-Vertical bar at `x = constants.PANEL_PX - gaugeWidth`, growing bottom-up, one
+Vertical bar at `x = constants.PANEL_PX - gaugeW` (`gaugeW = cellSize * GARBAGE_GAUGE_FRAC`, `GARBAGE_GAUGE_FRAC = 1/3`), growing bottom-up, one
 `cellSize`-height segment per unit of `snapshot.garbage`, clamped at `HM`, single
 flat color.
 
@@ -595,7 +601,7 @@ instead, even if the connection is lost immediately after. Mini-grids in
 every connected player, including the new one. `PLAYERS`: every client rebuilds
 its local `playerData`/roster from the payload. `START`: no payload; freezes the
 roster into `Player` (index = `playerData` position), constructs
-`new T7Eng.Machine(myIndex, bagsFn)` via `T(..., Player, HostIndex)`, exits the
+`new eng.Machine(myIndex, bagsFn)` via `T(..., Player, HostIndex)`, exits the
 waiting room.
 
 `LEAVE` (host only, sent by a joiner clicking "Leave" on the winner screen,

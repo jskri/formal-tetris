@@ -38,13 +38,11 @@ Outputs: `model.js`, `view.js`, `controller.js`, `instance.js`, `index.html`,
 | `t3/model.js` | the T3 engine — imported as `T3` (alias for `T`); called as `T3(...)` |
 | `t3/instance.js` | re-exported, with one addition — `NextLen` (§11) |
 
-### 0.2 No prerequisite patch to `t3/model.js`
+### 0.2 T3 interface used by T4
 
-T4 requires no patch to `t3/model.js`. `T3.FixPiece`/`T3.FallStep` already take an
-explicit `pNew : Piece` argument, and `T3.HoldPiece` already takes an explicit
-`p2 : Piece` argument (`t3/model.js` §6.4/§6.6) — exactly the shape T4 needs to
-supply `next s 0` into. Confirm this against the actual `t3/model.js` signatures
-before codegen.
+T4 uses `t3/model.js` as is. `T3.FixPiece`/`T3.FallStep` take an explicit
+`pNew : Piece` argument, and `T3.HoldPiece` takes an explicit `p2 : Piece` argument
+(`t3/implementation.md` §6.4–§6.6) — exactly the shape T4 needs to supply `next s 0` into.
 
 ## 1. The refinement, and what it buys — and what it doesn't
 
@@ -134,8 +132,10 @@ inner engines.
 | `HoldPiece` | `Machine.holdPiece(bagNew)` |
 | `Next` | not emitted — JS dispatch already maps controller event → method |
 | `BagNonEmpty` | not implemented as a runtime check — `bag_.length > 0` is a structural invariant of the stack representation (a `pop()` on empty is never reachable if `TypeOK`/`H` hold; `checkInvariants` still asserts it as a cheap sanity check, §6.9) |
-| `BagNextConsistent`, `Correct` | proofs.md only; not emitted |
-| `fₑ`, `fₛ`, `InitRefineT3`, `NextRefineT3`, `RefineT3` | proofs.md only; not emitted |
+| `BagNextConsistent`, `BagNextConsistentD`, `CorrectD`, `Correct`, `CorrectWithoutGameover`, `CorrectStep` | proofs.md only; not emitted |
+| `AxiomsMaxBagLen` | not emitted separately — `MaxBagLen` is `NUM_PIECES = Piece.length`, and `Piece.length > 0` is already asserted by T1's `checkAxioms` (`t1/implementation.md` D8) |
+| `py`, `px`, `pr`, `p`, `mg`, `perfectClear`, `clearedLines` (accessors in `T4.v`'s "Helpers for refining models") | not emitted — JS reads the underlying fields directly (`this.s1.py`, … via the flattened getter, §6.10) |
+| `fₑ`, `fₛ`, `T4RefinesT3` | proofs.md only; not emitted |
 
 **Note on `Draw` flattening:** `bag_`/`next_` (T4's own new state) sit directly on
 `Machine`, not inside a `this.d = {...}` wrapper — there is no JS counterpart to
@@ -424,17 +424,22 @@ export function T(
 `NextLen` is placed after the T1–T3 parameters, before the defaulted
 `MAX_SAFE_INTEGER` — required parameters precede defaulted ones, standard JS
 convention. `checkAxioms` is `T3Eng.checkAxioms` composed with one further check,
-`NextLen > 0` (T4.v's `AxiomsNextLen` axiom).
+`Number.isInteger(NextLen) && NextLen > 0`. This is not a `T4.v` axiom (`T4.v`'s only
+axiom is `AxiomsMaxBagLen`): it is a precondition of the representation. `T4.v`'s
+`next` is a total function `ℕ → Piece`, so `next s 0` is defined for any `NextLen`,
+whereas `next_` is an array of length `NextLen`, and reading `next_[0]` needs
+`NextLen > 0`.
 
 ## 8. `proofs.md` (scope)
 
 Delta over `t3/proofs.md`.
 
-1. **Scope.** Safety only. `RefineT3` (T4.v's `RefineT3` definition) has exactly two
-   conjuncts — `InitRefineT3` and `NextRefineT3` — no `None`-preservation clause.
-   State explicitly *why* it's absent, not just that it is: a candidate
-   `NoneRefineT3` in the direction "T4 blocks ⟹ T3 blocks" was considered and dropped
-   as unnecessary for a forward-simulation safety argument (Lynch & Vaandrager,
+1. **Scope.** Safety only. `T4RefinesT3` (`T4.v`) has exactly two conjuncts — an
+   `Init` clause and a `Next` clause, proved as `InitRefine` and `NextRefine` in
+   `T4Proofs.v` and combined as `T4RefinesT3Hold` — no `None`-preservation clause.
+   State explicitly *why* it's absent, not just that it is: a clause in the direction
+   "T4 blocks ⟹ T3 blocks" is unnecessary for a forward-simulation safety argument
+   (Lynch & Vaandrager,
    *Information and Computation* 121(2):214–233, 1995, §3 requires only start/step
    conditions); the *converse* direction ("T3 permits ⟹ T4 permits", i.e. behavioral
    completeness) is actively **false** — `T3.Fix` accepts an arbitrary piece per call
@@ -477,9 +482,9 @@ Delta over `t3/proofs.md`.
    runtime check) stands in for a Rocq proof term; state plainly that this obligation
    is *conditional on the check having passed*, i.e., `TypeOK` is only proved to be
    preserved given `assertPieceSet` didn't throw, not unconditionally.
-7. **`Init`.** `InitRefineT3` (T4.v's `InitRefineT3` proof) needs `unfold Init,
-   InitPiece, InitPieceAndDraw; destruct (BuildInitNext ...)` to force both call
-   sites' pair destructuring to the same term before `reflexivity` applies — the
+7. **`Init`.** `InitRefine` (`T4Proofs.v`) needs `unfold fₛ, Init, InitPiece;
+   destruct InitPieceAndDraw` to force both call sites' pair destructuring to the same
+   term before `reflexivity` applies — the
    JS-side analogue is that `initPieceAndDraw` is called exactly once in the
    constructor and its `p` is what seeds `T3Eng.Machine`, so there is no JS
    equivalent of the definitional-unfolding friction.
@@ -584,8 +589,7 @@ supplied here.
 ## 12. Generator determinism rules
 
 Inherit `t1/implementation.md` §12 / `t2/implementation.md` §12 / `t3/implementation.md`
-§12's "reuse over restatement" verbatim. No `t3/model.js` patch is a prerequisite
-here (§0.2).
+§12's "reuse over restatement" verbatim. `t3/model.js` is used as is (§0.2).
 
 ## 13. `instance.js` parameters
 

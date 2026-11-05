@@ -38,7 +38,7 @@ than closed outright:
 
 Two further points are load-bearing enough to call out up front, both argued
 in full: `receive_gameover`/`receive_disconnect`'s target redirect and the
-`from ↦ true` override in `redirect_target_from` (§6, §8), and the host's own
+`from ↦ false` override in `redirect_target_from` (§6, §8), and the host's own
 synchronous `receive_disconnect` call in `Session::check_timeouts`, which
 collapses two `T7.v` steps (`DisconnectPlayer`, then the host's own
 `ReceiveMessage`) into one real action (§10).
@@ -300,7 +300,7 @@ transcription:
   which folds in the same just-written self-cell before `NextTarget`
   reads it, in `FixPiece`'s own redirect). §6's termination-lemma "case 2" (used generically,
   not re-derived per call site) confirms this call site never needs the
-  `from ↦ true`-style override `redirect_target_from` carries: the search
+  `from ↦ false` override `redirect_target_from` carries: the search
   here starts at `target s pl` itself, a player whose own liveness *this*
   call cannot have changed (`pl ≠ target(pl)` by `TargetNotSelf`, so the
   one cell this call can move — `(pl, pl)` — is not the one being
@@ -308,8 +308,8 @@ transcription:
   `PlayingView`-true without any forced override — `next_target`'s own
   `pl2 != self_` exclusion of `self.my_index` as a candidate (the comment
   `fix_piece`'s own body carries at this call site) is exactly this, and
-  `T7.v` uses no override at its own corresponding call site either
-  (`FP.PlayingView'` unmodified).
+  `T7.v` uses no `from` override at its own corresponding call site either
+  (`FP.PlayingView'` differs from `PlayingView s pl` only at `pl`'s own cell).
 
 ## 6. `next_target` termination lemma
 
@@ -350,33 +350,30 @@ wraparound. ∎
 sites:
 
 1. `redirect_target_from` (§8): the walk starts at `from`, the very player
-   whose status just became "not playing." `T7.v`'s `FP.PlayingView'`/
-   `ReceiveMessage`'s own `view'` closures both force `view'(from) = true`
-   in the wraparound-avoidance sense used above — reversed as `false` in
-   this repo's own naming (`redirect_target_from`'s closure returns
-   `false` at `pl2 == from`, since it is searching *away from* `from`,
-   the opposite framing from `T7.v`'s `FP.PlayingView'` computed inside
-   `fix_piece` — see §8 for why the two closures' `from`-handling differ
-   in this exact way while realizing the same underlying fact). The
-   override matters exactly when `NoWinner s'` fails: without it, the walk
-   would reach the wraparound point with the *stale* pre-update view of
-   `from` (still "playing," since `self.gameover_view[from]`/
-   `self.connected_view[from]` have not yet been written when
-   `redirect_target_from` runs — `receive_gameover`/`receive_disconnect`
-   call it *before* the corresponding field write, `implementation.md`
-   §4-T7e′) and could return `from` again — a value `T7.v`'s own
-   computation (using the *already-updated* `gameoverView'`) would not
-   produce in the same edge case. The override closes exactly this gap;
-   §11's field-level argument in §8 confirms the two are equivalent once
-   the deferred write actually lands, which happens unconditionally,
-   immediately after `redirect_target_from` returns.
+   whose status just became "not playing." `ReceiveMessage`'s `view'`
+   forces `view'(from) = false` and otherwise reads the pre-state
+   `PlayingView s pl`; `redirect_target_from`'s closure is the same
+   function (`false` at `pl2 == from`, else `playing_view` on
+   `self.gameover_view`/`self.connected_view`, which still hold their
+   pre-state values — `receive_gameover`/`receive_disconnect` call it
+   *before* the corresponding field write, `implementation.md` §4-T7e′).
+   When `NoWinner s'` holds, the claim above shows the walk stops at a
+   genuine candidate before wrapping. When it fails, both walks may
+   exhaust their fuel and return `self` (`NextTargetAux`'s `fuel = 0`
+   case, `next_target`'s trailing `self_`) — so they agree there too.
+   The override is load-bearing: without it, the closure would read the
+   *stale* pre-update view of `from` (still "playing") and could return
+   `from` again, a value `view'` excludes. §8's ordering note confirms
+   the two are equivalent once the deferred write lands, which happens
+   unconditionally, immediately after `redirect_target_from` returns.
 2. `fix_piece`'s own redirect (§5): the walk starts at `target s pl`, a
    player whose liveness *this* call cannot have changed (the only cell
    `fix_piece` can move is `(pl, pl)`, and `target(pl) ≠ pl` by
    `TargetNotSelf`). So the wraparound candidate, `target s pl` itself, is
    provably still `PlayingView`-true regardless of whether `NoWinner s'`
-   holds — no override is needed here, and `T7.v` uses none at this call
-   site either (`FP.PlayingView'` unmodified).
+   holds — no `from` override is needed here, and `T7.v` uses none at this
+   call site either (`FP.PlayingView'` differs from `PlayingView s pl` only
+   at `pl`'s own cell, which the search never returns).
 
 ## 7. `drop_piece` — no-use relocation, then §5 in full
 

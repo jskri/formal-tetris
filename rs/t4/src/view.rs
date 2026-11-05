@@ -20,7 +20,7 @@ pub use t3::view::Banner;
 
 /// spec: §14.2 (`implementation.md`) — grid/panel/hold-box geometry reuses
 /// `t3::view::Layout` (`base`) unmodified; only the preview-column geometry
-/// is new. `pub` fields (t5/implementation.md §0.2) for future embedding.
+/// is T4-specific. `pub` fields (t5/implementation.md §0.2) for future embedding.
 pub struct Layout {
     pub base: t3::view::Layout,
     pub right_origin: f32, // x where the preview column's content starts (before its own margin)

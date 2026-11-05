@@ -11,7 +11,7 @@ logic of its own (`fixPiece`).
 Safety/refinement only, exactly as `t1/proofs.md` §1 (D11): no liveness. Additionally
 out of scope here: fall-speed (`controller.js` §15, level → interval period) and
 banner timing (`view.js`/`controller.js` §14–15) — controller concerns with no
-`T2.v` counterpart, same boundary as T1's fall-timing was.
+`T2.v` counterpart, same boundary as for T1's fall timing.
 
 ## 2. State mapping and reuse of `t1/proofs.md`
 
@@ -33,7 +33,7 @@ fields directly (skill §7.2). `α_T1` is already established total and well-def
 on every reachable `js.s1` by `t1/proofs.md` §2; the five new fields are plain
 `number`/`boolean` scalars needing no coercion.
 
-`T2.v`'s own `RefineT1` theorem is the formal statement that `fₛ` commutes with
+`T2.v`'s `T2RefinesT1` (proved in `T2Proofs.v` as `SpecRefine`) is the formal statement that `fₛ` commutes with
 `Next`: for every T2 transition `T2.Next e2 s2 = Some s2'`,
 `T1.Next (fₑ e2) (fₛ s2) = Some (fₛ s2')`. Per §7.1 (full use / partial use / no
 use):
@@ -157,7 +157,8 @@ at every accumulation site (`combo2`, `total2`, `this.score`), which is a
   non-negative), the returned value is exactly `min(a+b, max)` computed without
   ever forming an unsafe intermediate sum. Hence `score`, `combo`,
   `totalClearedLines` are `Number.isSafeInteger` at every reachable state — the
-  JS-representational analogue of T1's structural `NoOverflow`.
+  JS-representational analogue of `t1/proofs.md` §6's structural
+  integer-range bound.
 - **Monotonicity preserved.** `capAdd(a,b,max) ≥ a` for `b ≥ 0` (either `a+b ≥ a`
   or the result is `max ≥ a`, since `a ≤ max` is an invariant maintained by every
   prior `capAdd` call and by `Init`'s `a=0`). So `NonDecreasingScore`,
@@ -187,7 +188,7 @@ exceeding the true value it would have taken) beyond it.
 ## 6. `LevelCorrect` preservation
 
 `LevelCorrect s := level s = 1 + totalClearedLines s / 10` is `T2.Correct`'s extra
-conjunct beyond `T1.Correct (s1 s)`, not covered by `RefineT1` (which only
+conjunct beyond `T1.Correct (s1 s)`, not covered by `T2RefinesT1` (which only
 constrains the `s1` projection). Proved directly:
 
 - **`Init`**: `this.totalClearedLines = 0`, `this.level = 1 = 1 + natDiv(0,10)`. ✓
