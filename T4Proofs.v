@@ -8,6 +8,18 @@ Open Scope nat_scope.
 
 Module T3P := T3Proofs.
 
+(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
+ * hypotheses, lemma premises or event constructors. Same rules as T3Proofs.v:
+ * - a fact is taken out of a conjunction by stating it, e.g.
+ *   [assert (F : fact) by (apply L in H; tauto)],
+ * - a conjunction is proven by first stating all its conjuncts, then closing
+ *   every branch with the same tactic (e.g. [split_top; assumption]),
+ * - a lemma with several premises is applied with [eapp] or [apply ... in],
+ *   not by passing hypotheses positionally,
+ * - a disjunction is taken apart with [decompose], and every case is closed
+ *   with the same tactic,
+ * - a case analysis on an event closes every case with the same tactic. *)
+
 
 (* ========================================================================= *)
 (* The Draw                                                                  *)
@@ -27,179 +39,100 @@ Definition HoldDraw (s : State) (bagNew : ℕ → Piece) : Draw :=
   | None => DrawAfter s bagNew
   end.
 
-(* req-preview-pop: drawing preserves the Draw invariant.
- * There are two cases:
- * - the bag had a single piece left: it is refilled to MaxBagLen, so no preview
- *   entry comes from it yet and BagNextConsistentD is vacuous (k = 0);
- * - the bag had at least two: one piece is popped from its end onto the end of
- *   the preview, and every other preview entry shifts down by one. *)
-Lemma DrawNextPieceCorrect : ∀ (dd : Draw) (bagNew : ℕ → Piece)
+(* A full bag has fed no preview entry yet, so BagNextConsistentD is vacuous
+ * (k = 0). *)
+Lemma FullBagCorrectD : ∀ [dd : Draw]
+  (HP : PieceSet (bag_ dd))
+  (HL : bagLen_ dd = MaxBagLen),
+  CorrectD dd.
+Proof.
+  intros.
+  assert (HM : MaxBagLen > 0) by exact AxiomsMaxBagLen.
+  unfold CorrectD, BagNextConsistentD; cbv zeta; rewrite HL.
+  split_top; first [ assumption | lia | intros; lia ].
+Qed.
+
+(* req-preview-pop: drawing preserves the Draw invariant. *)
+Lemma DrawNextPieceCorrect : ∀ [dd : Draw] [bagNew : ℕ → Piece]
   (HB : PieceSet bagNew)
   (HD : CorrectD dd),
   CorrectD (snd (DrawNextPiece dd bagNew)).
 Proof.
   intros.
-  assert (HP : PieceSet (bag_ dd)) by now destruct HD; tauto.
-  assert (HL : 0 < bagLen_ dd) by now destruct HD; tauto.
-  assert (HC : BagNextConsistentD dd) by now destruct HD; tauto.
-  assert (HM : MaxBagLen > 0) by exact AxiomsMaxBagLen.
-  (* The three fields of the drawn Draw, by computation. *)
-  assert (Ebag : bag_ (snd (DrawNextPiece dd bagNew))
-               = if bagLen_ dd <=? 1 then bagNew else bag_ dd) by reflexivity.
-  assert (Elen : bagLen_ (snd (DrawNextPiece dd bagNew))
-               = if bagLen_ dd <=? 1 then MaxBagLen else bagLen_ dd - 1) by reflexivity.
-  assert (Enext : next_ (snd (DrawNextPiece dd bagNew))
-                = ShiftNext (next_ dd) (bag_ dd (bagLen_ dd - 1))) by reflexivity.
+  assert (HP : PieceSet (bag_ dd)) by (unfold CorrectD in HD; tauto).
+  assert (HL : 0 < bagLen_ dd) by (unfold CorrectD in HD; tauto).
+  assert (HC : BagNextConsistentD dd) by (unfold CorrectD in HD; tauto).
   unfold BagNextConsistentD in HC; cbv zeta in HC.
-  destruct (bagLen_ dd <=? 1) eqn: Hs.
-  - (* refill: the bag is empty (or nearly), so it is refilled to MaxBagLen and
-    no preview entry has been drawn from it yet. BagNextConsistentD is
-    vacuous (k = 0). *)
-    assert (L1 : PieceSet (bag_ (snd (DrawNextPiece dd bagNew))))
-      by now rewrite Ebag; exact HB.
-    assert (L2 : 0 < bagLen_ (snd (DrawNextPiece dd bagNew)))
-      by now rewrite Elen; exact HM.
-    assert (L3 : BagNextConsistentD (snd (DrawNextPiece dd bagNew))). {
-      unfold BagNextConsistentD; cbv zeta; rewrite Elen.
-      intros i Hi; exfalso; keep_only Hi; lia.
+  unfold DrawNextPiece; cbv zeta; cbn [snd].
+  destruct (Nat.leb_spec (bagLen_ dd) 1).
+  - (* a single piece left: the bag is refilled to MaxBagLen *)
+    apply FullBagCorrectD; (reflexivity || assumption).
+  - (* at least two pieces: the last one is popped onto the end of the
+     * preview, and every other preview entry shifts down by one *)
+    assert (L3 : ∀ i, i < min (MaxBagLen - (bagLen_ dd - 1)) NextLen →
+        ShiftNext (next_ dd) (bag_ dd (bagLen_ dd - 1)) (NextLen - i - 1)
+      = bag_ dd (bagLen_ dd - 1 + i)). {
+      intros i Hi; unfold ShiftNext.
+      destruct (Nat.eqb_spec (NextLen - i - 1) (NextLen - 1)) as [Ei | Ei].
+      - (* i = 0: the popped piece lands at the end of the preview *)
+        f_equal; lia.
+      - (* i = S i': the preview entry the old one shifts down from *)
+        destruct i as [| i']; [ lia | ].
+        replace (NextLen - S i' - 1 + 1) with (NextLen - i' - 1) by lia.
+        replace (bagLen_ dd - 1 + S i') with (bagLen_ dd + i') by lia.
+        apply HC; lia.
     }
-    unfold CorrectD; split; [ | split ]; auto using L1, L2, L3.
-  - (* at least two pieces in the bag: one is popped onto the end of the
-     * preview, and every other preview entry shifts down by one. *)
-    assert (Htwo : 2 <= bagLen_ dd) by (apply Nat.leb_gt in Hs; lia).
-    assert (L1 : PieceSet (bag_ (snd (DrawNextPiece dd bagNew))))
-      by now rewrite Ebag; exact HP.
-    assert (L2 : 0 < bagLen_ (snd (DrawNextPiece dd bagNew)))
-      by now rewrite Elen; keep_only Htwo; lia.
-    assert (L3 : BagNextConsistentD (snd (DrawNextPiece dd bagNew))). {
-      unfold BagNextConsistentD; cbv zeta.
-      rewrite Ebag, Elen, Enext.
-      intros i Hi.
-      enough ((if NextLen - i - 1 =? NextLen - 1
-        then bag_ dd (bagLen_ dd - 1)
-        else next_ dd (NextLen - i - 1 + 1)) = bag_ dd (bagLen_ dd - 1 + i))
-        by now unfold ShiftNext; cbv beta.
-      destruct i as [| i'].
-      * (* i = 0: the piece popped from the bag lands at the end of the preview *)
-        assert (E : (NextLen - 0 - 1 =? NextLen - 1) = true)
-          by (apply Nat.eqb_eq; lia).
-        rewrite E; f_equal; keep_only Htwo; lia.
-      * (* i = S i': every other preview entry is the previous one, shifted down by one *)
-        assert (E : (NextLen - S i' - 1 =? NextLen - 1) = false)
-          by now apply Nat.eqb_neq; keep_only Hi; lia.
-        enough (next_ dd (NextLen - S i' - 1 + 1) = bag_ dd (bagLen_ dd - 1 + S i'))
-          by now rewrite E.
-        assert (Hk : i' < min (MaxBagLen - bagLen_ dd) NextLen)
-          by (keep_only Hi Htwo; lia).
-        assert (L3_1 : next_ dd (NextLen - i' - 1) = bag_ dd (bagLen_ dd + i'))
-          by exact (HC i' Hk).
-        assert (L3_2 : next_ dd (NextLen - S i') = bag_ dd (bagLen_ dd + i')). {
-          now replace (NextLen - i' - 1) with (NextLen - S i') in L3_1
-            by (keep_only Hi; lia).
-        }
-        enough (next_ dd (NextLen - S i') = bag_ dd (bagLen_ dd - 1 + S i')). {
-          now replace (NextLen - S i' - 1 + 1) with (NextLen - S i')
-            by (keep_only Hi; lia).
-        }
-        rewrite L3_2; f_equal; keep_only Htwo; lia.
-    }
-    unfold CorrectD; split; [ | split ]; auto using L1, L2, L3.
+    unfold CorrectD, BagNextConsistentD; cbv zeta; cbn [bag_ bagLen_ next_].
+    split_top; first [ assumption | lia ].
 Qed.
 
-Lemma DrawAfterCorrect : ∀ (s : State) (bagNew : ℕ → Piece)
+Lemma DrawAfterCorrect : ∀ [s bagNew]
   (HB : PieceSet bagNew)
-  (Hc : Correct s),
+  (HD : CorrectD (d s)),
   CorrectD (DrawAfter s bagNew).
-Proof.
-  intros.
-  unfold DrawAfter; apply DrawNextPieceCorrect; (exact HB || now destruct Hc).
-Qed.
+Proof. intros; eapp DrawNextPieceCorrect. Qed.
 
-Lemma HoldDrawCorrect : ∀ (s : State) (bagNew : ℕ → Piece)
+Lemma HoldDrawCorrect : ∀ [s bagNew]
   (HB : PieceSet bagNew)
-  (Hc : Correct s),
+  (HD : CorrectD (d s)),
   CorrectD (HoldDraw s bagNew).
 Proof.
-  intros.
-  unfold HoldDraw; destruct (hold s).
-  - now destruct Hc.
-  - now apply DrawAfterCorrect.
+  intros; unfold HoldDraw.
+  destruct (hold s); first [ assumption | eapp DrawAfterCorrect ].
 Qed.
 
-Lemma DrawAfterCorrectWithoutGameover : ∀ (s : State) (bagNew : ℕ → Piece)
-  (HB : PieceSet bagNew)
-  (Hc : CorrectWithoutGameover s),
-  CorrectD (DrawAfter s bagNew).
-Proof.
-  intros.
-  unfold DrawAfter; apply DrawNextPieceCorrect; (exact HB || now destruct Hc).
-Qed.
-
-Lemma HoldDrawCorrectWithoutGameover : ∀ (s : State) (bagNew : ℕ → Piece)
-  (HB : PieceSet bagNew)
-  (Hc : CorrectWithoutGameover s),
-  CorrectD (HoldDraw s bagNew).
-Proof.
-  intros.
-  unfold HoldDraw; destruct (hold s).
-  - now destruct Hc.
-  - now apply DrawAfterCorrectWithoutGameover.
-Qed.
-
-(* One step of the preview-filling loop. *)
-Lemma BuildInitNextS : ∀ (dd : Draw) (i : ℕ) (bags : ℕ → ℕ → Piece) (bagIdx : ℕ),
-  BuildInitNext dd (S i) bags bagIdx
-  = BuildInitNext (snd (DrawNextPiece dd (bags bagIdx))) i bags
-      (bagIdx + (if bagLen_ dd =? 1 then 1 else 0)).
-Proof. reflexivity. Qed.
-
-Lemma BuildInitNextCorrect : ∀ (i : ℕ) (bags : ℕ → ℕ → Piece) (bagIdx : ℕ) (dd : Draw)
+(* Generalized over the starting Draw, so that the induction hypothesis
+ * applies after every draw. *)
+Lemma BuildInitNextCorrect :
+  ∀ (i : ℕ) (bags : ℕ → ℕ → Piece) (bagIdx : ℕ) (dd : Draw)
   (HB : ∀ j, PieceSet (bags j))
   (HD : CorrectD dd),
   CorrectD (fst (BuildInitNext dd i bags bagIdx)).
 Proof.
-  induction i as [| i' IH]; intros bags bagIdx dd HB HD.
-  - (* i = 0 *) exact HD.
-  - (* i = S i' *)
-    rewrite BuildInitNextS.
-    apply IH; [ exact HB | ].
-    apply DrawNextPieceCorrect; (apply HB || exact HD).
+  induction i as [| i IH]; intros; cbn [BuildInitNext].
+  - exact HD.
+  - apply IH; try apply DrawNextPieceCorrect; auto.
 Qed.
 
-(* req-preview-init *)
+(* req-preview-init: the preview is filled from a full bag, then the first
+ * piece is drawn. *)
 Lemma InitDrawCorrect : ∀ (bags : ℕ → ℕ → Piece) (HB : ∀ i, PieceSet (bags i)),
   CorrectD (snd (InitPieceAndDraw bags HB)).
 Proof.
   intros.
-  assert (HM : MaxBagLen > 0) by now exact AxiomsMaxBagLen.
-  (* The seed Draw has a full bag; its `next_` is arbitrary, which is harmless
-   * because a full bag makes BagNextConsistentD vacuous (k = 0). *)
-  set (B := {| bag_ := bags 0; bagLen_ := MaxBagLen; next_ := bags 0 |}).
-  assert (L1 : PieceSet (bag_ B)) by now apply HB.
-  assert (L2 : 0 < bagLen_ B) by now exact HM.
-  assert (L3 : BagNextConsistentD B). {
-    unfold BagNextConsistentD; cbv zeta; simpl.
-    intros i Hi; exfalso; keep_only Hi; lia.
-  }
-  assert (HD0 : CorrectD B). {
-    unfold CorrectD; split; [ | split ]; auto using L1, L2, L3.
-  }
   unfold InitPieceAndDraw; cbv zeta.
-  (*** *)
-  destruct (BuildInitNext {| bag_ := bags 0; bagLen_ := MaxBagLen; next_ := bags 0 |}
-              NextLen bags 1) as [d1 bagIdx] eqn: Hb.
-  assert (Hd1 : d1 = fst (BuildInitNext
-                            {| bag_ := bags 0; bagLen_ := MaxBagLen; next_ := bags 0 |}
-                            NextLen bags 1))
-    by (rewrite Hb; reflexivity).
-  assert (HD1 : CorrectD d1)
-    by (rewrite Hd1; apply BuildInitNextCorrect; assumption).
-  apply DrawNextPieceCorrect; (apply HB || exact HD1).
+  (* The seed Draw's `next_` is arbitrary, which is harmless since its bag is
+   * full. *)
+  set (dd0 := {| bag_ := bags 0; bagLen_ := MaxBagLen; next_ := bags 0 |}).
+  assert (HD0 : CorrectD dd0) by (apply FullBagCorrectD; (reflexivity || apply HB)).
+  assert (HD1 : CorrectD (fst (BuildInitNext dd0 NextLen bags 1)))
+    by auto using BuildInitNextCorrect.
+  destruct BuildInitNext; auto using DrawNextPieceCorrect.
 Qed.
 
 
 (* ========================================================================= *)
-(* Helpers: what each event does to the two components of the state          *)
+(* Events: what they do to the two components of the state                   *)
 (* ========================================================================= *)
 
 (* FixPiece and HoldPiece destructure `DrawNextPiece (d s) bagNew`, which is a
@@ -218,92 +151,30 @@ Lemma HoldPieceEq : ∀ (s : State) (bagNew : ℕ → Piece) (H : PieceSet bagNe
     else None.
 Proof. reflexivity. Qed.
 
+(* Move and Rotate update the T3 part only, through UnchangedT4Part. *)
+Lemma UnchangedT4PartStep : ∀ [o s s']
+  (Hn : option_map (UnchangedT4Part s) o = Some s'),
+  o = Some (s3 s') ∧ d s' = d s.
+Proof.
+  intros [t |] s s' Hn; [ inject Hn; subst; now split_top | discriminate Hn ].
+Qed.
+
 Lemma MovePieceStep : ∀ [s s' dyx]
   (Hn : MovePiece dyx s = Some s'),
   T3.MovePiece dyx (s3 s) = Some (s3 s') ∧ d s' = d s.
-Proof.
-  intros.
-  unfold MovePiece, option_map in Hn.
-  destruct (T3.MovePiece dyx (s3 s)) as [t |] eqn: Hd.
-  - (* Some t *)
-    enough (Some t = Some (s3 s') ∧ d s' = d s) by trivial.
-    assert (L1 : s' = UnchangedT4Part s t) by (inject Hn; now symmetry).
-    rewrite L1; split; reflexivity.
-  - (* None *)
-    enough (None = Some (s3 s') ∧ d s' = d s) by trivial.
-    discriminate Hn.
-Qed.
+Proof. intros; exact (UnchangedT4PartStep Hn). Qed.
 
 Lemma RotatePieceStep : ∀ [s s' cw]
   (Hn : RotatePiece cw s = Some s'),
   T3.RotatePiece cw (s3 s) = Some (s3 s') ∧ d s' = d s.
-Proof.
-  intros.
-  unfold RotatePiece, option_map in Hn.
-  destruct (T3.RotatePiece cw (s3 s)) as [t |] eqn: Hd.
-  - (* Some t *)
-    enough (Some t = Some (s3 s') ∧ d s' = d s) by trivial.
-    assert (L1 : s' = UnchangedT4Part s t) by (inject Hn; now symmetry).
-    rewrite L1; split; reflexivity.
-  - (* None *)
-    enough (None = Some (s3 s') ∧ d s' = d s) by trivial.
-    discriminate Hn.
-Qed.
-
-(* A successful MovePiece proves T3's own guard held. *)
-Lemma MovePieceNotGameover : ∀ [s s' dyx]
-  (H1 : MovePiece dyx s = Some s'),
-  gameover s = false.
-Proof.
-  intros.
-  destruct (MovePieceStep H1) as [H2 _].
-  exact (T3P.MovePieceNotGameover H2).
-Qed.
-
-(* A successful RotatePiece proves T3's own guard held. *)
-Lemma RotatePieceNotGameover : ∀ [s s' cw]
-  (H1 : RotatePiece cw s = Some s'),
-  gameover s = false.
-Proof.
-  intros.
-  destruct (RotatePieceStep H1) as [H2 _].
-  exact (T3P.RotatePieceNotGameover H2).
-Qed.
-
-Lemma MovePieceMgGameoverUnchanged : ∀ [s s' dyx]
-  (Hn : MovePiece dyx s = Some s'),
-  mg s' = mg s ∧ gameover s' = gameover s.
-Proof.
-  intros.
-  destruct (MovePieceStep Hn) as [H1 _].
-  split.
-  - exact (T3P.MovePieceMgUnchanged H1).
-  - exact (T3P.MovePieceGameover H1).
-Qed.
-
-Lemma RotatePieceMgGameoverUnchanged : ∀ [s s' cw]
-  (Hn : RotatePiece cw s = Some s'),
-  mg s' = mg s ∧ gameover s' = gameover s.
-Proof.
-  intros.
-  destruct (RotatePieceStep Hn) as [H1 _].
-  split.
-  - exact (T3P.RotatePieceMgUnchanged H1).
-  - exact (T3P.RotatePieceGameover H1).
-Qed.
+Proof. intros; exact (UnchangedT4PartStep Hn). Qed.
 
 Lemma MovePieceFail : ∀ [s dyx]
   (Hn : MovePiece dyx s = None),
   T3.MovePiece dyx (s3 s) = None.
 Proof.
-  intros.
-  unfold MovePiece, option_map in Hn.
-  destruct (T3.MovePiece dyx (s3 s)) as [t |] eqn: Hd.
-  - (* Some t *)
-    enough (Some t = None) by trivial.
-    discriminate Hn.
-  - (* None *)
-    reflexivity.
+  intros; unfold MovePiece in Hn.
+  destruct T3.MovePiece; [ discriminate Hn | reflexivity ].
 Qed.
 
 Lemma FixPieceStep : ∀ [s s' bagNew] [H : PieceSet bagNew]
@@ -311,16 +182,8 @@ Lemma FixPieceStep : ∀ [s s' bagNew] [H : PieceSet bagNew]
     T3.FixPiece (next s 0) (s3 s) = Some (s3 s')
   ∧ d s' = DrawAfter s bagNew.
 Proof.
-  intros.
-  rewrite FixPieceEq in Hn; unfold option_map in Hn.
-  destruct (T3.FixPiece (next s 0) (s3 s)) as [t |] eqn: Hf.
-  - (* Some t *)
-    enough (Some t = Some (s3 s') ∧ d s' = DrawAfter s bagNew) by trivial.
-    assert (L1 : s' = mkState t (DrawAfter s bagNew)) by (inject Hn; now symmetry).
-    rewrite L1; split; reflexivity.
-  - (* None *)
-    enough (None = Some (s3 s') ∧ d s' = DrawAfter s bagNew) by trivial.
-    discriminate Hn.
+  intros; rewrite FixPieceEq in Hn.
+  destruct T3.FixPiece; [ inject Hn; subst; now split_top | discriminate Hn ].
 Qed.
 
 Lemma HoldPieceStep : ∀ [s s' bagNew] [H : PieceSet bagNew]
@@ -329,81 +192,139 @@ Lemma HoldPieceStep : ∀ [s s' bagNew] [H : PieceSet bagNew]
   ∧ T3.HoldPiece (next s 0) (s3 s) = Some (s3 s')
   ∧ d s' = HoldDraw s bagNew.
 Proof.
-  intros.
-  rewrite HoldPieceEq in Hn.
-  destruct (gameover s) eqn: Hg; [ discriminate Hn | ].
-  unfold option_map in Hn.
-  destruct (T3.HoldPiece (next s 0) (s3 s)) as [t |] eqn: Hh.
-  - (* Some t *)
-    enough (false = false ∧ Some t = Some (s3 s') ∧ d s' = HoldDraw s bagNew) by trivial.
-    assert (L1 : s' = mkState t (HoldDraw s bagNew)) by (inject Hn; now symmetry).
-    rewrite L1; repeat split; reflexivity.
-  - (* None *)
-    enough (false = false ∧ None = Some (s3 s') ∧ d s' = HoldDraw s bagNew) by trivial.
-    discriminate Hn.
+  intros; rewrite HoldPieceEq in Hn.
+  destruct (gameover s); cbn [negb] in Hn; try discriminate Hn.
+  destruct T3.HoldPiece; [ inject Hn; subst; now split_top | discriminate Hn ].
 Qed.
+
+(* Replaces every Move, Rotate, Fix or Hold step hypothesis, and every failed
+ * move, by the facts the lemmas above provide, one hypothesis per fact. *)
+Ltac step_facts :=
+  repeat match goal with
+  | Hm : MovePiece _ _ = Some _ |- _ => apply MovePieceStep in Hm
+  | Hm : MovePiece _ _ = None |- _ => apply MovePieceFail in Hm
+  | Hm : RotatePiece _ _ = Some _ |- _ => apply RotatePieceStep in Hm
+  | Hm : FixPiece _ _ _ = Some _ |- _ => apply FixPieceStep in Hm
+  | Hm : HoldPiece _ _ _ = Some _ |- _ => apply HoldPieceStep in Hm
+  | H : _ ∧ _ |- _ => destruct H
+  end.
+
+(* A fall step is a move down or, if that fails, a fix. *)
+Lemma FallStepCases : ∀ [s s' bagNew] [H : PieceSet bagNew]
+  (Hn : FallStep bagNew H s = Some s'),
+    MovePiece (-1, 0)%Z s = Some s'
+  ∨ (MovePiece (-1, 0)%Z s = None ∧ FixPiece bagNew H s = Some s').
+Proof.
+  intros; unfold FallStep in Hn.
+  destruct MovePiece eqn: Hm; [ inject Hn; subst | ]; tauto.
+Qed.
+
+(* T3's fall step takes the same branch: T4's move down is T3's one, mapped. *)
+Lemma FallStepT3 : ∀ [s s' bagNew] [H : PieceSet bagNew]
+  (Hn : FallStep bagNew H s = Some s'),
+  T3.FallStep (next s 0) (s3 s) = Some (s3 s').
+Proof.
+  intros; unfold T3.FallStep.
+  decompose [or and] (FallStepCases Hn); step_facts;
+    match goal with E : T3.MovePiece _ _ = _ |- _ => rewrite E end;
+    (reflexivity || assumption).
+Qed.
+
+(* The T3 part of a step is the T3 step of the mapped event. *)
+Lemma NextT3 : ∀ [e s s']
+  (Hn : Next e s = Some s'),
+  T3.Next (fₑ s e) (s3 s) = Some (s3 s').
+Proof.
+  intros; destruct e; cbn [Next T3.Next T3.NextT2Event fₑ] in *;
+    first [ eapp FallStepT3 | inject Hn; subst; reflexivity | step_facts; assumption ].
+Qed.
+
+(* Every successful step is a move, a rotation, a fix, a hold or a stutter. *)
+Lemma NextCases : ∀ [e s s']
+  (Hn : Next e s = Some s'),
+    (∃ dyx, MovePiece dyx s = Some s')
+  ∨ (∃ cw, RotatePiece cw s = Some s')
+  ∨ (∃ bagNew H, FixPiece bagNew H s = Some s')
+  ∨ (∃ bagNew H, HoldPiece bagNew H s = Some s')
+  ∨ s' = s.
+Proof.
+  intros; destruct e; cbn [Next] in Hn;
+    try (decompose [or and] (FallStepCases Hn); clear Hn);
+    try (inject Hn; subst);
+    eauto 8.
+Qed.
+
+(**** What the T3 lemmas give through the s3 projection ****)
+
+(* A successful MovePiece proves T3's own guard held. *)
+Lemma MovePieceNotGameover : ∀ [s s' dyx]
+  (H1 : MovePiece dyx s = Some s'),
+  gameover s = false.
+Proof. intros; step_facts; eapp T3P.MovePieceNotGameover. Qed.
+
+(* A successful RotatePiece proves T3's own guard held. *)
+Lemma RotatePieceNotGameover : ∀ [s s' cw]
+  (H1 : RotatePiece cw s = Some s'),
+  gameover s = false.
+Proof. intros; step_facts; eapp T3P.RotatePieceNotGameover. Qed.
+
+Lemma MovePieceMgGameoverUnchanged : ∀ [s s' dyx]
+  (Hn : MovePiece dyx s = Some s'),
+  mg s' = mg s ∧ gameover s' = gameover s.
+Proof. intros; step_facts; eapp T3P.MovePieceMgGameoverUnchanged. Qed.
+
+Lemma RotatePieceMgGameoverUnchanged : ∀ [s s' cw]
+  (Hn : RotatePiece cw s = Some s'),
+  mg s' = mg s ∧ gameover s' = gameover s.
+Proof. intros; step_facts; eapp T3P.RotatePieceMgGameoverUnchanged. Qed.
 
 Lemma HoldPieceMgGameoverUnchanged : ∀ [bagNew] [H : PieceSet bagNew] [s s']
   (Hn : HoldPiece bagNew H s = Some s'),
   mg s' = mg s ∧ gameover s' = gameover s.
-Proof.
-  intros.
-  destruct (HoldPieceStep Hn) as (_ & E3 & _).
-  exact (T3P.HoldPieceMgGameoverUnchanged E3).
-Qed.
-
-Lemma FallStepStep : ∀ [s s' bagNew] [H : PieceSet bagNew]
-  (Hn : FallStep bagNew H s = Some s'),
-    T3.FallStep (next s 0) (s3 s) = Some (s3 s')
-  ∧ (d s' = d s ∨ d s' = DrawAfter s bagNew).
-Proof.
-  intros.
-  unfold FallStep in Hn.
-  destruct MovePiece as [t |] eqn: Hm in Hn.
-  - (* Some t: the piece moved down: the preview is untouched *)
-    enough (T3.FallStep (next s 0) (s3 s) = Some (s3 s')
-      ∧ (d s' = d s ∨ d s' = DrawAfter s bagNew)) by trivial.
-    assert (L1 : MovePiece (-1, 0)%Z s = Some s') by (rewrite Hm; exact Hn).
-    assert (LS := MovePieceStep L1); destruct LS as [E3 Ed].
-    unfold T3.FallStep; rewrite E3.
-    split; [ reflexivity | left; exact Ed ].
-  - (* None: the piece fixed: a new piece is popped from the preview *)
-    enough (T3.FallStep (next s 0) (s3 s) = Some (s3 s')
-      ∧ (d s' = d s ∨ d s' = DrawAfter s bagNew)) by trivial.
-    assert (L1 : T3.MovePiece (-1, 0)%Z (s3 s) = None) by (apply MovePieceFail; exact Hm).
-    assert (LS := FixPieceStep Hn); destruct LS as [E3 Ed].
-    unfold T3.FallStep; rewrite L1, E3.
-    split; [ reflexivity | right; exact Ed ].
-Qed.
-
-Lemma StutterStep : ∀ [s s']
-  (Hn : Next Stutter s = Some s'),
-  s = s'.
-Proof. intros; now unfold Next in Hn; inject Hn. Qed.
+Proof. intros; step_facts; eapp T3P.HoldPieceMgGameoverUnchanged. Qed.
 
 
 (* ========================================================================= *)
 (* State invariants                                                          *)
 (* ========================================================================= *)
 
+(**** The Draw part ****)
+
+(* The Draw is unchanged (Move, Rotate, Stutter), popped (Fix) or popped only
+ * when the hold slot is empty (Hold). *)
+Lemma NextCorrectD : ∀ [e s s']
+  (HD : CorrectD (d s))
+  (Hn : Next e s = Some s'),
+  CorrectD (d s').
+Proof.
+  intros; decompose [or ex] (NextCases Hn); subst; step_facts;
+    try match goal with Ed : d _ = _ |- _ => rewrite Ed end;
+    first [ assumption | eapp DrawAfterCorrect | eapp HoldDrawCorrect ].
+Qed.
+
 Lemma InitCorrect : ∀ (bags : ℕ → ℕ → Piece) (HB : ∀ i, PieceSet (bags i)),
   Correct (Init bags HB).
 Proof.
   intros.
-  assert (Es3 : s3 (Init bags HB) = T3.Init (InitPiece bags HB)). {
-    unfold Init, InitPiece.
-    destruct (InitPieceAndDraw bags HB) as [p0 dd]; reflexivity.
-  }
-  assert (Ed : d (Init bags HB) = snd (InitPieceAndDraw bags HB)). {
-    unfold Init.
-    destruct (InitPieceAndDraw bags HB) as [p0 dd]; reflexivity.
-  }
-  assert (L1 : T3.Correct (s3 (Init bags HB)))
-    by now rewrite Es3; apply T3P.InitCorrect.
-  assert (L2 : CorrectD (d (Init bags HB)))
-    by now rewrite Ed; apply InitDrawCorrect.
-  unfold Correct; split; auto using L1, L2.
-  Qed.
+  assert (HD : CorrectD (snd (InitPieceAndDraw bags HB))) by apply InitDrawCorrect.
+  assert (HC3 : ∀ p, T3.Correct (T3.Init p)) by apply T3P.InitCorrect.
+  unfold Init; destruct InitPieceAndDraw as [p0 d0]; cbn [snd] in HD.
+  unfold Correct; cbn [s3 d]; split_top; auto.
+Qed.
+
+(**** CorrectWithoutGameover: the T3 part transfers, then the Draw part ****)
+
+Lemma LiftCorrectWithoutGameover : ∀ [e s s']
+  (Hc : CorrectWithoutGameover s)
+  (Hn : Next e s = Some s')
+  (HC3' : T3.CorrectWithoutGameover (s3 s')),
+  CorrectWithoutGameover s'.
+Proof.
+  intros.
+  assert (HD : CorrectD (d s)) by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (HD' : CorrectD (d s')) by eapp NextCorrectD.
+  unfold CorrectWithoutGameover; split_top; assumption.
+Qed.
 
 Lemma MovePieceCorrectWithoutGameover : ∀ [dyx s s']
   (Hc : CorrectWithoutGameover s)
@@ -411,14 +332,13 @@ Lemma MovePieceCorrectWithoutGameover : ∀ [dyx s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC3 : T3.CorrectWithoutGameover (s3 s)) by now destruct Hc.
-  assert (HCD : CorrectD (d s)) by now destruct Hc.
-  set (LS := MovePieceStep Hm).
-  assert (E3 : T3.MovePiece dyx (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-  assert (Ed : d s' = d s) by now destruct LS; tauto.
-  unfold CorrectWithoutGameover; split.
-  - apply (@T3P.MovePieceCorrectWithoutGameover dyx (s3 s) (s3 s') HC3 E3).
-  - rewrite Ed; exact HCD.
+  assert (HC3 : T3.CorrectWithoutGameover (s3 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E3 : T3.MovePiece dyx (s3 s) = Some (s3 s'))
+    by (apply MovePieceStep in Hm; tauto).
+  assert (HC3' : T3.CorrectWithoutGameover (s3 s'))
+    by eapp T3P.MovePieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Move dyx)).
 Qed.
 
 Lemma RotatePieceCorrectWithoutGameover : ∀ [cw s s']
@@ -427,14 +347,13 @@ Lemma RotatePieceCorrectWithoutGameover : ∀ [cw s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC3 : T3.CorrectWithoutGameover (s3 s)) by now destruct Hc.
-  assert (HCD : CorrectD (d s)) by now destruct Hc.
-  set (LS := RotatePieceStep Hm).
-  assert (E3 : T3.RotatePiece cw (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-  assert (Ed : d s' = d s) by now destruct LS; tauto.
-  unfold CorrectWithoutGameover; split.
-  - apply (@T3P.RotatePieceCorrectWithoutGameover cw (s3 s) (s3 s') HC3 E3).
-  - rewrite Ed; exact HCD.
+  assert (HC3 : T3.CorrectWithoutGameover (s3 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E3 : T3.RotatePiece cw (s3 s) = Some (s3 s'))
+    by (apply RotatePieceStep in Hm; tauto).
+  assert (HC3' : T3.CorrectWithoutGameover (s3 s'))
+    by eapp T3P.RotatePieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Rotate cw)).
 Qed.
 
 Lemma FixPieceCorrectWithoutGameover : ∀ [bagNew] [H : PieceSet bagNew] [s s']
@@ -443,17 +362,16 @@ Lemma FixPieceCorrectWithoutGameover : ∀ [bagNew] [H : PieceSet bagNew] [s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC3 : T3.CorrectWithoutGameover (s3 s)) by now destruct Hc.
-  set (LS := FixPieceStep Hm).
-  assert (E3 : T3.FixPiece (next s 0) (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-  assert (Ed : d s' = DrawAfter s bagNew) by now destruct LS; tauto.
-  unfold CorrectWithoutGameover; split.
-  - apply (@T3P.FixPieceCorrectWithoutGameover (next s 0) (s3 s) (s3 s') HC3 E3).
-  - rewrite Ed; apply DrawAfterCorrectWithoutGameover; assumption.
+  assert (HC3 : T3.CorrectWithoutGameover (s3 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E3 : T3.FixPiece (next s 0) (s3 s) = Some (s3 s'))
+    by (apply FixPieceStep in Hm; tauto).
+  assert (HC3' : T3.CorrectWithoutGameover (s3 s'))
+    by eapp T3P.FixPieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Fix bagNew H)).
 Qed.
 
-(* Hold's own weak-gameover need is unchanged in shape from T3's; it just gets
-threaded one level deeper through the s3 projection. *)
+(* Hold's weak gameover fact is T3's, through the s3 projection. *)
 Lemma HoldPieceCorrectWithoutGameover : ∀ [bagNew] [H : PieceSet bagNew] [s s']
   (Hc : CorrectWithoutGameover s)
   (Hg : ForbiddenGrid ∩ T1.mg (T2.s1 (T3.s2 (s3 s))) ⊈ ∅ = true
@@ -462,14 +380,16 @@ Lemma HoldPieceCorrectWithoutGameover : ∀ [bagNew] [H : PieceSet bagNew] [s s'
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC3 : T3.CorrectWithoutGameover (s3 s)) by now destruct Hc.
-  set (LS := HoldPieceStep Hm).
-  assert (E3 : T3.HoldPiece (next s 0) (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-  assert (Ed : d s' = HoldDraw s bagNew) by now destruct LS; tauto.
-  unfold CorrectWithoutGameover; split.
-  - apply (@T3P.HoldPieceCorrectWithoutGameover (next s 0) (s3 s) (s3 s') HC3 Hg E3).
-  - rewrite Ed; apply HoldDrawCorrectWithoutGameover; assumption.
+  assert (HC3 : T3.CorrectWithoutGameover (s3 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E3 : T3.HoldPiece (next s 0) (s3 s) = Some (s3 s'))
+    by (apply HoldPieceStep in Hm; tauto).
+  assert (HC3' : T3.CorrectWithoutGameover (s3 s'))
+    by eapp T3P.HoldPieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Hold bagNew H)).
 Qed.
+
+(**** Correct: the T3 part is a T3 step, the Draw part is NextCorrectD ****)
 
 Lemma NextCorrect : ∀ [e s s']
   (Hc : Correct s)
@@ -477,74 +397,18 @@ Lemma NextCorrect : ∀ [e s s']
   Correct s'.
 Proof.
   intros.
-  assert (HC3 : T3.Correct (s3 s)) by now destruct Hc.
-  assert (HCD : CorrectD (d s)) by now destruct Hc.
-  (* Move and Rotate are forwarded and leave the Draw untouched. *)
-  assert (L1 : ∀ [dyx] (Hm : MovePiece dyx s = Some s'), Correct s'). {
-    intros.
-    set (LS := MovePieceStep Hm).
-    assert (E3 : T3.MovePiece dyx (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-    assert (Ed : d s' = d s) by now destruct LS; tauto.
-    unfold Correct; split.
-    - apply (@T3P.NextCorrect (T3.Event2 (T2.Move dyx)) (s3 s) (s3 s') HC3 E3).
-    - rewrite Ed; exact HCD.
-  }
-  assert (L2 : ∀ [cw] (Hm : RotatePiece cw s = Some s'), Correct s'). {
-    intros.
-    set (LS := RotatePieceStep Hm).
-    assert (E3 : T3.RotatePiece cw (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-    assert (Ed : d s' = d s) by now destruct LS; tauto.
-    unfold Correct; split.
-    - apply (@T3P.NextCorrect (T3.Event2 (T2.Rotate cw)) (s3 s) (s3 s') HC3 E3).
-    - rewrite Ed; exact HCD.
-  }
-  (* Fix pops the preview; the popped piece is the one T3 receives. *)
-  assert (L3 : ∀ [bagNew] [H : PieceSet bagNew]
-               (Hm : FixPiece bagNew H s = Some s'), Correct s'). {
-    intros.
-    set (LS := FixPieceStep Hm).
-    assert (E3 : T3.FixPiece (next s 0) (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-    assert (Ed : d s' = DrawAfter s bagNew) by now destruct LS; tauto.
-    unfold Correct; split.
-    - apply (@T3P.NextCorrect (T3.Event2 (T2.Fix (next s 0))) (s3 s) (s3 s') HC3 E3).
-    - rewrite Ed; apply DrawAfterCorrect; assumption.
-  }
-  assert (L4 : ∀ [bagNew] [H : PieceSet bagNew]
-               (Hm : FallStep bagNew H s = Some s'), Correct s'). {
-    intros.
-    unfold FallStep in Hm.
-    destruct MovePiece as [t |] eqn: Hd in Hm.
-    - (* Some t *)
-      Check (Hd : MovePiece ((-1)%Z, 0%Z) s = Some t).
-      assert (L4_1 : MovePiece (-1, 0)%Z s = Some s') by (rewrite Hd; exact Hm).
-      now apply L1 in L4_1.
-    - (* None *)
-      Check (Hm : FixPiece bagNew H s = Some s').
-      now apply L3 in Hm.
-  }
-  (* Hold consumes the preview only when the hold slot is empty. *)
-  assert (L5 : ∀ [bagNew] [H : PieceSet bagNew]
-               (Hm : HoldPiece bagNew H s = Some s'), Correct s'). {
-    intros.
-    set (LS := HoldPieceStep Hm).
-    assert (E3 : T3.HoldPiece (next s 0) (s3 s) = Some (s3 s')) by now destruct LS; tauto.
-    assert (Ed : d s' = HoldDraw s bagNew) by now destruct LS; tauto.
-    unfold Correct; split.
-    - apply (@T3P.NextCorrect (T3.Hold (next s 0)) (s3 s) (s3 s') HC3 E3).
-    - rewrite Ed; apply HoldDrawCorrect; assumption.
-  }
-  assert (L6 : ∀ (Hm : Next Stutter s = Some s'), Correct s'). {
-    intros; keep_only Hm Hc.
-    rewrite <- (StutterStep Hm); exact Hc.
-  }
-  destruct e eqn: He; (eapp L1 || eapp L2 || eapp (L3 bagNew H) ||
-    eapp L4 || eapp (L5 bagNew H) || eapp L6).
+  assert (HC3 : T3.Correct (s3 s)) by (unfold Correct in Hc; tauto).
+  assert (HD : CorrectD (d s)) by (unfold Correct in Hc; tauto).
+  assert (E3 : T3.Next (fₑ s e) (s3 s) = Some (s3 s')) by eapp NextT3.
+  assert (HC3' : T3.Correct (s3 s')) by eapp T3P.NextCorrect.
+  assert (HD' : CorrectD (d s')) by eapp NextCorrectD.
+  unfold Correct; split_top; assumption.
 Qed.
 
 Theorem SpecCorrect : ∀ e s s',
     (∀ bags HB, Correct (Init bags HB))
   ∧ (Correct s → Next e s = Some s' → Correct s').
-Proof. split; eauto using InitCorrect, NextCorrect. Qed.
+Proof. split_top; eauto using InitCorrect, NextCorrect. Qed.
 
 
 (* ========================================================================= *)
@@ -556,8 +420,8 @@ Theorem CorrectStepHold : ∀ [s] s'
   CorrectStep s s'.
 Proof.
   intros.
-  assert (L1 : T3.Correct (s3 s)) by now destruct Hc; tauto.
-  split; apply (T3P.CorrectStepHold _ L1).
+  assert (HC3 : T3.Correct (s3 s)) by (unfold Correct in Hc; tauto).
+  exact (T3P.CorrectStepHold _ HC3).
 Qed.
 
 
@@ -565,14 +429,11 @@ Qed.
 (* Refinement                                                                *)
 (* ========================================================================= *)
 
-(* Proved before the step invariants, which reuse NextRefine to transport T3's
-   step invariants across every T4 event. *)
-
 Lemma InitRefine : ∀ bags HSet,
   fₛ (T4.Init bags HSet) = T3.Init (T4.InitPiece bags HSet).
 Proof.
   intros; unfold fₛ, Init, InitPiece.
-  destruct (InitPieceAndDraw bags HSet); reflexivity.
+  destruct InitPieceAndDraw; reflexivity.
 Qed.
 
 (*
@@ -586,16 +447,10 @@ fₛ ↑     ⇑(fₑ s4)  ↑ fₛ
 Lemma NextRefine : ∀ e4 s4 s4'
   (H1 : T4.Next e4 s4 = Some s4'),
   T3.Next (fₑ s4 e4) (fₛ s4) = Some (s3 s4').
-Proof.
-  intros.
-  destruct e4; now (apply MovePieceStep in H1 || apply RotatePieceStep in H1 ||
-    eapply FixPieceStep in H1 || apply FallStepStep in H1 ||
-    apply HoldPieceStep in H1 ||
-    (apply StutterStep in H1; unfold fₛ; now rewrite H1)); simpl.
-Qed.
+Proof. intros; exact (NextT3 H1). Qed.
 
 Theorem T4RefinesT3Hold : T4RefinesT3.
-Proof. split; auto using InitRefine, NextRefine. Qed.
+Proof. unfold T4RefinesT3; split_top; auto using InitRefine, NextRefine. Qed.
 
 
 (* ========================================================================= *)
@@ -605,19 +460,9 @@ Proof. split; auto using InitRefine, NextRefine. Qed.
 Lemma MovePieceUnchangedGameover : ∀ [s s' dyx]
   (H1 : MovePiece dyx s = Some s'),
   gameover s' = gameover s.
-Proof.
-  intros.
-  assert (L1 : T3.MovePiece dyx (s3 s) = Some (s3 s'))
-    by (apply MovePieceStep in H1; tauto).
-  unfold gameover; exact (T3P.MovePieceGameover L1).
-Qed.
+Proof. intros; apply MovePieceMgGameoverUnchanged in H1; tauto. Qed.
 
 Lemma RotatePieceUnchangedGameover : ∀ [s s' cw]
   (H1 : RotatePiece cw s = Some s'),
   gameover s' = gameover s.
-Proof.
-  intros.
-  assert (L1 : T3.RotatePiece cw (s3 s) = Some (s3 s'))
-    by (apply RotatePieceStep in H1; tauto).
-  unfold gameover; exact (T3P.RotatePieceGameover L1).
-Qed.
+Proof. intros; apply RotatePieceMgGameoverUnchanged in H1; tauto. Qed.

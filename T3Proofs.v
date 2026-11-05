@@ -1,14 +1,24 @@
 From Tetris Require Import T3 Notations.
-From Tetris Require T1 T2 T1Proofs T2Proofs.
-From Stdlib Require Import Lia.
+From Tetris Require T1 T2 T2Proofs.
 Import T1(Piece, ForbiddenGrid).
 Import (notations) T1.
 Import T2(s1).
 
 Open Scope nat_scope.
 
-Module T1P := T1Proofs.
 Module T2P := T2Proofs.
+
+(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
+ * hypotheses, lemma premises or event constructors. Same rules as T2Proofs.v:
+ * - a fact is taken out of a conjunction by stating it, e.g.
+ *   [assert (F : fact) by (apply L in H; tauto)],
+ * - a conjunction is proven by first stating all its conjuncts, then closing
+ *   every branch with the same tactic (e.g. [split_top; assumption]),
+ * - a lemma with several premises is applied with [eapp] or [apply ... in],
+ *   not by passing hypotheses positionally,
+ * - a disjunction is taken apart with [decompose], and every case is closed
+ *   with the same tactic,
+ * - a case analysis on an event closes every case with the same tactic. *)
 
 
 (* ========================================================================= *)
@@ -23,40 +33,60 @@ Definition HeldOrNew (pNew : Piece) (s : State) : Piece :=
   | None => pNew
   end.
 
-(***************************************************************************
-Step lemmas: each event's effect on the two components of the state, i.e. on
-the forwarded T2 part and on the T3 part (hold, swapped).
- ***************************************************************************)
+(* The T2 part after holding: only the current piece changes. *)
+Definition HoldS2 (pNew : Piece) (s : State) : T2.State :=
+  T2.UnchangedT2Part (s2 s) (T1.NewPieceState (HeldOrNew pNew s) (s1 (s2 s))).
+
+
+(* ========================================================================= *)
+(* Events: what they change                                                  *)
+(* ========================================================================= *)
+
+(* Move and Rotate update the T2 part only, through UnchangedT3Part. *)
+Lemma UnchangedT3PartStep : ∀ [o s s']
+  (Hn : option_map (UnchangedT3Part s) o = Some s'),
+    o = Some (s2 s')
+  ∧ hold s' = hold s
+  ∧ swapped s' = swapped s.
+Proof.
+  intros [t |] s s' Hn; [ inject Hn; subst; now split_top | discriminate Hn ].
+Qed.
 
 Lemma MovePieceStep : ∀ [s s' dyx]
   (Hn : MovePiece dyx s = Some s'),
     T2.MovePiece dyx (s2 s) = Some (s2 s')
   ∧ hold s' = hold s
   ∧ swapped s' = swapped s.
-Proof.
-  intros s s' dyx Hn.
-  unfold MovePiece, option_map in Hn.
-  destruct (T2.MovePiece dyx (s2 s)) as [t |] eqn: Hd; try rewrite Hd in Hn.
-  - (* only the T2 part changes; UnchangedT3Part copies hold and swapped *)
-    assert (L1 : s' = UnchangedT3Part s t) by (inject Hn; now symmetry).
-    rewrite L1; unfold UnchangedT3Part; simpl.
-    now repeat split.
-  - discriminate Hn.
-Qed.
+Proof. intros; exact (UnchangedT3PartStep Hn). Qed.
 
 Lemma RotatePieceStep : ∀ [s s' cw]
   (Hn : RotatePiece cw s = Some s'),
     T2.RotatePiece cw (s2 s) = Some (s2 s')
   ∧ hold s' = hold s
   ∧ swapped s' = swapped s.
+Proof. intros; exact (UnchangedT3PartStep Hn). Qed.
+
+Lemma FixPieceStep : ∀ [s s' pNew]
+  (Hn : FixPiece pNew s = Some s'),
+    T2.FixPiece pNew (s2 s) = Some (s2 s')
+  ∧ hold s' = hold s
+  ∧ swapped s' = false.
 Proof.
-  intros s s' cw Hn.
-  unfold RotatePiece, option_map in Hn.
-  destruct (T2.RotatePiece cw (s2 s)) as [t |] eqn: Hd; try rewrite Hd in Hn.
-  - assert (L1 : s' = UnchangedT3Part s t) by (inject Hn; now symmetry).
-    rewrite L1; unfold UnchangedT3Part; simpl.
-    now repeat split.
-  - discriminate Hn.
+  intros s s' pNew Hn; unfold FixPiece in Hn.
+  destruct T2.FixPiece; [ inject Hn; subst; now split_top | discriminate Hn ].
+Qed.
+
+Lemma HoldPieceStep : ∀ [s s' pNew]
+  (Hn : HoldPiece pNew s = Some s'),
+    gameover s = false
+  ∧ swapped s = false
+  ∧ s2 s' = HoldS2 pNew s
+  ∧ hold s' = Some (p s)
+  ∧ swapped s' = true.
+Proof.
+  intros s s' pNew Hn; unfold HoldPiece in Hn.
+  destruct (gameover s), (swapped s); cbn [negb andb] in Hn; try discriminate Hn.
+  inject Hn; subst; now split_top.
 Qed.
 
 (* A successful MovePiece proves T2's own guard held. *)
@@ -65,8 +95,9 @@ Lemma MovePieceNotGameover : ∀ [s s' dyx]
   gameover s = false.
 Proof.
   intros.
-  destruct (MovePieceStep H1) as [H2 _].
-  exact (T2P.MovePieceNotGameover H2).
+  assert (E2 : T2.MovePiece dyx (s2 s) = Some (s2 s'))
+    by (apply MovePieceStep in H1; tauto).
+  eapp T2P.MovePieceNotGameover.
 Qed.
 
 (* A successful RotatePiece proves T2's own guard held. *)
@@ -75,165 +106,119 @@ Lemma RotatePieceNotGameover : ∀ [s s' cw]
   gameover s = false.
 Proof.
   intros.
-  destruct (RotatePieceStep H1) as [H2 _].
-  exact (T2P.RotatePieceNotGameover H2).
+  assert (E2 : T2.RotatePiece cw (s2 s) = Some (s2 s'))
+    by (apply RotatePieceStep in H1; tauto).
+  eapp T2P.RotatePieceNotGameover.
 Qed.
 
-Lemma FixPieceStep : ∀ [s s' pNew]
-  (Hn : FixPiece pNew s = Some s'),
-    T2.FixPiece pNew (s2 s) = Some (s2 s')
-  ∧ hold s' = hold s
-  ∧ swapped s' = false.
-Proof.
-  intros s s' pNew Hn.
-  unfold FixPiece, option_map in Hn.
-  destruct (T2.FixPiece pNew (s2 s)) as [t |] eqn: Hd; try rewrite Hd in Hn.
-  - assert (L1 : s' = {| s2 := t; swapped := false; hold := hold s |})
-      by (inject Hn; now symmetry).
-    rewrite L1; simpl.
-    now repeat split.
-  - discriminate Hn.
-Qed.
+(**** Move, Rotate and Hold leave mg and gameover unchanged ****)
 
-Lemma MovePieceFail : ∀ [s dyx]
-  (Hn : MovePiece dyx s = None),
-  T2.MovePiece dyx (s2 s) = None.
-Proof.
-  intros s dyx Hn.
-  unfold MovePiece, option_map in Hn.
-  destruct (T2.MovePiece dyx (s2 s)) eqn: Hd; now try discriminate Hn.
-Qed.
-
-Lemma FallStepStep : ∀ [s s' pNew]
-  (Hn : FallStep pNew s = Some s'),
-    T2.FallStep pNew (s2 s) = Some (s2 s')
-  ∧ hold s' = hold s.
-Proof.
-  intros s s' pNew Hn.
-  unfold FallStep in Hn.
-  destruct MovePiece as [t |] eqn: Hd in Hn.
-  - (* the piece could move down: T2's FallStep takes the same branch *)
-    assert (L1 : MovePiece (-1, 0)%Z s = Some s') by (rewrite Hd; exact Hn).
-    set (LS := MovePieceStep L1).
-    assert (E2 : T2.MovePiece ((-1)%Z, 0%Z) (s2 s) = Some (s2 s'))
-      by now destruct LS; tauto.
-    assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-    unfold T2.FallStep; rewrite E2.
-    split; [ reflexivity | exact Eh ].
-  - (* the piece could not move down: both fix *)
-    assert (L1 : T2.MovePiece (-1, 0)%Z (s2 s) = None) by (apply MovePieceFail; exact Hd).
-    set (LS := FixPieceStep Hn).
-    assert (E2 : T2.FixPiece pNew (s2 s) = Some (s2 s'))
-      by now destruct LS; tauto.
-    assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-    unfold T2.FallStep; rewrite L1, E2.
-    split; [ reflexivity | exact Eh ].
-Qed.
-
-Lemma HoldPieceStep : ∀ [s s' pNew]
-  (Hn : HoldPiece pNew s = Some s'),
-    gameover s = false
-  ∧ swapped s = false
-  ∧ s2 s' = T2.UnchangedT2Part (s2 s) (T1.NewPieceState (HeldOrNew pNew s) (s1 (s2 s)))
-  ∧ hold s' = Some (p s)
-  ∧ swapped s' = true.
-Proof.
-  intros s s' pNew Hn.
-  unfold HoldPiece in Hn.
-  destruct (! gameover s && ! swapped s) eqn: Hg; [ | discriminate Hn ].
-  assert (L1 : gameover s = false ∧ swapped s = false). {
-    keep_only Hg.
-    apply andb_true_iff in Hg as [H1 H2].
-    apply negb_true_iff in H1; apply negb_true_iff in H2.
-    split; assumption.
-  }
-  destruct L1 as [Hgo Hsw].
-  cbv zeta in Hn.
-  inject Hn.
-  rewrite <- Hn; simpl.
-  repeat split; (exact Hgo || exact Hsw).
-Qed.
-
-Lemma StutterStep : ∀ [s s']
-  (Hn : Next (Event2 T2.Stutter) s = Some s'),
-  s' = s.
-Proof.
-  intros s s' Hn.
-  now inject Hn.
-Qed.
-
-(***************************************************************************
-Gameover propagation. Move and Rotate leave `gameover` untouched (their T1
-counterparts do), and so does Hold, since T1.NewPieceState copies it.
- ***************************************************************************)
-
-Lemma MovePieceGameover : ∀ [s s' dyx]
+Lemma MovePieceMgGameoverUnchanged : ∀ [s s' dyx]
   (Hn : MovePiece dyx s = Some s'),
-  gameover s' = gameover s.
-Proof.
-  intros s s' dyx Hn.
-  assert (L1 : T2.MovePiece dyx (s2 s) = Some (s2 s'))
-    by (apply MovePieceStep in Hn as [H1 _]; exact H1).
-  assert (L2 : T1.MovePiece dyx (s1 (s2 s)) = Some (s1 (s2 s'))). {
-    keep_only L1.
-    apply T2P.MovePieceStep in L1 as [H1 _]; now symmetry.
-  }
-  keep_only L2.
-  assert (L3 : T1.gameover (s1 (s2 s')) = T1.gameover (s1 (s2 s)))
-    by now apply T1P.MovePieceUnchanged in L2; tauto.
-  exact L3.
-Qed.
-
-Lemma RotatePieceGameover : ∀ [s s' cw]
-  (Hn : RotatePiece cw s = Some s'),
-  gameover s' = gameover s.
-Proof.
-  intros s s' cw Hn.
-  assert (L1 : T2.RotatePiece cw (s2 s) = Some (s2 s'))
-    by (apply RotatePieceStep in Hn as [H1 _]; exact H1).
-  assert (L2 : T1.RotatePiece cw (s1 (s2 s)) = Some (s1 (s2 s'))). {
-    keep_only L1.
-    apply T2P.RotatePieceStep in L1 as [H1 _]; now symmetry.
-  }
-  keep_only L2.
-  assert (L3 : T1.gameover (s1 (s2 s')) = T1.gameover (s1 (s2 s)))
-    by now apply T1P.RotatePieceOK in L2; tauto.
-  exact L3.
-Qed.
-
-(* mg-unchanged counterparts to MovePieceGameover/RotatePieceGameover above. *)
-Lemma MovePieceMgUnchanged : ∀ [s s' dyx]
-  (Hn : MovePiece dyx s = Some s'),
-  mg s' = mg s.
+  mg s' = mg s ∧ gameover s' = gameover s.
 Proof.
   intros.
-  destruct (MovePieceStep Hn) as [H1 _].
-  destruct (T2P.MovePieceMgGameoverUnchanged H1) as [Emg _].
-  exact Emg.
+  assert (E2 : T2.MovePiece dyx (s2 s) = Some (s2 s'))
+    by (apply MovePieceStep in Hn; tauto).
+  exact (T2P.MovePieceMgGameoverUnchanged E2).
 Qed.
 
-Lemma RotatePieceMgUnchanged : ∀ [s s' cw]
+Lemma RotatePieceMgGameoverUnchanged : ∀ [s s' cw]
   (Hn : RotatePiece cw s = Some s'),
-  mg s' = mg s.
+  mg s' = mg s ∧ gameover s' = gameover s.
 Proof.
   intros.
-  destruct (RotatePieceStep Hn) as [H1 _].
-  destruct (T2P.RotatePieceMgGameoverUnchanged H1) as [Emg _].
-  exact Emg.
+  assert (E2 : T2.RotatePiece cw (s2 s) = Some (s2 s'))
+    by (apply RotatePieceStep in Hn; tauto).
+  exact (T2P.RotatePieceMgGameoverUnchanged E2).
 Qed.
 
-(* Hold: T1.NewPieceState leaves mg/gameover unchanged by construction
-(reflexivity), and HoldPieceStep already exposes exactly the s2 s' =
-UnchangedT2Part ... (NewPieceState ...) equation needed to carry that up. *)
+(* T1.NewPieceState copies mg and gameover. *)
 Lemma HoldPieceMgGameoverUnchanged : ∀ [pNew s s']
   (Hn : HoldPiece pNew s = Some s'),
   mg s' = mg s ∧ gameover s' = gameover s.
 Proof.
   intros.
-  destruct (HoldPieceStep Hn) as (_ & _ & E2 & _ & _).
-  assert (Emg : T2.mg (s2 s') = T2.mg (s2 s)) by (rewrite E2; reflexivity).
-  assert (Ego : T2.gameover (s2 s') = T2.gameover (s2 s)) by (rewrite E2; reflexivity).
-  unfold mg, gameover; split; assumption.
+  assert (E2 : s2 s' = HoldS2 pNew s) by (apply HoldPieceStep in Hn; tauto).
+  unfold mg, gameover; rewrite E2; split_top; reflexivity.
+Qed.
+
+Lemma MovePieceGameover : ∀ [s s' dyx]
+  (Hn : MovePiece dyx s = Some s'),
+  gameover s' = gameover s.
+Proof. intros; apply MovePieceMgGameoverUnchanged in Hn; tauto. Qed.
+
+Lemma RotatePieceGameover : ∀ [s s' cw]
+  (Hn : RotatePiece cw s = Some s'),
+  gameover s' = gameover s.
+Proof. intros; apply RotatePieceMgGameoverUnchanged in Hn; tauto. Qed.
+
+Lemma MovePieceMgUnchanged : ∀ [s s' dyx]
+  (Hn : MovePiece dyx s = Some s'),
+  mg s' = mg s.
+Proof. intros; apply MovePieceMgGameoverUnchanged in Hn; tauto. Qed.
+
+Lemma RotatePieceMgUnchanged : ∀ [s s' cw]
+  (Hn : RotatePiece cw s = Some s'),
+  mg s' = mg s.
+Proof. intros; apply RotatePieceMgGameoverUnchanged in Hn; tauto. Qed.
+
+(* Replaces every Move, Rotate, Fix or Hold step hypothesis by the facts the
+ * lemmas above provide, one hypothesis per fact. *)
+Ltac step_facts :=
+  repeat match goal with
+  | Hm : MovePiece _ _ = Some _ |- _ =>
+      pose proof (MovePieceMgGameoverUnchanged Hm); apply MovePieceStep in Hm
+  | Hm : RotatePiece _ _ = Some _ |- _ =>
+      pose proof (RotatePieceMgGameoverUnchanged Hm); apply RotatePieceStep in Hm
+  | Hm : FixPiece _ _ = Some _ |- _ => apply FixPieceStep in Hm
+  | Hm : HoldPiece _ _ = Some _ |- _ =>
+      pose proof (HoldPieceMgGameoverUnchanged Hm); apply HoldPieceStep in Hm
+  | H : _ ∧ _ |- _ => destruct H
+  end.
+
+(* A fall step is a move down or, if that fails, a fix. *)
+Lemma FallStepCases : ∀ [s s' pNew]
+  (Hn : FallStep pNew s = Some s'),
+    MovePiece (-1, 0)%Z s = Some s'
+  ∨ (MovePiece (-1, 0)%Z s = None ∧ FixPiece pNew s = Some s').
+Proof.
+  intros; unfold FallStep in Hn.
+  destruct MovePiece eqn: Hm; [ inject Hn; subst | ]; tauto.
+Qed.
+
+(* T2's fall step takes the same branch: T3's move down is T2's one, mapped. *)
+Lemma FallStepT2 : ∀ [s s' pNew]
+  (Hn : FallStep pNew s = Some s'),
+  T2.FallStep pNew (s2 s) = Some (s2 s').
+Proof.
+  intros; unfold FallStep, MovePiece, T2.FallStep in *.
+  destruct T2.MovePiece; cbn [option_map] in Hn;
+    [ inject Hn; subst; reflexivity | apply FixPieceStep in Hn; tauto ].
+Qed.
+
+(* The T2 part of a T2-event step is the T2 step itself. *)
+Lemma NextT2EventT2 : ∀ [e2 s s']
+  (Hn : NextT2Event e2 s = Some s'),
+  T2.Next e2 (s2 s) = Some (s2 s').
+Proof.
+  intros; destruct e2; cbn [NextT2Event T2.Next] in *;
+    first [ eapp FallStepT2 | inject Hn; subst; reflexivity | step_facts; assumption ].
+Qed.
+
+(* Every successful step is a move, a rotation, a fix, a hold or a stutter. *)
+Lemma NextCases : ∀ [e s s']
+  (Hn : Next e s = Some s'),
+    (∃ dyx, MovePiece dyx s = Some s')
+  ∨ (∃ cw, RotatePiece cw s = Some s')
+  ∨ (∃ pNew, FixPiece pNew s = Some s')
+  ∨ (∃ pNew, HoldPiece pNew s = Some s')
+  ∨ s' = s.
+Proof.
+  intros; destruct e as [[] |]; cbn [Next NextT2Event] in Hn;
+    try (decompose [or and] (FallStepCases Hn); clear Hn);
+    try (inject Hn; subst);
+    eauto 7.
 Qed.
 
 
@@ -241,244 +226,189 @@ Qed.
 (* State invariants                                                          *)
 (* ========================================================================= *)
 
+(**** The T3 part only reads hold, swapped and gameover ****)
+
+(* It carries over when they are unchanged (Move, Rotate), ... *)
+Lemma T3InvariantsUnchanged : ∀ [s s']
+  (Eh : hold s' = hold s)
+  (Esw : swapped s' = swapped s)
+  (Ego : gameover s' = gameover s)
+  (HS : SwappedImplyHoldSome s)
+  (HG : GameoverImplyNotSwapped s),
+  SwappedImplyHoldSome s' ∧ GameoverImplyNotSwapped s'.
+Proof.
+  intros; unfold SwappedImplyHoldSome, GameoverImplyNotSwapped in *.
+  rewrite Eh, Esw, Ego; split_top; assumption.
+Qed.
+
+(* ... holds vacuously when nothing is swapped (Init, and Fix, which re-enables
+ * holding whether or not it triggered a gameover), ... *)
+Lemma T3InvariantsNotSwapped : ∀ [s]
+  (Esw : swapped s = false),
+  SwappedImplyHoldSome s ∧ GameoverImplyNotSwapped s.
+Proof.
+  intros; unfold SwappedImplyHoldSome, GameoverImplyNotSwapped.
+  rewrite Esw; split_top; easy.
+Qed.
+
+(* ... and holds after Hold, which fills the slot (req-hold), requires
+ * ¬gameover and does not change it. *)
+Lemma T3InvariantsHeld : ∀ [s s' q]
+  (Eh : hold s' = Some q)
+  (Ego : gameover s' = gameover s)
+  (Hgo : gameover s = false),
+  SwappedImplyHoldSome s' ∧ GameoverImplyNotSwapped s'.
+Proof.
+  intros; unfold SwappedImplyHoldSome, GameoverImplyNotSwapped.
+  rewrite Eh, Ego, Hgo; split_top; easy.
+Qed.
+
+Lemma NextT3Invariants : ∀ [e s s']
+  (HS : SwappedImplyHoldSome s)
+  (HG : GameoverImplyNotSwapped s)
+  (Hn : Next e s = Some s'),
+  SwappedImplyHoldSome s' ∧ GameoverImplyNotSwapped s'.
+Proof.
+  intros; decompose [or ex] (NextCases Hn); subst; step_facts;
+    first [ split_top; assumption
+          | eapp T3InvariantsUnchanged
+          | eapp T3InvariantsNotSwapped
+          | eapp T3InvariantsHeld ].
+Qed.
+
 Lemma InitCorrect : ∀ p : Piece, Correct (Init p).
 Proof.
-  intros p.
-  assert (L1 : T2.Correct (s2 (Init p))) by (apply T2P.InitCorrect).
-  (* Initially nothing is held, and nothing has been swapped. *)
-  assert (L2 : SwappedImplyHoldSome (Init p))
-    by (unfold SwappedImplyHoldSome; intros H1; discriminate H1).
-  assert (L3 : GameoverImplyNotSwapped (Init p))
-    by (unfold GameoverImplyNotSwapped; intros _; reflexivity).
-  unfold Correct; split; [ exact L1 | split; assumption ].
+  intros.
+  assert (HC2 : T2.Correct (s2 (Init p))) by apply T2P.InitCorrect.
+  assert (HI : SwappedImplyHoldSome (Init p) ∧ GameoverImplyNotSwapped (Init p))
+    by (apply T3InvariantsNotSwapped; reflexivity).
+  unfold Correct; split_top; tauto.
+Qed.
+
+(**** CorrectWithoutGameover: the T2 part transfers, then the T3 part ****)
+
+Lemma LiftCorrectWithoutGameover : ∀ [e s s']
+  (Hc : CorrectWithoutGameover s)
+  (Hn : Next e s = Some s')
+  (HC2' : T2.CorrectWithoutGameover (s2 s')),
+  CorrectWithoutGameover s'.
+Proof.
+  intros.
+  assert (HS : SwappedImplyHoldSome s)
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (HG : GameoverImplyNotSwapped s)
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (HI' : SwappedImplyHoldSome s' ∧ GameoverImplyNotSwapped s')
+    by eapp NextT3Invariants.
+  unfold CorrectWithoutGameover; split_top; tauto.
 Qed.
 
 Lemma MovePieceCorrectWithoutGameover : ∀ [dyx s s']
   (Hc : CorrectWithoutGameover s)
-  (Hm : MovePiece dyx s = Some s'),
+  (Hn : MovePiece dyx s = Some s'),
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC2 : T2.CorrectWithoutGameover (s2 s)) by now destruct Hc; tauto.
-  assert (HS : SwappedImplyHoldSome s) by now destruct Hc; tauto.
-  assert (HG : GameoverImplyNotSwapped s) by now destruct Hc; tauto.
-  set (LS := MovePieceStep Hm).
-  assert (E2 : T2.MovePiece dyx (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-  assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-  assert (Esw : swapped s' = swapped s) by now destruct LS; tauto.
-  assert (L1 : T2.CorrectWithoutGameover (s2 s'))
-    by (apply (@T2P.MovePieceCorrectWithoutGameover dyx (s2 s) (s2 s') HC2 E2)).
-  assert (L2 : SwappedImplyHoldSome s')
-    by (unfold SwappedImplyHoldSome; rewrite Eh, Esw; exact HS).
-  assert (L3 : GameoverImplyNotSwapped s'). {
-    assert (Ego : gameover s' = gameover s) by (apply (MovePieceGameover Hm)).
-    unfold GameoverImplyNotSwapped; rewrite Ego, Esw; exact HG.
-  }
-  unfold CorrectWithoutGameover; split; [ exact L1 | split; assumption ].
+  assert (HC2 : T2.CorrectWithoutGameover (s2 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E2 : T2.MovePiece dyx (s2 s) = Some (s2 s'))
+    by (apply MovePieceStep in Hn; tauto).
+  assert (HC2' : T2.CorrectWithoutGameover (s2 s'))
+    by eapp T2P.MovePieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Event2 (T2.Move dyx))).
 Qed.
 
 Lemma RotatePieceCorrectWithoutGameover : ∀ [cw s s']
   (Hc : CorrectWithoutGameover s)
-  (Hm : RotatePiece cw s = Some s'),
+  (Hn : RotatePiece cw s = Some s'),
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC2 : T2.CorrectWithoutGameover (s2 s)) by now destruct Hc; tauto.
-  assert (HS : SwappedImplyHoldSome s) by now destruct Hc; tauto.
-  assert (HG : GameoverImplyNotSwapped s) by now destruct Hc; tauto.
-  set (LS := RotatePieceStep Hm).
-  assert (E2 : T2.RotatePiece cw (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-  assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-  assert (Esw : swapped s' = swapped s) by now destruct LS; tauto.
-  assert (L1 : T2.CorrectWithoutGameover (s2 s'))
-    by (apply (@T2P.RotatePieceCorrectWithoutGameover cw (s2 s) (s2 s') HC2 E2)).
-  assert (L2 : SwappedImplyHoldSome s')
-    by (unfold SwappedImplyHoldSome; rewrite Eh, Esw; exact HS).
-  assert (L3 : GameoverImplyNotSwapped s'). {
-    assert (Ego : gameover s' = gameover s) by (apply (RotatePieceGameover Hm)).
-    unfold GameoverImplyNotSwapped; rewrite Ego, Esw; exact HG.
-  }
-  unfold CorrectWithoutGameover; split; [ exact L1 | split; assumption ].
+  assert (HC2 : T2.CorrectWithoutGameover (s2 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E2 : T2.RotatePiece cw (s2 s) = Some (s2 s'))
+    by (apply RotatePieceStep in Hn; tauto).
+  assert (HC2' : T2.CorrectWithoutGameover (s2 s'))
+    by eapp T2P.RotatePieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Event2 (T2.Rotate cw))).
 Qed.
 
 Lemma FixPieceCorrectWithoutGameover : ∀ [pNew s s']
   (Hc : CorrectWithoutGameover s)
-  (Hm : FixPiece pNew s = Some s'),
+  (Hn : FixPiece pNew s = Some s'),
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC2 : T2.CorrectWithoutGameover (s2 s)) by now destruct Hc; tauto.
-  set (LS := FixPieceStep Hm).
-  assert (E2 : T2.FixPiece pNew (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-  assert (Esw : swapped s' = false) by now destruct LS; tauto.
-  assert (L1 : T2.CorrectWithoutGameover (s2 s'))
-    by (apply (@T2P.FixPieceCorrectWithoutGameover pNew (s2 s) (s2 s') HC2 E2)).
-  assert (L2 : SwappedImplyHoldSome s')
-    by (unfold SwappedImplyHoldSome; rewrite Esw; intros H1; discriminate H1).
-  assert (L3 : GameoverImplyNotSwapped s')
-    by (unfold GameoverImplyNotSwapped; intros _; exact Esw).
-  unfold CorrectWithoutGameover; split; [ exact L1 | split; assumption ].
+  assert (HC2 : T2.CorrectWithoutGameover (s2 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E2 : T2.FixPiece pNew (s2 s) = Some (s2 s'))
+    by (apply FixPieceStep in Hn; tauto).
+  assert (HC2' : T2.CorrectWithoutGameover (s2 s'))
+    by eapp T2P.FixPieceCorrectWithoutGameover.
+  eapp (LiftCorrectWithoutGameover (e := Event2 (T2.Fix pNew))).
 Qed.
 
-(* HoldPiece is the one operation whose CorrectWithoutGameover-preservation
-genuinely needs a gameover fact (via NewPieceStateCorrectWithoutGameover's
-own weak-direction dependency) but HoldPieceStep already hands us
-gameover s = false directly (part of its own guard), so the caller only ever
-needs to supply the weak Gameover fact about s, not reconstruct anything. *)
+(* Hold spawns a new current piece, so the T2 part needs the weak gameover fact
+ * of T2P.NewPieceStateCorrectWithoutGameover. *)
 Lemma HoldPieceCorrectWithoutGameover : ∀ [pNew s s']
   (Hc : CorrectWithoutGameover s)
   (Hg : ForbiddenGrid ∩ T1.mg (T2.s1 (s2 s)) ⊈ ∅ = true → T1.gameover (T2.s1 (s2 s)) = true)
-  (Hm : HoldPiece pNew s = Some s'),
+  (Hn : HoldPiece pNew s = Some s'),
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  assert (HC2 : T2.CorrectWithoutGameover (s2 s)) by now destruct Hc; tauto.
-  set (LS := HoldPieceStep Hm).
-  assert (Hgo : gameover s = false) by now destruct LS; tauto.
-  assert (E2 : s2 s' = T2.UnchangedT2Part (s2 s) (T1.NewPieceState (HeldOrNew pNew s) (s1 (s2 s))))
-    by now destruct LS; tauto.
-  assert (Eh : hold s' = Some (p s)) by now destruct LS; tauto.
-  assert (L1 : T2.CorrectWithoutGameover (s2 s'))
-    by (rewrite E2; apply T2P.NewPieceStateCorrectWithoutGameover; (exact HC2 || exact Hg)).
-  assert (L2 : SwappedImplyHoldSome s')
-    by (unfold SwappedImplyHoldSome; rewrite Eh; intros _; discriminate).
-  assert (L3 : GameoverImplyNotSwapped s'). {
-    assert (Ego : gameover s' = gameover s)
-      by (unfold gameover; rewrite E2; reflexivity).
-    unfold GameoverImplyNotSwapped; rewrite Ego, Hgo.
-    intros H1; discriminate H1.
-  }
-  unfold CorrectWithoutGameover; split; [ exact L1 | split; assumption ].
+  assert (HC2 : T2.CorrectWithoutGameover (s2 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E2 : s2 s' = HoldS2 pNew s) by (apply HoldPieceStep in Hn; tauto).
+  assert (HC2' : T2.CorrectWithoutGameover (s2 s'))
+    by (rewrite E2; apply T2P.NewPieceStateCorrectWithoutGameover; assumption).
+  eapp (LiftCorrectWithoutGameover (e := Hold pNew)).
 Qed.
+
+(**** Correct: same structure ****)
 
 Lemma NextCorrect : ∀ [e s s']
   (Hc : Correct s)
   (Hn : Next e s = Some s'),
   Correct s'.
 Proof.
-  intros e s s' Hc Hn.
-  assert (HC2 : T2.Correct (s2 s)) by now destruct Hc; tauto.
-  assert (HS : SwappedImplyHoldSome s) by now destruct Hc; tauto.
-  assert (HG : GameoverImplyNotSwapped s) by now destruct Hc; tauto.
-  (* Forwarded events: T2 preserves its own invariant; the T3 part is either
-   * copied verbatim (Move, Rotate) or reset (Fix). *)
-  assert (L1 : ∀ [dyx] (Hm : MovePiece dyx s = Some s'), Correct s'). {
-    intros dyx Hm.
-    set (LS := MovePieceStep Hm).
-    assert (E2 : T2.MovePiece dyx (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-    assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-    assert (Esw : swapped s' = swapped s) by now destruct LS; tauto.
-    assert (L1_1 : T2.Correct (s2 s'))
-      by (apply (@T2P.NextCorrect (T2.Move dyx) (s2 s) (s2 s') HC2 E2)).
-    assert (L1_2 : SwappedImplyHoldSome s')
-      by (unfold SwappedImplyHoldSome; rewrite Eh, Esw; exact HS).
-    assert (L1_3 : GameoverImplyNotSwapped s'). {
-      assert (Ego : gameover s' = gameover s) by (apply (MovePieceGameover Hm)).
-      unfold GameoverImplyNotSwapped; rewrite Ego, Esw; exact HG.
-    }
-    unfold Correct; split; [ exact L1_1 | split; assumption ].
+  intros.
+  assert (HC2 : T2.Correct (s2 s)) by (unfold Correct in Hc; tauto).
+  assert (HS : SwappedImplyHoldSome s) by (unfold Correct in Hc; tauto).
+  assert (HG : GameoverImplyNotSwapped s) by (unfold Correct in Hc; tauto).
+  (* T2 events are T2 steps on the T2 part; Hold only gives it a new current
+   * piece. *)
+  assert (HC2' : T2.Correct (s2 s')). {
+    destruct e; cbn [Next] in Hn;
+      match goal with
+      | Hm : NextT2Event _ _ = Some _ |- _ =>
+          apply NextT2EventT2 in Hm; eapp T2P.NextCorrect
+      | Hm : HoldPiece ?pNew _ = Some _ |- _ =>
+          assert (E2 : s2 s' = HoldS2 pNew s) by (apply HoldPieceStep in Hm; tauto);
+          rewrite E2; apply T2P.NewPieceStateCorrect; assumption
+      end.
   }
-  assert (L2 : ∀ [cw] (Hm : RotatePiece cw s = Some s'), Correct s'). {
-    intros cw Hm.
-    set (LS := RotatePieceStep Hm).
-    assert (E2 : T2.RotatePiece cw (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-    assert (Eh : hold s' = hold s) by now destruct LS; tauto.
-    assert (Esw : swapped s' = swapped s) by now destruct LS; tauto.
-    assert (L2_1 : T2.Correct (s2 s'))
-      by (apply (@T2P.NextCorrect (T2.Rotate cw) (s2 s) (s2 s') HC2 E2)).
-    assert (L2_2 : SwappedImplyHoldSome s')
-      by (unfold SwappedImplyHoldSome; rewrite Eh, Esw; exact HS).
-    assert (L2_3 : GameoverImplyNotSwapped s'). {
-      assert (Ego : gameover s' = gameover s) by (apply (RotatePieceGameover Hm)).
-      unfold GameoverImplyNotSwapped; rewrite Ego, Esw; exact HG.
-    }
-    unfold Correct; split; [ exact L2_1 | split; assumption ].
-  }
-  assert (L3 : ∀ [pNew] (Hm : FixPiece pNew s = Some s'), Correct s'). {
-    intros pNew Hm.
-    set (LS := FixPieceStep Hm).
-    assert (E2 : T2.FixPiece pNew (s2 s) = Some (s2 s')) by now destruct LS; tauto.
-    assert (Esw : swapped s' = false) by now destruct LS; tauto.
-    assert (L3_1 : T2.Correct (s2 s'))
-      by (apply (@T2P.NextCorrect (T2.Fix pNew) (s2 s) (s2 s') HC2 E2)).
-    (* `swapped s' = false` makes both T3 invariants vacuous, whether or not the
-     * fixation triggered a gameover. *)
-    assert (L3_2 : SwappedImplyHoldSome s')
-      by (unfold SwappedImplyHoldSome; rewrite Esw; intros H1; discriminate H1).
-    assert (L3_3 : GameoverImplyNotSwapped s')
-      by (unfold GameoverImplyNotSwapped; intros _; exact Esw).
-    unfold Correct; split; [ exact L3_1 | split; assumption ].
-  }
-  assert (L4 : ∀ [pNew] (Hm : FallStep pNew s = Some s'), Correct s'). {
-    intros pNew Hm.
-    unfold FallStep in Hm.
-    destruct MovePiece as [t |] eqn: Hd in Hm.
-    - assert (L4_1 : MovePiece (-1, 0)%Z s = Some s') by (rewrite Hd; exact Hm).
-      now apply L1 in L4_1.
-    - Check (Hm : FixPiece pNew s = Some s').
-      now apply L3 in Hm.
-  }
-  assert (L5 : ∀ (Hm : Next (Event2 T2.Stutter) s = Some s'), Correct s'). {
-    intros Hm.
-    assert (L5_1 : s' = s) by (apply (StutterStep Hm)).
-    rewrite L5_1; unfold Correct; split; [ exact HC2 | split; assumption ].
-  }
-  assert (L6 : ∀ [pNew] (Hm : HoldPiece pNew s = Some s'), Correct s'). {
-    intros pNew Hm.
-    set (LS := HoldPieceStep Hm).
-    assert (Hgo : gameover s = false) by now destruct LS; tauto.
-    assert (E2 : s2 s' = T2.UnchangedT2Part (s2 s) (T1.NewPieceState (HeldOrNew pNew s) (s1 (s2 s))))
-      by now destruct LS; tauto.
-    assert (Eh : hold s' = Some (p s)) by now destruct LS; tauto.
-    (* The T2 part only gets a new current piece, which T2 (hence T1) handles. *)
-    assert (L6_1 : T2.Correct (s2 s'))
-      by (rewrite E2; apply T2P.NewPieceStateCorrect; exact HC2).
-    (* req-hold puts the current piece in the slot, so the slot is not empty. *)
-    assert (L6_2 : SwappedImplyHoldSome s')
-      by (unfold SwappedImplyHoldSome; rewrite Eh; intros _; discriminate).
-    (* Holding requires ¬gameover and does not change it. *)
-    assert (L6_3 : GameoverImplyNotSwapped s'). {
-      assert (Ego : gameover s' = gameover s)
-        by (unfold gameover; rewrite E2; reflexivity).
-      unfold GameoverImplyNotSwapped; rewrite Ego, Hgo.
-      intros H1; discriminate H1.
-    }
-    unfold Correct; split; [ exact L6_1 | split; assumption ].
-  }
-  destruct e as [e2 |].
-  - destruct e2; eauto using L1, L2, L3, L4, L5.
-  - eapp L6.
+  assert (HI' : SwappedImplyHoldSome s' ∧ GameoverImplyNotSwapped s')
+    by eapp NextT3Invariants.
+  unfold Correct; split_top; tauto.
 Qed.
 
 Theorem SpecCorrect : ∀ e s s',
     (∀ p, Correct (Init p))
   ∧ (Correct s → Next e s = Some s' → Correct s').
-Proof. split; eauto using InitCorrect, NextCorrect. Qed.
+Proof. split_top; eauto using InitCorrect, NextCorrect. Qed.
 
 
 (* ========================================================================= *)
 (* Step invariants                                                           *)
 (* ========================================================================= *)
 
+(* hold is unchanged by every event but Hold, which fills it. *)
 Theorem StepHoldMonotone (s s' : State) :
   HoldMonotone s s'.
 Proof.
-  unfold HoldMonotone.
-  intros.
-  enough (hold s' ≠ None) by trivial.
-  destruct e; simpl in H2.
-  - Check (H2 : NextT2Event e2 s = Some s').
-    (* hold is unchanged by these events *)
-    destruct e2 in H2; unfold NextT2Event in H2;
-      (assert (L1 : hold s' = hold s) by now (
-        apply MovePieceStep in H2 || apply RotatePieceStep in H2 ||
-        apply FixPieceStep in H2 || apply FallStepStep in H2 ||
-          (inject H2; congruence)));
-      congruence.
-  - Check (H2 : HoldPiece pNew s = Some s').
-    assert (L1 : hold s' = Some (p s)) by now apply HoldPieceStep in H2.
-    rewrite L1.
-    discriminate.
+  intros e Hh Hn.
+  decompose [or ex] (NextCases Hn); subst; step_facts; congruence.
 Qed.
 
 Theorem CorrectStepHold : ∀ [s] s'
@@ -486,8 +416,8 @@ Theorem CorrectStepHold : ∀ [s] s'
   CorrectStep s s'.
 Proof.
   intros.
-  assert (L1 : T2.Correct (s2 s)) by now destruct Hc; tauto.
-  split; (apply (T2P.CorrectStepHold _ L1) || apply StepHoldMonotone).
+  assert (HC2 : T2.Correct (s2 s)) by (unfold Correct in Hc; tauto).
+  unfold CorrectStep; split_top; auto using T2P.CorrectStepHold, StepHoldMonotone.
 Qed.
 
 
@@ -498,9 +428,6 @@ Qed.
 (***************)
 (* T3RefinesT2 *)
 (***************)
-
-(* Proved before the step invariants, which reuse NextRefine to transport T2's
-   own step invariants across the forwarded events. *)
 
 Lemma InitRefine : ∀ p, fₛ (Init p) = T2.Init p.
 Proof. reflexivity. Qed.
@@ -514,117 +441,83 @@ fₛ ↑     ⇑fₑ  ↑ fₛ
 *)
 
 Lemma NextRefine : ∀ [s3 s3' e2]
-     (Hn : Next (Event2 e2) s3 = Some s3'),
-     T2.Next (fₑ e2) (fₛ s3) = Some (fₛ s3').
+  (Hn : Next (Event2 e2) s3 = Some s3'),
+  T2.Next (fₑ e2) (fₛ s3) = Some (fₛ s3').
+Proof. intros; exact (NextT2EventT2 Hn). Qed.
+
+(* Conversely, a T2 event fails at T3 only when it fails at T2: both steps are
+ * guarded by the same T2 step functions. *)
+Lemma FallStepNone : ∀ [s pNew]
+  (Hn : FallStep pNew s = None),
+  T2.FallStep pNew (s2 s) = None.
 Proof.
-  intros s s' e2 Hn.
-  unfold fₑ, fₛ, id.
-  assert (L1 : ∀ [dyx] (Hm : MovePiece dyx s = Some s'),
-               T2.Next (T2.Move dyx) (s2 s) = Some (s2 s'))
-    by (intros dyx Hm; apply MovePieceStep in Hm as [H1 _]; exact H1).
-  assert (L2 : ∀ [cw] (Hm : RotatePiece cw s = Some s'),
-               T2.Next (T2.Rotate cw) (s2 s) = Some (s2 s'))
-    by (intros cw Hm; apply RotatePieceStep in Hm as [H1 _]; exact H1).
-  assert (L3 : ∀ [pNew] (Hm : FixPiece pNew s = Some s'),
-               T2.Next (T2.Fix pNew) (s2 s) = Some (s2 s'))
-    by (intros pNew Hm; apply FixPieceStep in Hm as [H1 _]; exact H1).
-  assert (L4 : ∀ [pNew] (Hm : FallStep pNew s = Some s'),
-               T2.Next (T2.Fall pNew) (s2 s) = Some (s2 s'))
-    by (intros pNew Hm; apply FallStepStep in Hm as [H1 _]; exact H1).
-  assert (L5 : ∀ (Hm : Next (Event2 T2.Stutter) s = Some s'),
-               T2.Next T2.Stutter (s2 s) = Some (s2 s')). {
-    intros Hm.
-    assert (L5_1 : s' = s) by (apply (StutterStep Hm)).
-    rewrite L5_1; reflexivity.
-  }
-  destruct e2; eauto using L1, L2, L3, L4, L5.
+  intros; unfold FallStep, T2.FallStep in *.
+  destruct MovePiece eqn: Hm in Hn; [ discriminate Hn | ].
+  rewrite (T2P.OptionMapNone Hm); exact (T2P.OptionMapNone Hn).
+Qed.
+
+Lemma NextRefineNone : ∀ [s3 e2]
+  (Hn : NextT2Event e2 s3 = None),
+  T2.Next (fₑ e2) (fₛ s3) = None.
+Proof.
+  intros; destruct e2; unfold fₛ; cbn [NextT2Event T2.Next fₑ id] in *;
+    first [ discriminate Hn | exact (T2P.OptionMapNone Hn) | eapp FallStepNone ].
 Qed.
 
 Theorem SpecRefine : T3RefinesT2.
-Proof. split; eauto using InitRefine, NextRefine. Qed.
+Proof. unfold T3RefinesT2; split_top; eauto using InitRefine, NextRefine. Qed.
+
 
 (*****************)
 (* T3AllowsAllT2 *)
 (*****************)
 
 (*
-               es1
-   T1.Init p   →         s1'
-fₛ ↑           ⇓ map gₑ  ↑ fₛ
-   T2.Init p   →         s2'
+               es2
+   T2.Init p   →      s2'
+fₛ ↑           ⇓ id   ↑ fₛ
+   T3.Init p   →      s3'
                es2
 *)
-
-(* Lemma feRetractsGe : ∀ e1, fₑ (gₑ e1) = e1.
-Proof. destruct e1; now simpl. Qed. *)
 
 Lemma StepLifts :
   ∀ [e2 s2 s2' s3]
     (H1 : fₛ s3 = s2)
     (H2 : T2.Next e2 s2 = Some s2'),
-    ∃ s3', T3.NextT2Event e2 s3 = Some s3' ∧ fₛ s3' = s2'.
+    ∃ s3', NextT2Event e2 s3 = Some s3' ∧ fₛ s3' = s2'.
 Proof.
   intros.
-  destruct (T3.NextT2Event e2 s3) eqn: Hn.
-  - Check (Hn : NextT2Event e2 s3 = Some s).
-    assert (L1 : fₛ s = s2'). {
-      assert (L1_1 : T2.Next e2 (fₛ s3) = Some (fₛ s))
-        by now apply NextRefine in Hn.
-      assert (L1_2 : T2.Next e2 s2 = Some (fₛ s))
-        by now rewrite H1 in L1_1.
-      now rewrite H2 in L1_2; inject L1_2.
-    }
-    enough (Some s = Some s ∧ fₛ s = s2') by now exists s.
-    split; (reflexivity || exact L1).
-  - Check (Hn : NextT2Event e2 s3 = None).
-    unfold T2.Next in H2.
-    unfold NextT2Event, MovePiece, RotatePiece, FixPiece in Hn.
-    unfold fₛ in H1.
-    rewrite <- H1 in H2.
-    assert (L1 : ∀ pNew
-        (Hf1 : T2.FallStep pNew (T3.s2 s3) = Some s2')
-        (Hf2 : FallStep pNew s3 = None),
-        ∃ s3' : State, None = Some s3' ∧ fₛ s3' = s2'). {
-      intros.
-      keep_only Hf1 Hf2.
-      unfold T2.FallStep in Hf1.
-      unfold FallStep, MovePiece in Hf2.
-      destruct (T2.MovePiece ((-1)%Z, 0%Z) (T3.s2 s3)).
-      -- unfold FallStep in Hf2. discriminate Hf2.
-      -- simpl in Hf2.
-         unfold FixPiece in Hf2.
-         rewrite Hf1 in Hf2.
-         discriminate Hf2.
-    }
-    destruct e2; simpl in Hn;
-      (try rewrite H2 in Hn; discriminate Hn) || eapp L1.
+  destruct (NextT2Event e2 s3) as [s3' |] eqn: Hn.
+  - assert (Hfs : fₛ s3' = s2')
+      by (apply NextRefine in Hn; cbv [fₑ id] in Hn; rewrite H1, H2 in Hn; congruence).
+    exists s3'; split_top; (reflexivity || assumption).
+  - apply NextRefineNone in Hn; cbv [fₑ id] in Hn; rewrite H1, H2 in Hn.
+    discriminate Hn.
+Qed.
+
+(* Generalized over the starting states, so that the induction hypothesis
+ * applies at every point along the run. *)
+Lemma RunLifts : ∀ es2 s2 s2' s3
+  (Hfs : fₛ s3 = s2)
+  (Hrun : RunT2 es2 s2 = Some s2'),
+  ∃ s3', RunT3 es2 s3 = Some s3' ∧ fₛ s3' = s2'.
+Proof.
+  induction es2 as [| e2 es2 IH]; intros; cbn [RunT2 RunT3] in Hrun |- *.
+  - exists s3; split_top; congruence.
+  - destruct (T2.Next e2 s2) as [s2'' |] eqn: Hstep; [ | discriminate Hrun ].
+    (* the T2 step lifts to a T3 step from s3, then the induction hypothesis
+     * lifts the rest of the run *)
+    apply StepLifts with (s3 := s3) in Hstep; [ | assumption ].
+    destruct Hstep as (s3'' & Hstep).
+    assert (Hn : NextT2Event e2 s3 = Some s3'') by tauto.
+    assert (Hfs'' : fₛ s3'' = s2'') by tauto.
+    rewrite Hn; eapp IH.
 Qed.
 
 Theorem T3AllowsAllT2Hold : T3AllowsAllT2.
 Proof.
-  (* generalize the starting states so the IH applies at every point along the run *)
-  assert (L1 : ∀ es2 s2 s3 s2'
-      (Hfs : fₛ s3 = s2)
-      (Hrun : RunT2 es2 s2 = Some s2'),
-      ∃ s3', RunT3 es2 s3 = Some s3' /\ fₛ s3' = s2'). {
-    intros es2.
-    induction es2 as [| e2 es2' IH]. intros.
-    - (* es2 = [] : RunT2 returns s2 itself *)
-      exists s3. simpl in Hrun. split; (reflexivity || congruence).
-    - (* es2 = e2 :: es2' *)
-      intros.
-      simpl in Hrun.
-      destruct (T2.Next e2 s2) as [s2'' | ] eqn:Hstep; [ | discriminate].
-      (* apply the single-step lemma to lift this step to T3 *)
-      destruct (StepLifts Hfs Hstep) as [s3'' [Hstep3 Hfs2]].
-      simpl. rewrite Hstep3.
-      (* recurse on the rest of the trace, from (s1'', s2'') *)
-      eapp IH.
-  }
-  unfold T3AllowsAllT2. intros p es2 s2'.
-  enough (fₛ (T3.Init p) = T2.Init p)
-    by now apply (L1 es2 (T2.Init p) (T3.Init p) s2').
-  assert (L2 : ∀ p, fₛ (T3.Init p) = T2.Init p)
-    by now pose proof SpecRefine; tauto.
-  exact (L2 p).
+  intros p es2 s2' H1.
+  assert (HI : fₛ (Init p) = T2.Init p) by apply InitRefine.
+  apply RunLifts with (s3 := Init p) in H1; [ | assumption ].
+  destruct H1 as (s3' & H1); exists s3'; split_top; tauto.
 Qed.

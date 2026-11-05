@@ -10,10 +10,36 @@ Open Scope nat_scope.
 
 Module T1P := T1Proofs.
 
+(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
+ * hypotheses, lemma premises or event constructors. Same rules as T1Proofs.v:
+ * - a fact is taken out of a conjunction by stating it, e.g.
+ *   [assert (F : fact) by (apply L in H; tauto)],
+ * - a conjunction is proven by first stating all its conjuncts, then closing
+ *   every branch with the same tactic (e.g. [split_top; assumption]),
+ * - a lemma with several premises is applied with [eapp] or [apply ... in],
+ *   not by passing hypotheses positionally.
+ * In addition:
+ * - a disjunction is taken apart with [decompose], and every case is closed
+ *   with the same tactic,
+ * - a case analysis on an event closes every case with the same tactic. *)
+
 
 (* ========================================================================= *)
-(* Helpers                                                                   *)
+(* Events: what they change                                                  *)
 (* ========================================================================= *)
+
+(* Move and Rotate update the T1 part only, through UpdateS1. *)
+Lemma UpdateS1Step : ∀ [o s s']
+  (Hn : UpdateS1 o s = Some s'),
+    Some (s1 s') = o
+  ∧ score s' = score s
+  ∧ level s' = level s
+  ∧ combo s' = combo s
+  ∧ perfectClear s' = perfectClear s
+  ∧ totalClearedLines s' = totalClearedLines s.
+Proof.
+  intros [t |] s s' Hn; [ inject Hn; subst; now split_top | discriminate Hn ].
+Qed.
 
 Lemma MovePieceStep : ∀ [s s' dyx]
     (Hn : MovePiece dyx s = Some s'),
@@ -23,33 +49,7 @@ Lemma MovePieceStep : ∀ [s s' dyx]
   ∧ combo s' = combo s
   ∧ perfectClear s' = perfectClear s
   ∧ totalClearedLines s' = totalClearedLines s.
-Proof.
-  intros.
-  unfold MovePiece, UpdateS1, option_map in Hn.
-  destruct T1.MovePiece as [t |] eqn: Hd in Hn.
-  - assert (L1 : s' = {|s1 := t; score := score s; level := level s; combo := combo s;
-        perfectClear := perfectClear s; totalClearedLines := totalClearedLines s|})
-      by now inject Hn.
-    assert (L2 : Some (s1 s') = T1.MovePiece dyx (s1 s))
-      by now rewrite L1, Hd; reflexivity.
-    assert (L3 : score s' = score s ∧ level s' = level s ∧ combo s' = combo s ∧
-        perfectClear s' = perfectClear s ∧ totalClearedLines s' = totalClearedLines s). {
-      rewrite L1. repeat split; reflexivity.
-    }
-    split; auto using L2, L3.
-  - discriminate Hn.
-Qed.
-
-Lemma MovePieceFail : ∀ [s dy dx]
-  (Hn : MovePiece (dy, dx) s = None),
-  T1.MovePiece (dy, dx) (s1 s) = None.
-Proof.
-  intros.
-  unfold MovePiece, UpdateS1, option_map in Hn.
-  destruct T1.MovePiece eqn: H1 in Hn.
-  - discriminate Hn.
-  - congruence.
-Qed.
+Proof. intros; apply UpdateS1Step in Hn; split_top; tauto. Qed.
 
 Lemma RotatePieceStep : ∀ [s s' cw]
   (Hn : RotatePiece cw s = Some s'),
@@ -59,66 +59,7 @@ Lemma RotatePieceStep : ∀ [s s' cw]
   ∧ combo s' = combo s
   ∧ perfectClear s' = perfectClear s
   ∧ totalClearedLines s' = totalClearedLines s.
-Proof.
-  intros.
-  unfold RotatePiece, UpdateS1, option_map in Hn.
-  destruct T1.RotatePiece as [t |] eqn: Hd in Hn.
-  - assert (L1 : s' = {|s1 := t; score := score s; level := level s; combo := combo s;
-        perfectClear := perfectClear s; totalClearedLines := totalClearedLines s|})
-      by now inject Hn.
-    assert (L2 : Some (s1 s') = T1.RotatePiece cw (s1 s))
-      by now rewrite L1, Hd; reflexivity.
-    assert (L3 : score s' = score s ∧ level s' = level s ∧ combo s' = combo s ∧
-        perfectClear s' = perfectClear s ∧ totalClearedLines s' = totalClearedLines s). {
-      rewrite L1. repeat split; reflexivity.
-    }
-    split; auto using L2, L3.
-  - discriminate Hn.
-Qed.
-
-(* A successful MovePiece proves T1's own guard held. *)
-Lemma MovePieceNotGameover : ∀ [s s' dyx]
-  (H1 : MovePiece dyx s = Some s'),
-  gameover s = false.
-Proof.
-  intros.
-  destruct (MovePieceStep H1) as [H2 _].
-  exact (T1P.MovePieceNotGameover (eq_sym H2)).
-Qed.
-
-(* A successful RotatePiece proves T1's own guard held. *)
-Lemma RotatePieceNotGameover : ∀ [s s' cw]
-  (H1 : RotatePiece cw s = Some s'),
-  gameover s = false.
-Proof.
-  intros.
-  destruct (RotatePieceStep H1) as [H2 _].
-  exact (T1P.RotatePieceNotGameover (eq_sym H2)).
-Qed.
-
-(* mg and gameover are both literally unchanged across Move/Rotate at T1, so
-they carry over unchanged here too. Needed (not by CorrectWithoutGameover
-itself, which doesn't care what mg/gameover actually are) for transferring
-the weak Gameover fact across a step at the T7 level. *)
-Lemma MovePieceMgGameoverUnchanged : ∀ [s s' dyx]
-  (Hn : MovePiece dyx s = Some s'),
-  mg s' = mg s ∧ gameover s' = gameover s.
-Proof.
-  intros.
-  destruct (MovePieceStep Hn) as [H2 _].
-  destruct (T1P.MovePieceUnchanged dyx (s1 s) (s1 s') (eq_sym H2)) as (Emg & _ & _ & Ego).
-  split; [exact Emg | exact Ego].
-Qed.
-
-Lemma RotatePieceMgGameoverUnchanged : ∀ [s s' cw]
-  (Hn : RotatePiece cw s = Some s'),
-  mg s' = mg s ∧ gameover s' = gameover s.
-Proof.
-  intros.
-  destruct (RotatePieceStep Hn) as [H2 _].
-  destruct (T1P.RotatePieceOK cw (s1 s) (s1 s') (eq_sym H2)) as (Emg & _ & _ & Ego & _).
-  split; [exact Emg | exact Ego].
-Qed.
+Proof. intros; apply UpdateS1Step in Hn; split_top; tauto. Qed.
 
 Lemma FixPieceStep : ∀ [s s' p_new]
   (Hn : FixPiece p_new s = Some s'),
@@ -134,36 +75,127 @@ Lemma FixPieceStep : ∀ [s s' p_new]
   ∧ perfectClear s' = perfectClear'
   ∧ totalClearedLines s' = totalClearedLines'.
 Proof.
-  intros.
-  unfold FixPiece, UpdateS1, option_map in Hn.
-  destruct T1.FixPiece as [t |] eqn: Hd in Hn.
-  - inject Hn.
-    assert (L2 : Some s1' = T1.FixPiece p_new (s1 s))
-      by now unfold s1'; rewrite <- Hn, Hd; reflexivity.
-    assert (L3 : score s' = score s + (Points clearedLines (level s) (combo'-1) perfectClear')
-        ∧ level s' = 1 + totalClearedLines' / 10
-        ∧ combo s' = combo'
-        ∧ perfectClear s' = perfectClear'
-        ∧ totalClearedLines s' = totalClearedLines'). {
-      rewrite <- Hn.
-      (let finish clearedLines combo' perfectClear' totalClearedLines' s1' H := (
-        unfold clearedLines, combo', perfectClear', totalClearedLines'; 
-        unfold clearedLines, s1';
-        rewrite <- H;
-        reflexivity) in
-      repeat split; now finish clearedLines combo' perfectClear' totalClearedLines' s1' Hn).
-    }
-    split; auto using L2, L3.
-  - discriminate Hn.
+  intros s s' p_new Hn; unfold FixPiece in Hn.
+  destruct T1.FixPiece; [ inject Hn; subst; now split_top | discriminate Hn ].
 Qed.
 
-Lemma StutterStep : ∀ [s s']
-  (Hn : Next Stutter s = Some s'),
-  s' = s.
+(* The T1 part of a successful T2 step is the result of the T1 step. *)
+Lemma MovePieceT1 : ∀ [s s' dyx]
+  (Hn : MovePiece dyx s = Some s'),
+  T1.MovePiece dyx (s1 s) = Some (s1 s').
+Proof. intros; symmetry; apply MovePieceStep in Hn; tauto. Qed.
+
+Lemma RotatePieceT1 : ∀ [s s' cw]
+  (Hn : RotatePiece cw s = Some s'),
+  T1.RotatePiece cw (s1 s) = Some (s1 s').
+Proof. intros; symmetry; apply RotatePieceStep in Hn; tauto. Qed.
+
+Lemma FixPieceT1 : ∀ [s s' p_new]
+  (Hn : FixPiece p_new s = Some s'),
+  T1.FixPiece p_new (s1 s) = Some (s1 s').
+Proof. intros; symmetry; apply FixPieceStep in Hn; cbv zeta in Hn; tauto. Qed.
+
+(* All T2 step functions are T1 ones, mapped over: they fail when T1's do. *)
+Lemma OptionMapNone : ∀ [A B] [f : A → B] [o]
+  (Hn : option_map f o = None),
+  o = None.
+Proof. intros A B f [] Hn; easy. Qed.
+
+(* A fall step is a move down or, if that fails, a fix. *)
+Lemma FallStepCases : ∀ [s s' p_new]
+  (Hn : FallStep p_new s = Some s'),
+    MovePiece (-1, 0)%Z s = Some s'
+  ∨ (MovePiece (-1, 0)%Z s = None ∧ FixPiece p_new s = Some s').
+Proof.
+  intros; unfold FallStep in Hn.
+  destruct MovePiece eqn: Hm; [ inject Hn; subst | ]; tauto.
+Qed.
+
+Lemma FallStepT1 : ∀ [s s' p_new]
+  (Hn : FallStep p_new s = Some s'),
+  T1.FallStep p_new (s1 s) = Some (s1 s').
+Proof.
+  intros; unfold T1.FallStep.
+  decompose [or and] (FallStepCases Hn);
+    match goal with
+    | Hm : MovePiece _ _ = Some _ |- _ => rewrite (MovePieceT1 Hm); reflexivity
+    | Hm : MovePiece _ _ = None |- _ =>
+        (* T2's move down failed, hence so did T1's *)
+        rewrite (OptionMapNone Hm); eapp FixPieceT1
+    end.
+Qed.
+
+Lemma FallStepNone : ∀ [s p_new]
+  (Hn : FallStep p_new s = None),
+  T1.FallStep p_new (s1 s) = None.
+Proof.
+  intros; unfold FallStep, T1.FallStep in *.
+  destruct MovePiece eqn: Hm in Hn; [ discriminate Hn | ].
+  rewrite (OptionMapNone Hm); exact (OptionMapNone Hn).
+Qed.
+
+(* Every successful step is a move, a rotation, a fix or a stutter. *)
+Lemma NextCases : ∀ [e s s']
+  (Hn : Next e s = Some s'),
+    (∃ dyx, MovePiece dyx s = Some s')
+  ∨ (∃ cw, RotatePiece cw s = Some s')
+  ∨ (∃ p_new, FixPiece p_new s = Some s')
+  ∨ s' = s.
+Proof.
+  intros; destruct e; cbn [Next] in Hn;
+    try (decompose [or and] (FallStepCases Hn); clear Hn);
+    try (inject Hn; subst);
+    eauto 6.
+Qed.
+
+(* A successful MovePiece proves T1's own guard held. *)
+Lemma MovePieceNotGameover : ∀ [s s' dyx]
+  (H1 : MovePiece dyx s = Some s'),
+  gameover s = false.
 Proof.
   intros.
-  simpl in Hn.
-  now inject Hn.
+  assert (E1 : T1.MovePiece dyx (s1 s) = Some (s1 s')) by eapp MovePieceT1.
+  eapp T1P.MovePieceNotGameover.
+Qed.
+
+(* A successful RotatePiece proves T1's own guard held. *)
+Lemma RotatePieceNotGameover : ∀ [s s' cw]
+  (H1 : RotatePiece cw s = Some s'),
+  gameover s = false.
+Proof.
+  intros.
+  assert (E1 : T1.RotatePiece cw (s1 s) = Some (s1 s')) by eapp RotatePieceT1.
+  eapp T1P.RotatePieceNotGameover.
+Qed.
+
+(* mg and gameover are both literally unchanged across Move/Rotate at T1, so
+they carry over unchanged here too. Needed (not by CorrectWithoutGameover
+itself, which doesn't care what mg/gameover actually are) for transferring
+the weak Gameover fact across a step at the T7 level. *)
+Lemma MovePieceMgGameoverUnchanged : ∀ [s s' dyx]
+  (Hn : MovePiece dyx s = Some s'),
+  mg s' = mg s ∧ gameover s' = gameover s.
+Proof.
+  intros.
+  assert (E1 : T1.MovePiece dyx (s1 s) = Some (s1 s')) by eapp MovePieceT1.
+  assert (Emg : T1.mg (s1 s') = T1.mg (s1 s))
+    by (apply T1P.MovePieceUnchanged in E1; tauto).
+  assert (Ego : T1.gameover (s1 s') = T1.gameover (s1 s))
+    by (apply T1P.MovePieceUnchanged in E1; tauto).
+  split_top; assumption.
+Qed.
+
+Lemma RotatePieceMgGameoverUnchanged : ∀ [s s' cw]
+  (Hn : RotatePiece cw s = Some s'),
+  mg s' = mg s ∧ gameover s' = gameover s.
+Proof.
+  intros.
+  assert (E1 : T1.RotatePiece cw (s1 s) = Some (s1 s')) by eapp RotatePieceT1.
+  assert (Emg : T1.mg (s1 s') = T1.mg (s1 s))
+    by (apply T1P.RotatePieceOK in E1; tauto).
+  assert (Ego : T1.gameover (s1 s') = T1.gameover (s1 s))
+    by (apply T1P.RotatePieceOK in E1; tauto).
+  split_top; assumption.
 Qed.
 
 
@@ -171,14 +203,62 @@ Qed.
 (* State invariants                                                          *)
 (* ========================================================================= *)
 
+(* LevelCorrect only reads level and totalClearedLines. *)
+Lemma LevelCorrectUnchanged : ∀ [s s']
+  (El : level s' = level s)
+  (Et : totalClearedLines s' = totalClearedLines s)
+  (Hl : LevelCorrect s),
+  LevelCorrect s'.
+Proof. unfold LevelCorrect; congruence. Qed.
+
+(* Move and Rotate leave level and totalClearedLines unchanged. *)
+Lemma MovePieceLevelCorrect : ∀ [s s' dyx]
+  (Hl : LevelCorrect s)
+  (Hn : MovePiece dyx s = Some s'),
+  LevelCorrect s'.
+Proof.
+  intros.
+  assert (El : level s' = level s) by (apply MovePieceStep in Hn; tauto).
+  assert (Et : totalClearedLines s' = totalClearedLines s)
+    by (apply MovePieceStep in Hn; tauto).
+  eapp LevelCorrectUnchanged.
+Qed.
+
+Lemma RotatePieceLevelCorrect : ∀ [s s' cw]
+  (Hl : LevelCorrect s)
+  (Hn : RotatePiece cw s = Some s'),
+  LevelCorrect s'.
+Proof.
+  intros.
+  assert (El : level s' = level s) by (apply RotatePieceStep in Hn; tauto).
+  assert (Et : totalClearedLines s' = totalClearedLines s)
+    by (apply RotatePieceStep in Hn; tauto).
+  eapp LevelCorrectUnchanged.
+Qed.
+
+(* FixPiece recomputes the level from totalClearedLines: LevelCorrect holds
+ * afterwards, whatever held before. *)
+Lemma FixPieceLevelCorrect : ∀ [s s' p_new]
+  (Hn : FixPiece p_new s = Some s'),
+  LevelCorrect s'.
+Proof.
+  intros.
+  assert (El : level s' = 1 + (totalClearedLines s + clearedLines (s1 s')) / 10)
+    by (apply FixPieceStep in Hn; cbv zeta in Hn; tauto).
+  assert (Et : totalClearedLines s' = totalClearedLines s + clearedLines (s1 s'))
+    by (apply FixPieceStep in Hn; cbv zeta in Hn; tauto).
+  unfold LevelCorrect; congruence.
+Qed.
+
 Lemma InitCorrect : ∀ p : Piece, Correct (Init p).
 Proof.
   intros.
-  set (s := Init p).
-  assert (L1 : T1.Correct (s1 s)) by now apply T1P.InitCorrect.
-  assert (L2 : LevelCorrect s) by now unfold LevelCorrect; simpl; lia.
-  split; auto using L1, L2.
+  assert (HC1 : T1.Correct (s1 (Init p))) by apply T1P.InitCorrect.
+  assert (Hl : LevelCorrect (Init p)) by reflexivity.
+  unfold Correct; split_top; assumption.
 Qed.
+
+(**** CorrectWithoutGameover: the T1 part transfers, then LevelCorrect ****)
 
 Lemma MovePieceCorrectWithoutGameover : ∀ [dyx s s']
   (Hc : CorrectWithoutGameover s)
@@ -186,24 +266,14 @@ Lemma MovePieceCorrectWithoutGameover : ∀ [dyx s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  apply MovePieceStep in Hn as LS.
-  assert (L1 : T1.CorrectWithoutGameover (s1 s')). {
-    assert (L1_1 : T1.MovePiece dyx (s1 s) = Some (s1 s'))
-      by now destruct LS; congruence.
-    assert (L1_2 : T1.CorrectWithoutGameover (s1 s)) by now keep_only Hc; firstorder.
-    eapp T1P.MovePieceCorrectWithoutGameover.
-  }
-  assert (L2 : LevelCorrect s'). {
-    assert (L2_1 : level s' = level s ∧ totalClearedLines s' = totalClearedLines s)
-      by now keep_only LS; lia.
-    assert (L2_2 : level s = 1 + totalClearedLines s / 10)
-      by now destruct Hc; assumption.
-    unfold LevelCorrect.
-    destruct L2_1 as [Hl Ht].
-    rewrite Hl, Ht.
-    exact L2_2.
-  }
-  split; auto using L1, L2.
+  assert (HC1 : T1.CorrectWithoutGameover (s1 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E1 : T1.MovePiece dyx (s1 s) = Some (s1 s')) by eapp MovePieceT1.
+  assert (HC1' : T1.CorrectWithoutGameover (s1 s'))
+    by eapp T1P.MovePieceCorrectWithoutGameover.
+  assert (Hl' : LevelCorrect s') by eapp MovePieceLevelCorrect.
+  unfold CorrectWithoutGameover; split_top; assumption.
 Qed.
 
 Lemma RotatePieceCorrectWithoutGameover : ∀ [cw s s']
@@ -212,24 +282,14 @@ Lemma RotatePieceCorrectWithoutGameover : ∀ [cw s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  apply RotatePieceStep in Hn as LS.
-  assert (L1 : T1.CorrectWithoutGameover (s1 s')). {
-    assert (L1_1 : T1.RotatePiece cw (s1 s) = Some (s1 s'))
-      by now destruct LS; congruence.
-    assert (L1_2 : T1.CorrectWithoutGameover (s1 s)) by now keep_only Hc; firstorder.
-    eapp T1P.RotatePieceCorrectWithoutGameover.
-  }
-  assert (L2 : LevelCorrect s'). {
-    assert (L2_1 : level s' = level s ∧ totalClearedLines s' = totalClearedLines s)
-      by now keep_only LS; lia.
-    assert (L2_2 : level s = 1 + totalClearedLines s / 10)
-      by now destruct Hc; assumption.
-    unfold LevelCorrect.
-    destruct L2_1 as [Hl Ht].
-    rewrite Hl, Ht.
-    exact L2_2.
-  }
-  split; auto using L1, L2.
+  assert (HC1 : T1.CorrectWithoutGameover (s1 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E1 : T1.RotatePiece cw (s1 s) = Some (s1 s')) by eapp RotatePieceT1.
+  assert (HC1' : T1.CorrectWithoutGameover (s1 s'))
+    by eapp T1P.RotatePieceCorrectWithoutGameover.
+  assert (Hl' : LevelCorrect s') by eapp RotatePieceLevelCorrect.
+  unfold CorrectWithoutGameover; split_top; assumption.
 Qed.
 
 Lemma FixPieceCorrectWithoutGameover : ∀ [p_new s s']
@@ -238,24 +298,13 @@ Lemma FixPieceCorrectWithoutGameover : ∀ [p_new s s']
   CorrectWithoutGameover s'.
 Proof.
   intros.
-  apply FixPieceStep in Hn as LS.
-  assert (L1 : T1.CorrectWithoutGameover (s1 s')). {
-    assert (L1_1 : T1.FixPiece p_new (s1 s) = Some (s1 s'))
-      by now destruct LS; congruence.
-    assert (L1_2 : T1.CorrectWithoutGameover (s1 s)) by now keep_only Hc; firstorder.
-    eapp T1P.FixPieceCorrectWithoutGameover.
-  }
-  assert (L2 : LevelCorrect s'). {
-    set (clearedLines := clearedLines (s1 s')).
-    set (totalClearedLines' := (totalClearedLines s + clearedLines)%nat).
-    assert (L2_1 : level s' = 1 + totalClearedLines' / 10)
-      by now keep_only LS; simpl in LS; tauto.
-    assert (L2_2 : totalClearedLines s' = totalClearedLines')
-      by now keep_only LS; simpl in LS; tauto.
-    rewrite <- L2_2 in L2_1.
-    exact L2_1.
-  }
-  split; auto using L1, L2.
+  assert (HC1 : T1.CorrectWithoutGameover (s1 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (E1 : T1.FixPiece p_new (s1 s) = Some (s1 s')) by eapp FixPieceT1.
+  assert (HC1' : T1.CorrectWithoutGameover (s1 s'))
+    by eapp T1P.FixPieceCorrectWithoutGameover.
+  assert (Hl' : LevelCorrect s') by eapp FixPieceLevelCorrect.
+  unfold CorrectWithoutGameover; split_top; assumption.
 Qed.
 
 (* Used by T3's HoldPiece; needs the weak gameover fact about s1 s to thread
@@ -266,17 +315,56 @@ Lemma NewPieceStateCorrectWithoutGameover : ∀ (p_new : Piece) (s : State)
   CorrectWithoutGameover (UnchangedT2Part s (T1.NewPieceState p_new (s1 s))).
 Proof.
   intros.
-  set (s' := UnchangedT2Part s (T1.NewPieceState p_new (s1 s))).
-  assert (L1 : T1.CorrectWithoutGameover (s1 s')). {
-    assert (L1_1 : T1.CorrectWithoutGameover (s1 s)) by now destruct Hc.
-    eapp T1P.NewPieceStateCorrectWithoutGameover.
-  }
-  assert (L2 : LevelCorrect s'). {
-    assert (L2_1 : level s' = level s) by reflexivity.
-    assert (L2_2 : totalClearedLines s' = totalClearedLines s) by reflexivity.
-    unfold LevelCorrect; rewrite L2_1, L2_2; now destruct Hc.
-  }
-  split; auto using L1, L2.
+  assert (HC1 : T1.CorrectWithoutGameover (s1 s))
+    by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold CorrectWithoutGameover in Hc; tauto).
+  assert (HC1' : T1.CorrectWithoutGameover (T1.NewPieceState p_new (s1 s)))
+    by (apply T1P.NewPieceStateCorrectWithoutGameover; assumption).
+  (* level and totalClearedLines are copied verbatim by UnchangedT2Part *)
+  unfold CorrectWithoutGameover; split_top; assumption.
+Qed.
+
+(**** Correct: same structure ****)
+
+Lemma MovePieceCorrect : ∀ [dyx s s']
+  (Hc : Correct s)
+  (Hn : MovePiece dyx s = Some s'),
+  Correct s'.
+Proof.
+  intros.
+  assert (HC1 : T1.Correct (s1 s)) by (unfold Correct in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
+  assert (E1 : T1.MovePiece dyx (s1 s) = Some (s1 s')) by eapp MovePieceT1.
+  assert (HC1' : T1.Correct (s1 s')) by eapp T1P.MovePieceCorrect.
+  assert (Hl' : LevelCorrect s') by eapp MovePieceLevelCorrect.
+  unfold Correct; split_top; assumption.
+Qed.
+
+Lemma RotatePieceCorrect : ∀ [cw s s']
+  (Hc : Correct s)
+  (Hn : RotatePiece cw s = Some s'),
+  Correct s'.
+Proof.
+  intros.
+  assert (HC1 : T1.Correct (s1 s)) by (unfold Correct in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
+  assert (E1 : T1.RotatePiece cw (s1 s) = Some (s1 s')) by eapp RotatePieceT1.
+  assert (HC1' : T1.Correct (s1 s')) by eapp T1P.RotatePieceCorrect.
+  assert (Hl' : LevelCorrect s') by eapp RotatePieceLevelCorrect.
+  unfold Correct; split_top; assumption.
+Qed.
+
+Lemma FixPieceCorrect : ∀ [p_new s s']
+  (Hc : Correct s)
+  (Hn : FixPiece p_new s = Some s'),
+  Correct s'.
+Proof.
+  intros.
+  assert (HC1 : T1.Correct (s1 s)) by (unfold Correct in Hc; tauto).
+  assert (E1 : T1.FixPiece p_new (s1 s) = Some (s1 s')) by eapp FixPieceT1.
+  assert (HC1' : T1.Correct (s1 s')) by eapp T1P.FixPieceCorrect.
+  assert (Hl' : LevelCorrect s') by eapp FixPieceLevelCorrect.
+  unfold Correct; split_top; assumption.
 Qed.
 
 Lemma NextCorrect : ∀ [e s s']
@@ -285,236 +373,84 @@ Lemma NextCorrect : ∀ [e s s']
   Correct s'.
 Proof.
   intros.
-  assert (L1 : ∀ [dyx] (Hn : MovePiece dyx s = Some s'), Correct s'). {
-    intros.
-    apply MovePieceStep in Hn as LS.
-    assert (L1_1 : T1.Correct (s1 s')). {
-      (* 1. MovePiece succeeded, so T1.MovePiece succeeded and produced (s1 s') unchanged. *)
-      assert (L1_1_1 : T1.MovePiece dyx (s1 s) = Some (s1 s'))
-        by now destruct LS; congruence.
-      (* 2. s is correct, i.e. its T1 part is T1.Correct (by definition of Correct). *)
-      assert (L1_1_2 : T1.Correct (s1 s)) by now keep_only Hc; firstorder.
-      (* 3. T1.MovePieceCorrect transfers correctness across the T1 move. *)
-      eapp T1P.MovePieceCorrect.
-    }
-    assert (L1_2 : LevelCorrect s'). {
-      assert (L1_2_1 : level s' = level s ∧ totalClearedLines s' = totalClearedLines s)
-        by now keep_only LS; lia.
-      assert (L1_2_2 : level s = 1 + totalClearedLines s / 10)
-        by now destruct Hc; assumption.
-      unfold LevelCorrect.
-      destruct L1_2_1 as [Hl Ht].
-      rewrite Hl, Ht.
-      exact L1_2_2.
-    }
-    split; auto using L1_1, L1_2.
-  }
-  assert (L2 : ∀ [cw] (Hn : RotatePiece cw s = Some s'), Correct s'). {
-    intros.
-    apply RotatePieceStep in Hn as LS.
-    assert (L2_1 : T1.Correct (s1 s')). {
-      assert (L2_1_1 : T1.RotatePiece cw (s1 s) = Some (s1 s'))
-        by now destruct LS; congruence.
-      assert (L2_1_2 : T1.Correct (s1 s)) by now keep_only Hc; firstorder.
-      eapp T1P.RotatePieceCorrect.
-    }
-    assert (L2_2 : LevelCorrect s'). {
-      assert (L2_2_1 : level s' = level s ∧ totalClearedLines s' = totalClearedLines s)
-        by now keep_only LS; lia.
-      assert (L2_2_2 : level s = 1 + totalClearedLines s / 10)
-        by now destruct Hc; assumption.
-      unfold LevelCorrect.
-      destruct L2_2_1 as [Hl Ht].
-      rewrite Hl, Ht.
-      exact L2_2_2.
-    }
-    split; auto using L2_1, L2_2.
-  }
-  assert (L3 : ∀ [p_new] (Hn : FixPiece p_new s = Some s'), Correct s'). {
-    intros.
-    apply FixPieceStep in Hn as LS.
-    assert (L3_1 : T1.Correct (s1 s')). {
-      assert (L3_1_1 : T1.FixPiece p_new (s1 s) = Some (s1 s'))
-        by now destruct LS; congruence.
-      assert (L3_1_2 : T1.Correct (s1 s)) by now keep_only Hc; firstorder.
-      eapp T1P.FixPieceCorrect.
-    }
-    assert (L3_2 : LevelCorrect s'). {
-      set (clearedLines := clearedLines (s1 s')).
-      set (totalClearedLines' := (totalClearedLines s + clearedLines)%nat).
-      assert (L3_2_1 : level s' = 1 + totalClearedLines' / 10)
-        by now keep_only LS; simpl in LS; tauto.
-      assert (L3_2_2 : totalClearedLines s' = totalClearedLines')
-        by now keep_only LS; simpl in LS; tauto.
-      rewrite <- L3_2_2 in L3_2_1.
-      exact L3_2_1.
-    }
-    split; auto using L3_1, L3_2.
-  }
-  assert (L4 : ∀ [p_new] (Hn : FallStep p_new s = Some s'), Correct s'). {
-    intros.
-    unfold FallStep in Hn.
-    destruct MovePiece eqn: Hm in Hn.
-    - assert (L4_1 : MovePiece (-1, 0)%Z s = Some s') by now rewrite <- Hm in Hn.
-      now apply L1 in L4_1.
-    - Check (Hn : FixPiece p_new s = Some s').
-      now apply L3 in Hn.
-  }
-  assert (L5 : ∀ (Hn : Next Stutter s = Some s'), Correct s'). {
-    intros.
-    assert (L5_1 : s' = s) by now injection Hn.
-    now rewrite <- L5_1 in Hc.
-  }
-  destruct e in He; eauto using L1, L2, L3, L4, L5.
+  decompose [or ex] (NextCases He); subst;
+    eauto using MovePieceCorrect, RotatePieceCorrect, FixPieceCorrect.
 Qed.
 
 Theorem SpecCorrect : ∀ e s s',
     (∀ p, Correct (Init p))
   ∧ (Correct s → Next e s = Some s' → Correct s').
-Proof. split; eauto using InitCorrect, NextCorrect. Qed.
+Proof. split_top; eauto using InitCorrect, NextCorrect. Qed.
 
 
 (* ========================================================================= *)
 (* Step invariants                                                           *)
 (* ========================================================================= *)
 
+(* Move, Rotate and Stutter leave score and totalClearedLines unchanged; Fix
+ * adds to both. *)
+Lemma NextNonDecreasing : ∀ [e s s']
+  (Hn : Next e s = Some s'),
+  score s <= score s' ∧ totalClearedLines s <= totalClearedLines s'.
+Proof.
+  intros.
+  decompose [or ex] (NextCases Hn); subst;
+    repeat match goal with
+    | Hm : MovePiece _ _ = Some _ |- _ => apply MovePieceStep in Hm
+    | Hm : RotatePiece _ _ = Some _ |- _ => apply RotatePieceStep in Hm
+    | Hm : FixPiece _ _ = Some _ |- _ => apply FixPieceStep in Hm; cbv zeta in Hm
+    end;
+    lia.
+Qed.
+
 Theorem StepNonDecreasingScore : ∀ s s',
   NonDecreasingScore s s'.
-Proof.
-  unfold NonDecreasingScore.
-  intros.
-  assert (L1 : ∀ dyx (Hm : MovePiece dyx s = Some s'), score s <= score s')
-    by now intros; apply MovePieceStep in Hm; lia.
-  assert (L2 : ∀ cw (Hm : RotatePiece cw s = Some s'), score s <= score s')
-    by now intros; apply RotatePieceStep in Hm; lia.
-  assert (L3 : ∀ p_new (Hm : FixPiece p_new s = Some s'), score s <= score s'). {
-    intros.
-    set (clearedLines' := clearedLines (s1 s')).
-    set (combo' := (if clearedLines' =? 0 then 0 else (combo s) + 1)).
-    set (perfectClear' := EmptyGridb (mg s')).
-    assert (L3_2_1 : score s' = (score s) + (Points clearedLines' (level s) (combo'-1) perfectClear'))
-      by now apply FixPieceStep in Hm.
-    enough (score s <= score s + Points clearedLines' (level s) (combo' - 1) perfectClear')
-      by now rewrite L3_2_1.
-    lia.
-  }
-  assert (L4 : ∀ p_new (Hm : FallStep p_new s = Some s'), score s <= score s'). {
-    intros.
-    unfold FallStep in Hm.
-    destruct MovePiece eqn: Hf in Hm.
-    - assert (L4_1 : MovePiece (-1, 0)%Z s = Some s') by now rewrite Hm in Hf.
-      now apply L1 in L4_1.
-    - Check (Hm : FixPiece p_new s = Some s').
-      now apply L3 in Hm.
-  }
-  assert (L5 : ∀ (Hm : Next Stutter s = Some s'), score s <= score s'). {
-    intros.
-    enough (score s <= score s)
-      by now apply StutterStep in Hm; rewrite Hm.
-    lia.
-  }
-  destruct e in Hn; eauto using L1, L2, L3, L4, L5.
-Qed.
+Proof. intros s s' e Hn; apply NextNonDecreasing in Hn; tauto. Qed.
 
 Theorem StepNonDecreasingTotalClearedLines : ∀ [s s' e]
   (Hn : Next e s = Some s'),
   totalClearedLines s <= totalClearedLines s'.
-Proof.
-  intros.
-  set (G := totalClearedLines s <= totalClearedLines s').
-  assert (L1 : ∀ dyx (Hm : MovePiece dyx s = Some s'), G)
-    by now intros; unfold G; apply MovePieceStep in Hm; lia.
-  assert (L2 : ∀ cw (Hm : RotatePiece cw s = Some s'), G)
-    by now intros; unfold G; apply RotatePieceStep in Hm; lia.
-  assert (L3 : ∀ p_new (Hm : FixPiece p_new s = Some s'), G). {
-    intros.
-    set (clearedLines := clearedLines (s1 s')).
-    set (totalClearedLines' := totalClearedLines s + clearedLines).
-    assert (L3_2_1 : totalClearedLines s' = totalClearedLines s + clearedLines)
-      by now apply FixPieceStep in Hm as L3_2_1_1; simpl in L3_2_1_1; lia.
-    unfold G.
-    enough (totalClearedLines s <= totalClearedLines s + clearedLines)
-      by now rewrite L3_2_1.
-    lia.
-  }
-  assert (L4 : ∀ p_new (Hm : FallStep p_new s = Some s'), G). {
-    intros.
-    unfold FallStep in Hm.
-    destruct MovePiece eqn: Hf in Hm.
-    - assert (L4_1 : MovePiece (-1, 0)%Z s = Some s') by now rewrite Hm in Hf.
-      now apply L1 in L4_1.
-    - Check (Hm : FixPiece p_new s = Some s').
-      now apply L3 in Hm.
-  }
-  assert (L5 : ∀ (Hm : Next Stutter s = Some s'), G). {
-    intros.
-    assert (L5_1 : s' = s) by now apply StutterStep in Hm.
-    unfold G; rewrite L5_1; lia.
-  }
-  destruct e in Hn; eauto using L1, L2, L3, L4, L5.
-Qed.
+Proof. intros; apply NextNonDecreasing in Hn; tauto. Qed.
 
 Theorem StepNonDecreasingLevel : ∀ [s] s'
   (Hc : Correct s),
   NonDecreasingLevel s s'.
 Proof.
-  unfold NonDecreasingLevel.
-  intros.
-  enough (1 + totalClearedLines s / 10 <= 1 + totalClearedLines s' / 10). {
-    assert (L1 : Correct s') by now apply NextCorrect in Hn.
-    assert (L2 : level s = 1 + (totalClearedLines s) / 10)
-      by now destruct Hc as [_ L2_1]; unfold LevelCorrect in L2_1.
-    assert (L3 : level s' = 1 + (totalClearedLines s') / 10)
-      by now destruct L1 as [_ L3_1]; unfold LevelCorrect in L3_1.
-    now rewrite L2, L3.
-  }
-  enough (totalClearedLines s / 10 <= totalClearedLines s' / 10)
-    by lia.
-  enough (totalClearedLines s <= totalClearedLines s')
-    by now apply Nat.Div0.div_le_mono; lia.
-  now apply StepNonDecreasingTotalClearedLines in Hn. 
+  intros s s' Hc e Hn.
+  (* level is a monotone function of totalClearedLines on Correct states *)
+  assert (Hc' : Correct s') by eapp NextCorrect.
+  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
+  assert (Hl' : LevelCorrect s') by (unfold Correct in Hc'; tauto).
+  assert (Ht : totalClearedLines s <= totalClearedLines s')
+    by eapp StepNonDecreasingTotalClearedLines.
+  unfold LevelCorrect in Hl, Hl'; rewrite Hl, Hl'.
+  pose proof (Nat.Div0.div_le_mono _ _ 10 Ht); lia.
+Qed.
+
+(* Clearing at least one line, at a positive level, earns points. *)
+Lemma PointsPositive : ∀ clearedLines level combo perfectClear
+  (Hi : 0 < clearedLines)
+  (Hv : 0 < level),
+  0 < Points clearedLines level combo perfectClear.
+Proof.
+  intros [| [| [| [| n]]]] level combo perfectClear Hi Hv;
+    unfold Points; cbn [LineClearPoints]; lia.
 Qed.
 
 Theorem StepScoreRisesOnClear (s s' : State) :
   ScoreRisesOnClear s s'.
 Proof.
-  unfold ScoreRisesOnClear.
-  intros.
-  enough (score s < score s') by trivial.
-  set (clearedLines' := clearedLines (s1 s')).
-  set (combo' := (if clearedLines' =? 0 then 0 else (combo s) + 1)).
-  set (perfectClear' := EmptyGridb (mg s')).
-  assert (L1 : score s' = score s + (Points clearedLines' (level s) (combo'-1) perfectClear'))
-    by now apply FixPieceStep in Hn.
-  rewrite L1.
-  enough (0 < Points (clearedLines (s1 s')) (level s) (combo' - 1) perfectClear')
-    by now unfold clearedLines'; lia.
-  assert (L2 : ∀ clearedLines level combo perfectClear
-              (Hv : 0 < level)
-              (Hi : 0 < clearedLines),
-              0 < Points clearedLines level combo perfectClear). {
-    intros.
-    assert (L2_1 : ∀ clearedLines level
-                   (Hp : 0 < clearedLines)
-                   (He : 0 < level),
-                   0 < LineClearPoints clearedLines level). {
-      intros.
-      unfold LineClearPoints.
-      keep_only Hp He.
-      destruct clearedLines0 as [| [| [| [| n]]]]; simpl; nia.
-    }
-    unfold Points.
-    pose proof (L2_1 clearedLines level Hi Hv) as H1.
-    keep_only H1; lia.
-  }
-  assert (L3 : 0 < level s). {
-    unfold Correct, LevelCorrect in Hc.
-    assert (L3_1 : level s = 1 + totalClearedLines s / 10)
-      by now destruct Hc.
-    keep_only L3_1; lia.
-  }
-  apply (L2 (clearedLines (s1 s')) (level s) (combo' - 1) perfectClear' L3).
-  exact Hl.
+  intros p_new Hc Hn Hcl.
+  (* LevelCorrect s makes the level positive *)
+  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
+  assert (Hv : 0 < level s) by (unfold LevelCorrect in Hl; lia).
+  set (cl := clearedLines (s1 s')) in *.
+  set (combo' := (if cl =? 0 then 0 else combo s + 1) - 1).
+  set (pc := EmptyGridb (mg s')).
+  assert (Esc : score s' = score s + Points cl (level s) combo' pc)
+    by (apply FixPieceStep in Hn; cbv zeta in Hn; tauto).
+  assert (HP : 0 < Points cl (level s) combo' pc) by (apply PointsPositive; assumption).
+  lia.
 Qed.
 
 (* NonDecreasingLevel is the only conjunct needing `Correct s`: FixPiece resets
@@ -524,7 +460,7 @@ Theorem CorrectStepHold : ∀ [s] s'
   (Hc : Correct s),
   CorrectStep s s'.
 Proof.
-  intros; unfold CorrectStep; repeat split; auto using StepNonDecreasingScore,
+  intros; unfold CorrectStep; split_top; auto using StepNonDecreasingScore,
     StepNonDecreasingLevel, StepScoreRisesOnClear.
 Qed.
 
@@ -548,57 +484,26 @@ fₛ ↑     ⇑fₑ  ↑ fₛ
          e2
 *)
 
-#[local] Ltac apply_cong Def H :=
-  intros;
-  apply Def in H as [H1 _];
-  keep_only H1;
-  congruence.
-
 Lemma RefineNext : ∀ [s2 s2' e2]
   (Hn : T2.Next e2 s2 = Some s2'),
   T1.Next (fₑ e2) (fₛ s2) = Some (fₛ s2').
 Proof.
-  intros.
-  unfold fₛ. (* fₛ = s1 *)
-  assert (L1 : ∀ [dyx]
-               (Hm : MovePiece dyx s2 = Some s2'),
-               T1.MovePiece dyx (s1 s2) = Some (s1 s2'))
-    by now apply_cong MovePieceStep Hm.
-  assert (L2 : ∀ cw (Hm : RotatePiece cw s2 = Some s2'),
-               T1.RotatePiece cw (s1 s2) = Some (s1 s2'))
-    by now apply_cong RotatePieceStep Hm.
-  assert (L3 : ∀ p_new (Hm : FixPiece p_new s2 = Some s2'),
-               T1.FixPiece p_new (s1 s2) = Some (s1 s2'))
-    by now apply_cong FixPieceStep Hm.
-  assert (L4 : ∀ p_new (Hm : FallStep p_new s2 = Some s2'),
-               T1.FallStep p_new (s1 s2) = Some (s1 s2')). {
-    keep_only L1 L3 Hn.
-    intros.
-    unfold FallStep in Hm.
-    destruct MovePiece eqn: H1 in Hm.
-    - (* MovePiece succeeds *)
-      unfold T1.FallStep.
-      rewrite Hm in H1.
-      apply L1 in H1.
-      now rewrite H1.
-    - (* FixPiece succeeds *)
-      assert (L4_1 : T1.MovePiece (-1, 0)%Z (s1 s2) = None) 
-        by now apply MovePieceFail in H1.
-      unfold T1.FallStep.
-      enough (T1.FixPiece p_new (s1 s2) = Some (s1 s2')) by now rewrite L4_1.
-      now rewrite (L3 p_new Hm).
-  }
-  assert (L5 : ∀ (Hm : Next Stutter s2 = Some s2'),
-               T1.Next (fₑ Stutter) (s1 s2) = Some (s1 s2')). {
-    intros.
-    apply StutterStep in Hm as L5_1.
-    simpl; congruence.
-  }
-  destruct e2; (eapp L1 || eapp L2 || eapp L3 || eapp L4 || eapp L5).
+  intros; destruct e2; unfold fₛ; cbn [Next T1.Next fₑ] in *;
+    first [ congruence | eauto using MovePieceT1, RotatePieceT1, FixPieceT1, FallStepT1 ].
+Qed.
+
+(* Conversely, a T2 step fails only when its T1 counterpart does: both
+ * steps are guarded by the same T1 step functions. *)
+Lemma RefineNextNone : ∀ [s2 e2]
+  (Hn : T2.Next e2 s2 = None),
+  T1.Next (fₑ e2) (fₛ s2) = None.
+Proof.
+  intros; destruct e2; unfold fₛ; cbn [Next T1.Next fₑ] in *;
+    first [ discriminate Hn | exact (OptionMapNone Hn) | eapp FallStepNone ].
 Qed.
 
 Theorem SpecRefine : T2RefinesT1.
-Proof. split; auto using RefineInit, RefineNext. Qed.
+Proof. unfold T2RefinesT1; split_top; auto using RefineInit, RefineNext. Qed.
 
 
 (*****************)
@@ -623,68 +528,38 @@ Lemma StepLifts :
     ∃ s2', T2.Next (gₑ e1) s2 = Some s2' ∧ fₛ s2' = s1'.
 Proof.
   intros.
-  destruct (T2.Next (gₑ e1) s2) eqn: Hn.
-  - Check (Hn : Next (gₑ e1) s2 = Some s).
-    assert (L1 : fₛ s = s1'). {
-      assert (L1_1 : T1.Next (fₑ (gₑ e1)) (fₛ s2) = Some (fₛ s))
-        by now apply RefineNext in Hn.
-      assert (L1_2 : T1.Next e1 s1 = Some (fₛ s))
-        by now rewrite feRetractsGe, H1 in L1_1.
-      now rewrite H2 in L1_2; inject L1_2.
-    }
-    enough (Some s = Some s ∧ fₛ s = s1') by now exists s.
-    split; (reflexivity || exact L1).
-  - Check (Hn : Next (gₑ e1) s2 = None).
-    unfold T1.Next in H2.
-    unfold Next, MovePiece, RotatePiece, FixPiece in Hn.
-    unfold fₛ in H1.
-    rewrite <- H1 in H2.
-    assert (L1 : ∀ pNew
-        (Hf1 : T1.FallStep pNew (T2.s1 s2) = Some s1')
-        (Hf2 : FallStep pNew s2 = None),
-        ∃ s2' : State, None = Some s2' ∧ fₛ s2' = s1'). {
-      intros.
-      keep_only Hf1 Hf2.
-      unfold T1.FallStep in Hf1.
-      unfold FallStep, MovePiece in Hf2.
-      destruct (T1.MovePiece ((-1)%Z, 0%Z) (T2.s1 s2)).
-      -- unfold FallStep in Hf2. discriminate Hf2.
-      -- simpl in Hf2.
-         unfold FixPiece in Hf2.
-         rewrite Hf1 in Hf2.
-         discriminate Hf2.
-    }
-    destruct e1; simpl in Hn;
-      (try rewrite H2 in Hn; discriminate Hn) || eapp L1.
+  destruct (T2.Next (gₑ e1) s2) as [s2' |] eqn: Hn.
+  - assert (Hfs : fₛ s2' = s1')
+      by (apply RefineNext in Hn; rewrite feRetractsGe, H1, H2 in Hn; congruence).
+    exists s2'; split_top; (reflexivity || assumption).
+  - apply RefineNextNone in Hn; rewrite feRetractsGe, H1, H2 in Hn; discriminate Hn.
+Qed.
+
+(* Generalized over the starting states, so that the induction hypothesis
+ * applies at every point along the run. *)
+Lemma RunLifts : ∀ es1 s1 s1' s2
+  (Hfs : fₛ s2 = s1)
+  (Hrun : RunT1 es1 s1 = Some s1'),
+  ∃ s2', RunT2 (map gₑ es1) s2 = Some s2' ∧ fₛ s2' = s1'.
+Proof.
+  induction es1 as [| e1 es1 IH]; intros; cbn [RunT1 RunT2 map] in Hrun |- *.
+  - exists s2; split_top; congruence.
+  - destruct (T1.Next e1 s1) as [s1'' |] eqn: Hstep; [ | discriminate Hrun ].
+    (* the T1 step lifts to a T2 step from s2, then the induction hypothesis
+     * lifts the rest of the run *)
+    apply StepLifts with (s2 := s2) in Hstep; [ | assumption ].
+    destruct Hstep as (s2'' & Hstep).
+    assert (Hn : T2.Next (gₑ e1) s2 = Some s2'') by tauto.
+    assert (Hfs'' : fₛ s2'' = s1'') by tauto.
+    rewrite Hn; eapp IH.
 Qed.
 
 Theorem T2AllowsAllT1Hold : T2AllowsAllT1.
 Proof.
-  (* generalize the starting states so the IH applies at every point along the run *)
-  assert (L1 : ∀ es1 s1 s2 s1'
-      (Hfs : fₛ s2 = s1)
-      (Hrun : RunT1 es1 s1 = Some s1'),
-      ∃ s2', RunT2 (map gₑ es1) s2 = Some s2' /\ fₛ s2' = s1'). {
-    intros es1.
-    induction es1 as [| e1 es1' IH]. intros.
-    - (* es1 = [] : RunT1 returns s1 itself *)
-      exists s2. simpl in Hrun. split; (reflexivity || congruence).
-    - (* es1 = e1 :: es1' *)
-      intros.
-      simpl in Hrun.
-      destruct (T1.Next e1 s1) as [s1'' | ] eqn:Hstep; [ | discriminate].
-      (* apply the single-step lemma to lift this step to T2 *)
-      destruct (StepLifts Hfs Hstep) as [s2'' [Hstep2 Hfs2]].
-      simpl. rewrite Hstep2.
-      (* recurse on the rest of the trace, from (s1'', s2'') *)
-      eapp IH.
-  }
-  unfold T2AllowsAllT1. intros p es1 s1'.
-  enough (fₛ (T2.Init p) = T1.Init p)
-    by now apply (L1 es1 (T1.Init p) (T2.Init p) s1').
-  assert (L2 : ∀ p, fₛ (T2.Init p) = T1.Init p)
-    by now pose proof SpecRefine; tauto.
-  exact (L2 p).
+  intros p es1 s1' H1.
+  assert (HI : fₛ (T2.Init p) = T1.Init p) by apply RefineInit.
+  apply RunLifts with (s2 := T2.Init p) in H1; [ | assumption ].
+  destruct H1 as (s2' & H1); exists s2'; split_top; tauto.
 Qed.
 
 
@@ -699,17 +574,11 @@ Lemma NewPieceStateCorrect : ∀ (p_new : Piece) (s : State)
   (Hc : Correct s),
   Correct (UnchangedT2Part s (T1.NewPieceState p_new (s1 s))).
 Proof.
-  intros p_new s Hc.
-  set (s' := UnchangedT2Part s (T1.NewPieceState p_new (s1 s))).
-  assert (L1 : T1.Correct (s1 s')). {
-    assert (L1_1 : T1.Correct (s1 s)) by now destruct Hc.
-    keep_only L1_1; now apply T1P.NewPieceStateCorrect.
-  }
-  assert (L2 : LevelCorrect s'). {
-    (* level and totalClearedLines are copied verbatim by UnchangedT2Part *)
-    assert (L2_1 : level s' = level s) by reflexivity.
-    assert (L2_2 : totalClearedLines s' = totalClearedLines s) by reflexivity.
-    unfold LevelCorrect; rewrite L2_1, L2_2; now destruct Hc.
-  }
-  split; auto using L1, L2.
+  intros.
+  assert (HC1 : T1.Correct (s1 s)) by (unfold Correct in Hc; tauto).
+  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
+  assert (HC1' : T1.Correct (T1.NewPieceState p_new (s1 s)))
+    by (apply T1P.NewPieceStateCorrect; assumption).
+  (* level and totalClearedLines are copied verbatim by UnchangedT2Part *)
+  unfold Correct; split_top; assumption.
 Qed.
