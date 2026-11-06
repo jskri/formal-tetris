@@ -327,6 +327,10 @@ Qed.
 Lemma NewPieceYXStateGameover : ∀ pyx pl s, gameover (NewPieceYXState pyx pl s) = gameover s.
 Proof. intros; extensionality pl2; unfold gameover; cbn; player_cases; reflexivity. Qed.
 
+Lemma NewPieceYXStateOtherS6 : ∀ [pyx pl s pl2] (Hne : pl2 ≠ pl),
+  s6 (NewPieceYXState pyx pl s) pl2 = s6 s pl2.
+Proof. intros; cbn; player_cases; first [ reflexivity | congruence ]. Qed.
+
 Lemma NewPieceYXStateS6Correct : ∀ [s pl] (Hc : S6Correct s),
   S6Correct (NewPieceYXState (gy s pl, px s pl) pl s).
 Proof.
@@ -363,8 +367,15 @@ Qed.
 
 
 (* ========================================================================= *)
-(* GameoverMonotone and DisconnectedMonotone                                 *)
+(* OtherS6Unchanged, and monotonicity of gameover, connected and the views   *)
 (* ========================================================================= *)
+
+(* A step changes the T6 state of the acting player only. *)
+Lemma StepOtherS6Unchanged : ∀ [pl s s' pl2]
+  (Hn : Step pl s s')
+  (Hne : pl2 ≠ pl),
+  s6 s' pl2 = s6 s pl2.
+Proof. intros; step_cases; fields; player_cases; first [ reflexivity | congruence ]. Qed.
 
 (* Only the acting player's gameover can change, and only from false: a fix
  * needs a game not over. *)
@@ -382,6 +393,27 @@ Lemma StepDisconnectedMonotone : ∀ [pl s s' pl2]
   (Hn : Step pl s s')
   (Hc : connected s pl2 = false),
   connected s' pl2 = false.
+Proof. intros; step_cases; fields; player_cases; first [ assumption | reflexivity ]. Qed.
+
+(* The view of the acting player about herself follows her gameover, which is
+ * monotone; it is not true before a fix, which needs a game not over. A received
+ * GameoverMessage sets a view to true. *)
+Lemma StepGameoverViewMonotone : ∀ [pl s s' pl2 pl3]
+  (Ha : SelfViewAccurate s)
+  (Hn : Step pl s s')
+  (Hg : gameoverView s pl2 pl3 = true),
+  gameoverView s' pl2 pl3 = true.
+Proof.
+  intros; step_cases; unfold SelfViewAccurate, gameover in *; fields; player_cases;
+    first [ reflexivity | assumption | rewrite Ha in Hg; first [ congruence | unfold S6Step in *; tauto ] ].
+Qed.
+
+(* Only a received DisconnectMessage and NoticeDisconnection change
+ * connectedView, and only to false. *)
+Lemma StepDisconnectedViewMonotone : ∀ [pl s s' pl2 pl3]
+  (Hn : Step pl s s')
+  (Hc : connectedView s pl2 pl3 = false),
+  connectedView s' pl2 pl3 = false.
 Proof. intros; step_cases; fields; player_cases; first [ assumption | reflexivity ]. Qed.
 
 (* States both monotonicity facts of the step [Hn]. *)
@@ -1114,4 +1146,45 @@ Proof.
   intros s s' e pl1 pl2 Hn Hc; apply NextStep in Hn as (s0 & Hs0 & Hn).
   assert (Hc0 : connected s0 pl2 = false) by (decompose [or] Hs0; subst; assumption).
   eapp StepDisconnectedMonotone.
+Qed.
+
+Theorem OtherS6UnchangedHolds : ∀ s s', OtherS6Unchanged s s'.
+Proof.
+  intros s s' e pl1 pl2 Hn Hne; apply NextStep in Hn as (s0 & Hs0 & Hn).
+  assert (E0 : s6 s0 pl2 = s6 s pl2)
+    by (decompose [or] Hs0; subst; first [ reflexivity | apply NewPieceYXStateOtherS6; assumption ]).
+  rewrite <- E0; eapp StepOtherS6Unchanged.
+Qed.
+
+Theorem GameoverViewMonotoneHolds : ∀ s s'
+  (Ha : SelfViewAccurate s),
+  GameoverViewMonotone s s'.
+Proof.
+  intros s s' Ha e pl1 pl2 pl3 Hn Hg; apply NextStep in Hn as (s0 & Hs0 & Hn).
+  assert (Ha0 : SelfViewAccurate s0) by (apply PreStepInvariants in Hs0; tauto).
+  assert (Hg0 : gameoverView s0 pl2 pl3 = true) by (decompose [or] Hs0; subst; assumption).
+  eapp StepGameoverViewMonotone.
+Qed.
+
+Theorem DisconnectedViewMonotoneHolds : ∀ s s', DisconnectedViewMonotone s s'.
+Proof.
+  intros s s' e pl1 pl2 pl3 Hn Hc; apply NextStep in Hn as (s0 & Hs0 & Hn).
+  assert (Hc0 : connectedView s0 pl2 pl3 = false) by (decompose [or] Hs0; subst; assumption).
+  eapp StepDisconnectedViewMonotone.
+Qed.
+
+(* The T6 step invariants need only T6.CorrectWithoutGameover, which S6Correct
+ * provides (T7 weakens the gameover invariant, see T7.Gameover). *)
+Theorem CorrectStepHolds : ∀ pl s s'
+  (Hc : Correct s),
+  CorrectStep pl s s'.
+Proof.
+  intros.
+  assert (HS : S6Correct s) by (unfold Correct in Hc; tauto).
+  assert (HC6 : T6.CorrectWithoutGameover (s6 s pl)) by (specialize (HS pl); tauto).
+  assert (Ha : SelfViewAccurate s) by (unfold Correct in Hc; tauto).
+  unfold CorrectStep; split_top;
+    first [ eapp T5P.StepCorrectWithoutGameover | apply OtherS6UnchangedHolds
+          | apply GameoverMonotoneHolds | eapp GameoverViewMonotoneHolds
+          | apply DisconnectedMonotoneHolds | apply DisconnectedViewMonotoneHolds ].
 Qed.

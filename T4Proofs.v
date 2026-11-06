@@ -411,6 +411,15 @@ Proof.
   exact (T3P.CorrectStepHold _ HC3).
 Qed.
 
+Theorem CorrectStepHoldWithoutGameover : ∀ [s] s'
+  (Hc : CorrectWithoutGameover s),
+  CorrectStep s s'.
+Proof.
+  intros.
+  assert (HC3 : T3.CorrectWithoutGameover (s3 s)) by (unfold CorrectWithoutGameover in Hc; tauto).
+  exact (T3P.CorrectStepHoldWithoutGameover _ HC3).
+Qed.
+
 
 (* ========================================================================= *)
 (* Refinement                                                                *)

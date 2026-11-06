@@ -407,6 +407,15 @@ Proof.
   unfold CorrectStep; split_top; auto using T2P.CorrectStepHold, StepHoldMonotone.
 Qed.
 
+Theorem CorrectStepHoldWithoutGameover : ∀ [s] s'
+  (Hc : CorrectWithoutGameover s),
+  CorrectStep s s'.
+Proof.
+  intros.
+  assert (HC2 : T2.CorrectWithoutGameover (s2 s)) by (unfold CorrectWithoutGameover in Hc; tauto).
+  unfold CorrectStep; split_top; auto using T2P.CorrectStepHoldWithoutGameover, StepHoldMonotone.
+Qed.
+
 
 (* ========================================================================= *)
 (* Refinement                                                                *)

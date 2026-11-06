@@ -398,15 +398,24 @@ Theorem StepNonDecreasingTotalClearedLines : ∀ [s s' e]
   totalClearedLines s <= totalClearedLines s'.
 Proof. intros; apply NextNonDecreasing in Hn; tauto. Qed.
 
+(* Move and Rotate keep LevelCorrect, and Fix recomputes the level. *)
+Lemma NextLevelCorrect : ∀ [e s s']
+  (Hl : LevelCorrect s)
+  (Hn : Next e s = Some s'),
+  LevelCorrect s'.
+Proof.
+  intros; decompose [or ex] (NextCases Hn); subst;
+    first [ assumption | eapp MovePieceLevelCorrect | eapp RotatePieceLevelCorrect
+          | eapp FixPieceLevelCorrect ].
+Qed.
+
 Theorem StepNonDecreasingLevel : ∀ [s] s'
-  (Hc : Correct s),
+  (Hl : LevelCorrect s),
   NonDecreasingLevel s s'.
 Proof.
-  intros s s' Hc e Hn.
-  (* level is a monotone function of totalClearedLines on Correct states *)
-  assert (Hc' : Correct s') by eapp NextCorrect.
-  assert (Hl : LevelCorrect s) by (unfold Correct in Hc; tauto).
-  assert (Hl' : LevelCorrect s') by (unfold Correct in Hc'; tauto).
+  intros s s' Hl e Hn.
+  (* level is a monotone function of totalClearedLines on LevelCorrect states *)
+  assert (Hl' : LevelCorrect s') by eapp NextLevelCorrect.
   assert (Ht : totalClearedLines s <= totalClearedLines s')
     by eapp StepNonDecreasingTotalClearedLines.
   unfold LevelCorrect in Hl, Hl'; rewrite Hl, Hl'.
@@ -439,15 +448,25 @@ Proof.
   lia.
 Qed.
 
-(* NonDecreasingLevel is the only conjunct needing `Correct s`: FixPiece resets
- * level to `1 + totalClearedLines'/10`, which is below an arbitrary `level s`
- * unless LevelCorrect holds. *)
+(* NonDecreasingLevel is the only conjunct needing a hypothesis on s, namely
+ * LevelCorrect: FixPiece resets level to `1 + totalClearedLines'/10`, which is
+ * below an arbitrary `level s` unless LevelCorrect holds. *)
+Theorem CorrectStepHoldWithoutGameover : ∀ [s] s'
+  (Hc : CorrectWithoutGameover s),
+  CorrectStep s s'.
+Proof.
+  intros.
+  assert (Hl : LevelCorrect s) by (unfold CorrectWithoutGameover in Hc; tauto).
+  unfold CorrectStep; split_top; auto using StepNonDecreasingScore,
+    StepNonDecreasingLevel, StepScoreRisesOnClear.
+Qed.
+
 Theorem CorrectStepHold : ∀ [s] s'
   (Hc : Correct s),
   CorrectStep s s'.
 Proof.
-  intros; unfold CorrectStep; split_top; auto using StepNonDecreasingScore,
-    StepNonDecreasingLevel, StepScoreRisesOnClear.
+  intros; apply CorrectStepHoldWithoutGameover.
+  unfold Correct, CorrectWithoutGameover, T1.Correct in *; tauto.
 Qed.
 
 

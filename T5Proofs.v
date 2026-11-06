@@ -573,6 +573,11 @@ Theorem StepCorrect : ∀ [s] s'
   CorrectStep s s'.
 Proof. intros; apply T4P.CorrectStepHold; unfold Correct in Hc; tauto. Qed.
 
+Theorem StepCorrectWithoutGameover : ∀ [s] s'
+  (Hc : CorrectWithoutGameover s),
+  CorrectStep s s'.
+Proof. intros; apply T4P.CorrectStepHoldWithoutGameover; unfold CorrectWithoutGameover in Hc; tauto. Qed.
+
 
 (* ========================================================================= *)
 (* Refinement                                                                *)
