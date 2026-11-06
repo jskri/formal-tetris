@@ -33,8 +33,8 @@ write (§7, §8), and
 
 Safety only, per skill convention. Excluded from `T7RefinesT6` (hence from any
 "this JS step *is* this `T6.v` step" claim): a materializing `Fix` — `remGarbage >
-0` — including one reached via `Drop` (`T7.v`'s header comment, "Refinement",
-and `T7RefinesT6`'s `H4`/`H5` hypotheses). This file's own obligation (JS ⊨ `T7.v`) is not so excluded: every JS
+0` — including one reached via `Drop` or `Fall` (`T7.v`'s header comment, "Refinement",
+and `T7RefinesT6`'s `NoMaterialization` hypothesis). This file's own obligation (JS ⊨ `T7.v`) is not so excluded: every JS
 step, materializing or not, is argued against `T7.v`'s `Next` directly (§4–§9).
 
 ## 2. `PlayerCount = 1`
@@ -162,12 +162,12 @@ independent of `remGarbage`, so this case exercises exactly the same redirect
 `T7.v` calls for, covered by §7 below. Net: under `NoRemGarbage`, `fixPiece`'s only
 observable effect is `this.s6.fixPiece(bagNew)` plus the `garbage := 0` write plus,
 possibly, the very redirect `T7.v` itself performs — i.e. it *is* `T6.Next
-e6 (fₛ pl s7)`, matching `T7RefinesT6`'s own claim, not contradicting it (`H4` in
+e6 (fₛ pl s7)`, matching `T7RefinesT6`'s own claim, not contradicting it (`NoMaterialization` in
 `T7RefinesT6`'s statement excludes this call from *that* proof's obligation, but
 nothing here needs re-deriving it — `NoMaterializedGarbage`'s left disjunct,
 `PlayerCount = 1`, is out of scope by §2; its right disjunct is this case).
 
-**Case `remGarbage > 0`.** `T7RefinesT6`'s hypothesis `H4` excludes this call from the
+**Case `remGarbage > 0`.** `T7RefinesT6`'s hypothesis `NoMaterialization` excludes this call from the
 T6-refinement claim entirely (`NoMaterializedGarbage` fails) — no obligation there.
 This file's own obligation (JS ⊨ `T7.v`) still applies, and is a direct
 transcription:

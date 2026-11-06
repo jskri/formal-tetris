@@ -13,19 +13,7 @@ Import ListNotations.
 
 #[local] Open Scope nat_scope.
 
-(* Proof style: proofs do not depend on the order of conjuncts, disjuncts,
- * hypotheses, lemma premises or event constructors. Same rules as T6Proofs.v:
- * - a fact is taken out of a conjunction by stating it, e.g.
- *   [assert (F : fact) by (apply L in H; tauto)],
- * - a conjunction is proven by first stating all its conjuncts, then closing
- *   every branch with the same tactic (e.g. [split_top; assumption]),
- * - a lemma with several premises is applied with [eapp] or [apply ... in],
- *   not by passing hypotheses positionally,
- * - a disjunction is taken apart with [decompose], and every case is closed
- *   with the same tactic,
- * - a case analysis on an event closes every case with the same tactic.
- *
- * Every event is first reduced to one of the six ways a step can change the
+(* Every event is first reduced to one of the six ways a step can change the
  * state ([Step] below). Each invariant is then proven once for all of them:
  * [step_cases] writes the new state as an explicit record, [player_cases]
  * decides the player comparisons it contains, and one list of closing tactics
@@ -1188,3 +1176,251 @@ Proof.
           | apply GameoverMonotoneHolds | eapp GameoverViewMonotoneHolds
           | apply DisconnectedMonotoneHolds | apply DisconnectedViewMonotoneHolds ].
 Qed.
+
+
+(* ========================================================================= *)
+(* Refinement                                                                *)
+(*                                                                           *)
+(* A T6 fix clears lines by rebuilding the rows of its grid from the bottom  *)
+(* of the box, so no block lies below it. Without remaining garbage, the     *)
+(* multiplayer fix then keeps the grid of the T6 fix: the mask of FP.Mg'     *)
+(* only removes blocks below the box. It also keeps its gameover, and its    *)
+(* recomputed shadow is the one of the T6 fix (T5.GyEqShadowY).              *)
+(* ========================================================================= *)
+
+Lemma GridEq : ∀ (g1 g2 : Grid)
+  (EL : ∀ y x, L g1 y x = L g2 y x)
+  (EHW : HW g1 = HW g2)
+  (EYX : YX g1 = YX g2),
+  g1 = g2.
+Proof.
+  intros [] []; cbn; intros; subst; f_equal.
+  extensionality y; extensionality x; apply EL.
+Qed.
+
+Lemma GridIncludeRefl : ∀ g, g ⊆ g = true.
+Proof. intros; apply T1P.GridIncludeIntro; auto. Qed.
+
+(* The filtered grid has its rows from index i up. *)
+Lemma FilterFullLinesBelow : ∀ g fuel y i j x
+  (Hj : (j < i)%Z),
+  L (T1.FilterFullLines g fuel y i) j x = false.
+Proof.
+  induction fuel as [ | fuel IH ]; intros; [ reflexivity | rewrite T1P.FilterFullLinesS ].
+  destruct (T1.IsFullLineb g y); [ apply IH; lia | cbn [L] ].
+  destruct (Z.eqb_spec j i); [ lia | apply IH; lia ].
+Qed.
+
+Lemma ClearFullLinesBelow : ∀ g y x
+  (Hy : (y < Y g)%Z),
+  L (T1.ClearFullLines g) y x = false.
+Proof.
+  intros; unfold T1.ClearFullLines, T1.Resize; cbn [L].
+  destruct (_ <? _)%Z; [ apply FilterFullLinesBelow; assumption | reflexivity ].
+Qed.
+
+Lemma FixPieceMgBelow : ∀ [bagNew H s6 s6']
+  (Hn : T6.FixPiece bagNew H s6 = Some s6')
+  y x (Hy : (y < Y (T6.mg s6'))%Z),
+  L (T6.mg s6') y x = false.
+Proof.
+  intros; apply T5P.FixPieceT1, T1P.FixPieceOK in Hn; destruct Hn as [E _].
+  change (T6.mg s6') with (T1.mg (s1 s6')) in *; rewrite E in *.
+  apply ClearFullLinesBelow.
+  destruct (T1P.ClearFullLinesBox ((T1.mg (s1 s6) ∪ (T1.PieceGrid (s1 s6) ⊕ T1.pyx (s1 s6)))
+    ∩ T1.Full (T1.mg (s1 s6)))) as [_ EYX].
+  unfold Y in *; rewrite EYX in Hy; exact Hy.
+Qed.
+
+Lemma FixMgNoGarbage : ∀ s pl s6' holes
+  (Hr : snd (GenRemGarbage (garbage s pl) (T6.clearedLines s6') (T6.perfectClear s6')) = 0)
+  (EHW : HW (T6.mg s6') = HW InitialMainGrid)
+  (EYX : YX (T6.mg s6') = YX InitialMainGrid)
+  (Hb : ∀ y x, (y < 0)%Z → L (T6.mg s6') y x = false),
+    FP.Mg' s pl s6' holes = T6.mg s6'
+  ∧ FP.CroppedMg' s pl s6' holes = T6.mg s6'.
+Proof.
+  intros; destruct AxiomsInitialMainGrid as (HH & HW0 & HYX & _).
+  assert (EL : ∀ y x, L (FP.Mg' s pl s6' holes) y x = L (T6.mg s6') y x). {
+    intros; unfold FP.Mg', GarbageGrid; rewrite Hr; cbn [L GridUnion GridIntersect GridTranslate].
+    change (Z.of_nat 0) with 0%Z; rewrite !Z.sub_0_r.
+    destruct (Z.ltb_spec y 0), (Z.leb_spec 0 y); try lia;
+      [ rewrite Hb by assumption | ]; cbn [andb orb]; rewrite ?andb_false_r, ?andb_true_r; reflexivity.
+  }
+  assert (EM : FP.Mg' s pl s6' holes = T6.mg s6'). {
+    apply GridEq; [ exact EL | | ];
+    unfold FP.Mg', GarbageGrid; rewrite Hr;
+    unfold GridUnion, GridIntersect, GridTranslate, H, W, Y, X in *;
+    cbn [HW YX fst snd]; rewrite ?EHW, ?EYX, ?HYX; cbn [fst snd];
+    change (Z.of_nat 0) with 0%Z;
+    [ rewrite (surjective_pairing (HW InitialMainGrid)) | ]; f_equal; cbn [fst snd]; lia.
+  }
+  split; [ exact EM | ].
+  destruct (FixMgBox s pl s6' holes EHW EYX) as [EHW' EYX'].
+  apply GridEq; [ | congruence | congruence ].
+  intros; unfold FP.CroppedMg'; cbn [L GridIntersect T1.Full T1.Constant]; rewrite andb_true_r, EM; reflexivity.
+Qed.
+
+Lemma NewMainGridGameoverStateSame : ∀ s6
+  (Hg : T5.GyEqShadowY s6),
+  NewMainGridGameoverState (T6.mg s6) (T6.gameover s6) s6 = s6.
+Proof.
+  intros [[[[[] ? ? ? ? ?] ? ?] ?] ?]; unfold T5.GyEqShadowY; cbn [T5.gy T5.s4]; intros ->.
+  reflexivity.
+Qed.
+
+(* A fix without materialized garbage is the T6 fix: in single-player mode
+ * trivially, in multiplayer mode by FixMgNoGarbage. *)
+Lemma FixRefine : ∀ [pl holes Hholes bagNew HbagNew s s']
+  (Hc : Correct s)
+  (Hm : NoMaterializedGarbage pl bagNew HbagNew s)
+  (Hn : FixPiece pl holes Hholes bagNew HbagNew s = Some s'),
+  T6.FixPiece bagNew HbagNew (s6 s pl) = Some (s6 s' pl).
+Proof.
+  intros; unfold FixPiece in Hn; destruct (! WinnerMulti s pl); [ | discriminate Hn ].
+  unfold NoMaterializedGarbage, NoRemGarbage in Hm.
+  destruct (T6.FixPiece bagNew HbagNew (s6 s pl)) as [s6' | ] eqn: E6;
+    cbn [option_map] in Hn; [ inject Hn; subst | discriminate Hn ].
+  f_equal; destruct (PlayerCount =? 1) eqn: Hpc; cbn [s6 UpdatePlayer]; rewrite PlayerEqbRefl;
+    [ reflexivity | ].
+  assert (Hr : snd (GenRemGarbage (garbage s pl) (T6.clearedLines s6') (T6.perfectClear s6')) = 0)
+    by (decompose [or] Hm; first [ apply Nat.eqb_neq in Hpc; contradiction | assumption ]).
+  assert (Hc6 : T6.CorrectWithoutGameover (s6 s pl))
+    by (unfold Correct, S6Correct in Hc; apply Hc).
+  assert (Hc' : T6.CorrectWithoutGameover s6') by eapp T5P.FixPieceCorrectWithoutGameover.
+  assert (HT : T1.TypeOK (s1 s6') ∧ T5.GyEqShadowY s6') by
+    (unfold T6.CorrectWithoutGameover, T5.CorrectWithoutGameover, T4.CorrectWithoutGameover,
+       T3.CorrectWithoutGameover, T2.CorrectWithoutGameover, T1.CorrectWithoutGameover in Hc'; tauto).
+  destruct HT as ((EHW & EYX & _) & Hg).
+  assert (Hb : ∀ y x, (y < 0)%Z → L (T6.mg s6') y x = false). {
+    intros; eapply FixPieceMgBelow; [ exact E6 | ].
+    destruct AxiomsInitialMainGrid as (_ & _ & HYX & _).
+    unfold Y; change (T6.mg s6') with (T1.mg (s1 s6')); rewrite EYX, HYX; cbn [fst]; assumption.
+  }
+  destruct (FixMgNoGarbage s pl s6' holes Hr EHW EYX Hb) as [EM EC].
+  assert (EG : FP.Gameover' s pl s6' holes = T6.gameover s6'). {
+    unfold FP.Gameover'; rewrite EM, EC, GridIncludeRefl.
+    change (T6.gameover s6') with (T5.gameover s6'); change (T6.mg s6') with (T5.mg s6').
+    rewrite (T5P.FixPieceGameoverEq E6); cbn [negb]; rewrite orb_false_r; apply orb_diag.
+  }
+  rewrite EC, EG; symmetry; apply NewMainGridGameoverStateSame; exact Hg.
+Qed.
+
+Lemma UpdateRefine : ∀ [pl s s'] [o : option T6.State]
+  (Hn : (if ! WinnerMulti s pl then option_map (UpdatePlayer s pl) o else None) = Some s'),
+  o = Some (s6 s' pl).
+Proof.
+  intros; destruct (! WinnerMulti s pl); [ | discriminate Hn ].
+  destruct o; cbn [option_map] in Hn; [ inject Hn; subst | discriminate Hn ].
+  cbn [s6 UpdatePlayer]; rewrite PlayerEqbRefl; reflexivity.
+Qed.
+
+Lemma MovePieceNone : ∀ [pl dyx s]
+  (Hw : ! WinnerMulti s pl = true)
+  (Hn : MovePiece pl dyx s = None),
+  T6.MovePiece dyx (s6 s pl) = None.
+Proof.
+  intros; unfold MovePiece in Hn; rewrite Hw in Hn.
+  destruct (T6.MovePiece dyx (s6 s pl)); [ discriminate Hn | reflexivity ].
+Qed.
+
+(* A fall is a move, or a fix when the piece cannot go down. *)
+Lemma FallRefine : ∀ [pl holes Hholes bagNew HbagNew s s']
+  (Hc : Correct s)
+  (Hm : T6.MovePiece (-1, 0)%Z (s6 s pl) = None → NoMaterializedGarbage pl bagNew HbagNew s)
+  (Hn : FallStep pl holes Hholes bagNew HbagNew s = Some s'),
+  T5.FallStep bagNew HbagNew (s6 s pl) = Some (s6 s' pl).
+Proof.
+  intros; unfold FallStep in Hn; destruct (! WinnerMulti s pl) eqn: Hw; [ | discriminate Hn ].
+  unfold T5.FallStep; destruct (MovePiece pl (-1, 0)%Z s) eqn: Em.
+  - inject Hn; subst; unfold MovePiece in Em; apply UpdateRefine in Em.
+    unfold T6.MovePiece in Em; rewrite Em; reflexivity.
+  - apply MovePieceNone in Em; [ | exact Hw ].
+    assert (Hf : T6.FixPiece bagNew HbagNew (s6 s pl) = Some (s6 s' pl))
+      by (apply FixRefine with (holes := holes) (Hholes := Hholes); auto).
+    unfold T6.MovePiece in Em; rewrite Em; exact Hf.
+Qed.
+
+(* A drop is a fix from the state where the piece is moved to its shadow. *)
+Lemma DropRefine : ∀ [pl holes Hholes bagNew HbagNew s s']
+  (Hc : Correct s)
+  (Hm : NoMaterializedGarbage pl bagNew HbagNew (NewPieceYXState (gy s pl, px s pl) pl s))
+  (Hn : DropPiece pl holes Hholes bagNew HbagNew s = Some s'),
+  T5.DropPiece bagNew HbagNew (s6 s pl) = Some (s6 s' pl).
+Proof.
+  intros; unfold DropPiece in Hn; apply FixRefine in Hn;
+    [ | apply NewPieceYXStateCorrect; exact Hc | exact Hm ].
+  cbn [NewPieceYXState UnchangedT7Part s6] in Hn; rewrite PlayerEqbRefl in Hn; exact Hn.
+Qed.
+
+(* The network events do not change the T6 states. *)
+Lemma NetworkS6 : ∀ [pl s s']
+  (Hn : (∃ from, ReceiveMessage pl from s = Some s')
+      ∨ DisconnectPlayer pl s = Some s'
+      ∨ NoticeDisconnection pl s = Some s'),
+  s6 s' pl = s6 s pl.
+Proof.
+  intros; decompose [or ex] Hn; clear Hn;
+    match goal with Hn : _ = Some _ |- _ =>
+      unfold ReceiveMessage, DisconnectPlayer, NoticeDisconnection in Hn;
+      repeat match type of Hn with
+      | context [if ?c then _ else _] => destruct c
+      | context [match ?c with _ => _ end] => destruct c
+      end;
+      first [ discriminate Hn | inject Hn; subst; reflexivity ]
+    end.
+Qed.
+
+Lemma InitRefine : ∀ pl bags HbagNew,
+  fₛ pl (T7.Init bags HbagNew) = T6.Init (bags pl) (HbagNew pl).
+Proof. reflexivity. Qed.
+
+(*
+            e6
+      s6    →    s6'
+fₛ pl ↑     ⇑fₑ  ↑ fₛ pl
+      s7    →    s7'
+            e7
+*)
+
+Lemma NextRefine : ∀ pl e7 e6 s7 s7'
+  (H1 : Correct s7)
+  (H2 : Next pl e7 s7 = Some s7')
+  (H3 : fₑ e7 = e6)
+  (H4 : NoMaterialization pl e7 s7),
+  T6.Next e6 (fₛ pl s7) = Some (fₛ pl s7').
+Proof.
+  intros; subst e6; unfold fₛ; destruct e7;
+    cbn [Next fₑ NoMaterialization T6.Next T6.NextT5Event T5.Next T5.NextT4Event] in *;
+    match type of H2 with
+    | MovePiece _ _ _ = _ => unfold MovePiece in H2; apply UpdateRefine in H2; exact H2
+    | RotatePiece _ _ _ = _ => unfold RotatePiece in H2; apply UpdateRefine in H2; exact H2
+    | HoldPiece _ _ _ _ _ _ = _ => unfold HoldPiece in H2; apply UpdateRefine in H2; exact H2
+    | RotateKickPiece _ _ _ = _ => unfold RotateKickPiece in H2; apply UpdateRefine in H2; exact H2
+    | FixPiece _ _ _ _ _ _ = _ => eapp FixRefine
+    | FallStep _ _ _ _ _ _ = _ => eapp FallRefine
+    | DropPiece _ _ _ _ _ _ = _ => eapp DropRefine
+    | Some _ = _ => inject H2; subst; reflexivity
+    | _ => f_equal; symmetry; eapply NetworkS6; eauto
+    end.
+Qed.
+
+(*
+            Stutter
+      s6    →    s6'
+fₛ pl ↑          ↑ fₛ pl
+      s7    →    s7'
+            e7 (of pl' ≠ pl)
+*)
+
+Lemma OtherRefine : ∀ pl pl' e7 s7 s7'
+  (H1 : pl' ≠ pl)
+  (H2 : Next pl' e7 s7 = Some s7'),
+  T6.Next (T6.Event5 (T5.Event4 T4.Stutter)) (fₛ pl s7) = Some (fₛ pl s7').
+Proof.
+  intros; unfold fₛ; cbn; f_equal; symmetry.
+  apply (OtherS6UnchangedHolds s7 s7' e7 pl' pl H2); congruence.
+Qed.
+
+Theorem T7RefinesT6Holds : T7RefinesT6.
+Proof. unfold T7RefinesT6; split_top; eauto using InitRefine, NextRefine, OtherRefine. Qed.

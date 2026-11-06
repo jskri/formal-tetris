@@ -769,10 +769,17 @@ Definition fₛ (pl : Player) (s7 : T7.State) : T6.State :=
   s6 s7 pl.
 
 (*
-For T6 refinement to hold, this diagram must commute:
+For T6 refinement to hold, this diagram must commute, for a step e7 of player pl:
             e6
       s6    →    s6'
 fₛ pl ↑     ⇑fₑ  ↑ fₛ pl
+      s7    →    s7'
+            e7
+
+and this one, for a step e7 of another player pl' ≠ pl:
+            Stutter
+      s6    →    s6'
+fₛ pl ↑          ↑ fₛ pl
       s7    →    s7'
             e7
 *)
@@ -794,6 +801,22 @@ Definition NoMaterializedGarbage (pl : Player)
 
 End Nat.
 
+(* Garbage materializes only when pl fixes a piece: on Fix, on Drop, and on Fall
+when the piece cannot go down. *)
+Definition NoMaterialization (pl : Player) (e7 : Event) (s : State) : Prop :=
+  match e7 with
+  | Fix  _ _ bagNew H2 => NoMaterializedGarbage pl bagNew H2 s
+  | Fall _ _ bagNew H2 =>
+      T6.MovePiece (-1, 0)%Z (s6 s pl) = None →
+      NoMaterializedGarbage pl bagNew H2 s
+  | Drop _ _ bagNew H2 =>
+      NoMaterializedGarbage pl bagNew H2 (NewPieceYXState (gy s pl, px s pl) pl s)
+  | _ => True
+  end.
+
+(* Each player pl has her own refinement mapping. Her own steps map through fₑ,
+except those materializing garbage. Other players' steps are stuttering steps
+for her, including those materializing garbage. *)
 Definition T7RefinesT6 : Prop :=
     (∀ pl bags HbagNew,
       fₛ pl (T7.Init bags HbagNew) = T6.Init (bags pl) (HbagNew pl))
@@ -801,10 +824,9 @@ Definition T7RefinesT6 : Prop :=
       (H1 : Correct s7)
       (H2 : Next pl e7 s7 = Some s7')
       (H3 : fₑ e7 = e6)
-      (H4 : ∀ holes Hholes bagNew HbagNew,
-        e7 = Fix holes Hholes bagNew HbagNew →
-        NoMaterializedGarbage pl bagNew HbagNew s7)
-      (H5 : ∀ holes Hholes bagNew HbagNew,
-        e7 = Drop holes Hholes bagNew HbagNew →
-        NoMaterializedGarbage pl bagNew HbagNew (NewPieceYXState (gy s7 pl, px s7 pl) pl s7)),
-      T6.Next e6 (fₛ pl s7) = Some (fₛ pl s7')).
+      (H4 : NoMaterialization pl e7 s7),
+      T6.Next e6 (fₛ pl s7) = Some (fₛ pl s7'))
+  ∧ (∀ pl pl' e7 s7 s7'
+      (H1 : pl' ≠ pl)
+      (H2 : Next pl' e7 s7 = Some s7'),
+      T6.Next (T6.Event5 (T5.Event4 T4.Stutter)) (fₛ pl s7) = Some (fₛ pl s7')).

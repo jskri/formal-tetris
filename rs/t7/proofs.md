@@ -47,8 +47,8 @@ collapses two `T7.v` steps (`DisconnectPlayer`, then the host's own
 
 Safety only, per skill convention — same as every prior `proofs.md` in this
 tower. Excluded from `T7RefinesT6` (hence from any "this Rust step *is* this
-`T6.v` step" claim, `T7RefinesT6`'s own `H4`/`H5` hypotheses): a
-materializing `Fix` (`remGarbage > 0`), including one reached via `Drop`.
+`T6.v` step" claim, `T7RefinesT6`'s own `NoMaterialization` hypothesis): a
+materializing `Fix` (`remGarbage > 0`), including one reached via `Drop` or `Fall`.
 This file's own obligation (Rust ⊨ `T7.v`) is not so excluded: every Rust
 step, materializing or not, is argued against `T7.v`'s `Next` directly
 (§4–§9 below).
@@ -202,12 +202,12 @@ calls for, covered by §6 below. Net: under `NoRemGarbage`, `fix_piece`'s
 only observable effect is `self.s6.fix_piece(bag_new)` plus `garbage := 0`
 plus, possibly, the very redirect `T7.v` itself performs — i.e. it *is*
 `T6.Next e6 (fₛ pl s7)`, matching `T7RefinesT6`'s own claim rather than
-contradicting it (`H4` in `T7RefinesT6`'s statement excludes this call from
+contradicting it (`NoMaterialization` in `T7RefinesT6`'s statement excludes this call from
 *that* proof's obligation via `NoMaterializedGarbage`'s right disjunct
 `NoRemGarbage`, which is exactly this case — nothing here needs
 re-deriving it).
 
-**Case `remGarbage > 0`.** `T7RefinesT6`'s hypothesis `H4` excludes this
+**Case `remGarbage > 0`.** `T7RefinesT6`'s hypothesis `NoMaterialization` excludes this
 call from the T6-refinement claim entirely — no obligation there. This
 file's own obligation (Rust ⊨ `T7.v`) still applies, and is a direct
 transcription:

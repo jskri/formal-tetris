@@ -47,7 +47,7 @@ as arguments supplied by `controller.js` at that point, not at module load.
 `fₑ`: `Move`/`Rotate`/`Fix`/`Fall`/`Hold`/`Drop`/`RotateKick` map to their `T6`
 event; `Receive`/`Disconnect`/`Notice`/`Stutter` map to `Stutter`. Excluded from
 `T7RefinesT6` (`T7.v`): a materializing `Fix` (`remGarbage > 0`), including one reached via
-`Drop`.
+`Drop` or `Fall`.
 
 Per skill §7.1:
 - `movePiece`/`rotatePiece`/`holdPiece`/`rotateKickPiece` — full uses, delegate to
