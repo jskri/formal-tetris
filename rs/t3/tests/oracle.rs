@@ -116,13 +116,12 @@ fn run_differential<P: Params>(seed: u64, steps: usize) {
             }
             6 => {
                 // spec: FallStep — branch observed directly from move_piece's return value.
-                if !m.move_piece(-1, 0)
-                    && m.fix_piece(piece) {
-                        s = RocqState3 {
-                            hold: s.hold,
-                            swapped: false,
-                        };
-                    }
+                if !m.move_piece(-1, 0) && m.fix_piece(piece) {
+                    s = RocqState3 {
+                        hold: s.hold,
+                        swapped: false,
+                    };
+                }
             }
             _ => {
                 let guard_holds = !m.s2.s1.gameover && !m.swapped;

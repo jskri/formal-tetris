@@ -104,11 +104,7 @@ fn materialize_unobstructed_shifts_and_fills_garbage_rows() {
             if x == 2 {
                 assert_eq!(*cell, None, "row {y} hole");
             } else {
-                assert_eq!(
-                    *cell,
-                    Some(PieceOrExtra::Extra(Garbage)),
-                    "row {y} col {x}"
-                );
+                assert_eq!(*cell, Some(PieceOrExtra::Extra(Garbage)), "row {y} col {x}");
             }
         }
     }

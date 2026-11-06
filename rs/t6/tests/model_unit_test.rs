@@ -179,8 +179,8 @@ fn left_kick_fires_against_right_wall() {
 // ── right kick fires, computed from the ORIGINAL px, never chained ────────
 
 /// Distinguishes a correct implementation from a *chained* one (right kick
-/// computed as "failed left attempt's `px` + 1" instead of "original `px`
-/// + 1", `proofs.md` §5.1/§5.4): the vertical target (`pr=3`, `BAR_R1`,
+/// computed as "failed left attempt's `px` + 1" instead of "original `px` + 1",
+/// `proofs.md` §5.1/§5.4): the vertical target (`pr=3`, `BAR_R1`,
 /// column `px_attempt + 1`) is blocked at the plain column (3) and the
 /// left-kick column (2), but open at the *correct* right-kick column (4).
 /// A chained bug computes `right_px = left_px + 1 = orig_px`, landing back

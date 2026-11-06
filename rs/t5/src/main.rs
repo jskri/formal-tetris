@@ -7,9 +7,9 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use t1::misc::{random_piece, window_conf, LogicalKeys, RepeatTimer, ARR, DAS_DELAY};
 use t1::model::Params as T1Params; // brings PW/FY/FX/initial_main_grid/forbidden_grid into scope for
-                                    // concrete `Instance::…` calls: a generic `P: Params` bound reaches these
-                                    // via the supertrait, but a concrete type's associated items still need
-                                    // the declaring trait imported directly (Rust item-resolution rule)
+                                   // concrete `Instance::…` calls: a generic `P: Params` bound reaches these
+                                   // via the supertrait, but a concrete type's associated items still need
+                                   // the declaring trait imported directly (Rust item-resolution rule)
 use t5::instance;
 use t5::misc::{any_action_just_pressed, Action};
 use t5::model::{self, Machine, Params};

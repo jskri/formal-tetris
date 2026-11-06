@@ -15,6 +15,7 @@ jobs:
     outputs:
       docker: ${{ steps.filter.outputs.docker }}
       rocq: ${{ steps.filter.outputs.rocq }}
+      rs: ${{ steps.filter.outputs.rs }}
       js: ${{ steps.filter.outputs.js }}
     steps:
       - name: Checkout
@@ -34,8 +35,8 @@ jobs:
               - '**/dune'
             rs:
               - 'rs/**/*.rs'
-              - 'rs/Cargo.toml'
-              - 'rs/Cargo.lock'
+              - 'rs/**/Cargo.toml'
+              - 'rs/**/Cargo.lock'
             js:
               - 'js/**/*.js'
               - 'js/package.json'
