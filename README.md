@@ -31,7 +31,7 @@ The models address the logical core of the game, not I/O or rendering. They are 
 
 Each model Tx is in a file `Tx.v`. Proofs of state invariants and step invariants are in a file `TxProofs.v`, together with a proof that Tx refines Tx-1 (T1 has no predecessor to refine).
 
-Proof status: All proved.
+Proof status: All proved (state invariants, step invariants, refinements).
 
 
 ## Checking the proofs
