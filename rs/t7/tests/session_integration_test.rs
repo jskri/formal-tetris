@@ -54,8 +54,9 @@ fn lobby(joiners: usize) -> (Session, Vec<Session>) {
             host.net
                 .register(
                     hs,
-                    ja,
+                    &[ja],
                     100 + i as u64,
+                    200 + i as u64,
                     t7::session::max_decoded_message_bytes(),
                 )
                 .expect("host conn"),
@@ -64,8 +65,9 @@ fn lobby(joiners: usize) -> (Session, Vec<Session>) {
         let conn = net
             .register(
                 jsock,
-                ha,
+                &[ha],
                 200 + i as u64,
+                100 + i as u64,
                 t7::session::max_decoded_message_bytes(),
             )
             .expect("joiner conn");
@@ -679,4 +681,150 @@ fn find_winner_resolves_only_when_one_player_is_left() {
         t7::model::winner_multi(&m.gameover_view, &m.connected_view, 0),
         "and that is winner_multi(self)"
     );
+}
+
+/// Starts a match on an already-assembled lobby and pumps until every
+/// joiner has received `Start`.
+fn start(host: &mut Session, js: &mut [Session]) {
+    assert!(host.start_match());
+    let mut refs: Vec<&mut Session> = std::iter::once(host).chain(js.iter_mut()).collect();
+    pump_until(&mut refs, "every joiner receives Start", |s| {
+        s.iter().all(|x| x.started())
+    });
+}
+
+/// spec: §15.1b/§15.5 — a joiner queues `Leave` and drops its whole
+/// `Session` in the same frame (Esc, or "Leave" on S9). The dropped
+/// connection's `CLOSE_LINGER` must still flush the `Leave` to the host, so
+/// the slot is evicted at once rather than after the disconnect timeout.
+#[test]
+fn leave_reaches_the_host_even_when_the_session_is_dropped_at_once() {
+    let (mut host, mut js) = lobby(1);
+    let mut joiner = js.pop().unwrap();
+    joiner.leave();
+    drop(joiner);
+
+    let start = Instant::now();
+    let mut t = 0.0f64;
+    while !host.peers.is_empty() && start.elapsed() < Duration::from_secs(3) {
+        host.pump(t);
+        t += 0.05;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        host.peers.is_empty(),
+        "Leave must land well before the 10s disconnect timeout"
+    );
+}
+
+/// spec: §15.1b/§4-T7f — a mid-match `Leave` keeps the frozen roster slot
+/// but is realized right away as `DisconnectPlayer` for that player: the
+/// host marks it disconnected and relays a `Disconnect` from it.
+#[test]
+fn mid_match_leave_is_an_immediate_disconnect() {
+    let (mut host, mut js) = lobby(2);
+    start(&mut host, &mut js);
+    let leaver = js[0].my_index.unwrap();
+    let mut stayer = js.pop().unwrap();
+    let mut leaving = js.pop().unwrap();
+    leaving.leave();
+    drop(leaving);
+
+    let mut refs: Vec<&mut Session> = vec![&mut host, &mut stayer];
+    pump_until(&mut refs, "the other joiner learns of the departure", |s| {
+        !s[1].machine.as_ref().unwrap().connected_view[leaver]
+    });
+    assert_eq!(host.peers.len(), 2, "the slot is kept mid-match");
+    assert!(!host.machine.as_ref().unwrap().connected_view[leaver]);
+    assert!(host
+        .peers
+        .iter()
+        .any(|p| p.index == Some(leaver) && !p.connected));
+}
+
+/// spec: §15.4 — once the host has declared a peer disconnected, nothing
+/// more from it is applied or relayed even if its link still works, and the
+/// rematch drops that peer instead of letting its `Join` back in.
+#[test]
+fn a_peer_declared_disconnected_is_ignored_then_dropped_at_rematch() {
+    let (mut host, mut js) = lobby(2);
+    start(&mut host, &mut js);
+    let (a, b) = (js[0].my_index.unwrap(), js[1].my_index.unwrap());
+    let slot_a = host.peers.iter().position(|p| p.index == Some(a)).unwrap();
+    host.peers[slot_a].connected = false; // as `check_timeouts` leaves it
+
+    // The "zombie" keeps sending; then a live joiner sends a sentinel.
+    js[0].send_routed(Destination::Single(0), Payload::Garbage { amount: 3 });
+    js[0].send_routed(Destination::Single(b), Payload::Garbage { amount: 3 });
+    std::thread::sleep(Duration::from_millis(200));
+    js[1].send_routed(Destination::Single(0), Payload::Garbage { amount: 1 });
+    {
+        let mut refs: Vec<&mut Session> = std::iter::once(&mut host).chain(js.iter_mut()).collect();
+        pump_until(&mut refs, "the live joiner's garbage arrives", |s| {
+            s[0].machine.as_ref().unwrap().garbage == 1
+        });
+    }
+    assert_eq!(
+        js[1].machine.as_ref().unwrap().garbage,
+        0,
+        "nothing from the disconnected peer was relayed"
+    );
+
+    host.reset_for_rematch();
+    assert_eq!(host.peers.len(), 1, "the disconnected peer is dropped");
+    assert!(host.peers.iter().all(|p| p.connected));
+}
+
+/// spec: §4-T7f — only the host originates `Disconnect`; one sent by a
+/// joiner is neither applied by the host nor relayed.
+#[test]
+fn a_joiner_originated_disconnect_is_not_relayed() {
+    let (mut host, mut js) = lobby(2);
+    start(&mut host, &mut js);
+    let (a, b) = (js[0].my_index.unwrap(), js[1].my_index.unwrap());
+    js[0].send_routed(Destination::Broadcast, Payload::Disconnect);
+    js[0].send_routed(Destination::Single(b), Payload::Garbage { amount: 1 });
+    {
+        let mut refs: Vec<&mut Session> = std::iter::once(&mut host).chain(js.iter_mut()).collect();
+        pump_until(&mut refs, "the sentinel behind it arrives", |s| {
+            s[2].machine.as_ref().unwrap().garbage == 1
+        });
+    }
+    assert!(host.machine.as_ref().unwrap().connected_view[a]);
+    assert!(js[1].machine.as_ref().unwrap().connected_view[a]);
+}
+
+/// The roster a match started with is frozen for the joiner: a later
+/// `Players` (the host renumbering for the next lobby) must not rename the
+/// players the winner screen and the opponent strip still refer to.
+#[test]
+fn a_joiner_keeps_the_match_roster_once_started() {
+    let (mut host, mut js) = lobby(1);
+    start(&mut host, &mut js);
+    let before = js[0].roster.clone();
+    host.my_name = "Renamed".into();
+    host.broadcast_roster();
+    let idx = js[0].my_index.unwrap();
+    host.send_routed(Destination::Single(idx), Payload::Garbage { amount: 1 });
+    {
+        let mut refs: Vec<&mut Session> = std::iter::once(&mut host).chain(js.iter_mut()).collect();
+        pump_until(&mut refs, "the sentinel behind Players arrives", |s| {
+            s[1].machine.as_ref().unwrap().garbage == 1
+        });
+    }
+    assert_eq!(js[0].roster, before);
+}
+
+/// spec: §15.0 — noticing one's own disconnection is not a resolution: in
+/// a 2-player match a joiner that loses the host must reach S10, not a
+/// "Winner: Host" S9. A winner already resolved beforehand stays resolved.
+#[test]
+fn noticing_ones_own_disconnection_resolves_no_winner() {
+    let mut m =
+        Machine::<Instance>::new(1, 2, make_bags_fn::<Instance>(), random_piece::<Instance>);
+    assert!(m.notice_disconnection());
+    assert_eq!(find_winner(&m), None, "the host is not the winner by default");
+
+    m.gameover_view[1] = true; // this player was already out
+    assert_eq!(find_winner(&m), Some(0), "an already-resolved winner stands");
 }

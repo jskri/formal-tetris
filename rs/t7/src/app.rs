@@ -32,7 +32,7 @@ use crate::misc::Action;
 use crate::net::{ConnectionCode, NetWorkerHandle};
 use crate::session::{
     connect_to, endpoint_discovered, find_winner, fresh_holes, make_bags_fn, shuffle_bag, Endpoint,
-    Instance, PendingEndpoint, Role, Session,
+    Instance, PendingEndpoint, Role, Session, MAPPING_REFRESH_SECS,
 };
 // Test-only: production always discovers an `Endpoint` via `PendingEndpoint`
 // on a background thread; `mint_endpoint` stays synchronous for the one test
@@ -172,11 +172,23 @@ enum AddConnection {
     /// a `Vec` position, which a `Leave` elsewhere in the lobby can shift —
     /// `Peer::id`'s own doc comment), polled each frame (`poll_add_completion`)
     /// for "has this one actually joined" — the auto-clear back to `Idle`.
+    ///
+    /// `since` is the frame time this state was entered: a pairing that has
+    /// still received no packet at all `CONNECT_DEADLINE_SECS` later is
+    /// abandoned (`poll_add_completion`), since an unanswered peer would
+    /// otherwise never time out (`seconds_since_last_activity` stays `None`).
     Connecting {
         code: String,
         peer_id: u64,
+        since: f64,
     },
 }
+
+/// spec: §15.1a′ — how long a pairing may sit in `Connecting` without a
+/// single packet from the joiner before it is abandoned. Generous: it has to
+/// cover the out-of-band trip of the host's code back to the joiner, who
+/// pastes it and presses Connect only then.
+pub const CONNECT_DEADLINE_SECS: f64 = 120.0;
 
 /// `S3`. spec: §15.1a — `focus` is a clamped index into 3 stops: `0` name,
 /// `1` the "Add player" button (or the joiner's-code field/display,
@@ -222,14 +234,24 @@ impl HostLobby {
         }
     }
 
-    /// spec: §15.1a′ — `[Esc]` while the paste box is open cancels *that*,
-    /// not the whole lobby. A no-op once minting has actually started
-    /// (`Connecting`): the ordinary `Esc` path (leave the lobby) applies
-    /// there instead. Focus stays at `1` — `draw_host_lobby` still renders
-    /// the "Add player" button there once back to `Idle`.
+    /// spec: §15.1a′ — `[Esc]` while a pairing is open cancels *that*, not
+    /// the whole lobby: the paste box closes, a pending STUN lookup is
+    /// dropped (its thread finishes and exits on its own), and a pairing
+    /// still `Connecting` has its not-yet-joined peer removed. A no-op when
+    /// `Idle`, where the ordinary `Esc` path (leave the lobby) applies.
+    /// Focus stays at `1` — `draw_host_lobby` still renders the "Add player"
+    /// button there once back to `Idle`.
     fn cancel_add(&mut self) {
-        if matches!(self.add, AddConnection::EnteringCode(_)) {
-            self.add = AddConnection::Idle;
+        match std::mem::replace(&mut self.add, AddConnection::Idle) {
+            AddConnection::Idle => {}
+            AddConnection::EnteringCode(_) => {}
+            AddConnection::Discovering { .. } => {
+                self.status = "Pairing cancelled.".into();
+            }
+            AddConnection::Connecting { peer_id, .. } => {
+                self.session.remove_unjoined_peer(peer_id);
+                self.status = "Pairing cancelled.".into();
+            }
         }
     }
 
@@ -261,7 +283,7 @@ impl HostLobby {
     /// Called once a frame: once `Discovering`'s background STUN lookup has
     /// resolved, mints the endpoint and connects, without blocking the
     /// caller.
-    fn poll_add_discovery(&mut self) {
+    fn poll_add_discovery(&mut self, now: f64) {
         let AddConnection::Discovering {
             pending,
             joiner_code,
@@ -282,7 +304,11 @@ impl HostLobby {
             Ok(conn) => {
                 let peer_id = self.session.add_peer(conn);
                 self.status = "Connecting… send this code to that player.".into();
-                self.add = AddConnection::Connecting { code, peer_id };
+                self.add = AddConnection::Connecting {
+                    code,
+                    peer_id,
+                    since: now,
+                };
             }
             Err(e) => {
                 self.status = format!("Could not connect: {e}");
@@ -299,19 +325,30 @@ impl HostLobby {
     /// remembered `Vec` position: a `Leave` elsewhere in the lobby can shift
     /// positions while this pairing is still `Connecting`. If the peer is
     /// gone entirely, reset to `Idle` instead of staying stuck in
-    /// "Connecting…" forever.
-    fn poll_add_completion(&mut self) {
-        let AddConnection::Connecting { peer_id, .. } = &self.add else {
+    /// "Connecting…" forever. Likewise if not a single packet has arrived
+    /// from it within `CONNECT_DEADLINE_SECS` (a hole punch that never
+    /// succeeded): the peer is removed so another pairing can be started.
+    fn poll_add_completion(&mut self, now: f64) {
+        let AddConnection::Connecting { peer_id, since, .. } = &self.add else {
             return;
         };
-        match self.session.peers.iter().find(|p| p.id == *peer_id) {
+        let (peer_id, since) = (*peer_id, *since);
+        match self.session.peers.iter().find(|p| p.id == peer_id) {
             Some(p) if p.index.is_some() => {
                 let name = p.name.clone();
                 self.status = format!("{name} joined.");
                 self.add = AddConnection::Idle;
                 // Focus stays at 1 — same reasoning as `try_add` above.
             }
-            Some(_) => {} // still connected, not yet joined
+            Some(p) => {
+                // still connected, not yet joined
+                let silent = p.conn.seconds_since_last_activity().is_none();
+                if silent && now - since > CONNECT_DEADLINE_SECS {
+                    self.session.remove_unjoined_peer(peer_id);
+                    self.status = "No answer from that player; pairing abandoned.".into();
+                    self.add = AddConnection::Idle;
+                }
+            }
             None => {
                 self.status = "Connection lost before that player joined.".into();
                 self.add = AddConnection::Idle;
@@ -330,6 +367,9 @@ pub struct JoinLobby {
     focus: usize, // 0 = name, 1 = your code (read-only), 2 = host's code, 3 = Connect
     status: String,
     backspace_repeat: Option<RepeatTimer>,
+    /// Frame time of the last `Endpoint::send_mapping_keepalive`
+    /// (`MAPPING_REFRESH_SECS`).
+    last_mapping_refresh: f64,
 }
 
 /// This peer's own `Endpoint`, discovered on a background thread
@@ -536,7 +576,7 @@ pub fn draw_host_lobby(lobby: &HostLobby, hint_suffix: &str, font: Option<&Font>
         }
         AddConnection::Connecting { code, .. } => {
             c.field("Host's code", code, lobby.focus == 1, true, false, font);
-            c.line("Send this code to that player.", HINT_COLOR, font);
+            c.line("Send this code to that player (Esc to cancel).", HINT_COLOR, font);
         }
     }
     c.gap();
@@ -973,6 +1013,7 @@ pub fn step_role_select(escape: bool, nav: MenuNav, menu_index: &mut usize) -> R
                 focus: 1,
                 status: "Discovering your address…".into(),
                 backspace_repeat: None,
+                last_mapping_refresh: 0.0,
             })
         }
         _ => RoleSelectOutcome::Stay,
@@ -994,10 +1035,10 @@ pub fn step_host_lobby(
     key_repeat: &mut HashMap<Action, RepeatTimer>,
     now: f64,
 ) -> HostLobbyOutcome {
-    // [Esc] inside the paste sub-dialog cancels that (`HostLobby::cancel_add`),
+    // [Esc] while a pairing is open cancels that (`HostLobby::cancel_add`),
     // not the whole lobby.
-    let entering_code = matches!(lobby.add, AddConnection::EnteringCode(_));
-    if escape && entering_code {
+    let pairing_open = !matches!(lobby.add, AddConnection::Idle);
+    if escape && pairing_open {
         lobby.cancel_add();
         return HostLobbyOutcome::Stay;
     } else if escape {
@@ -1005,8 +1046,8 @@ pub fn step_host_lobby(
     }
 
     lobby.session.pump(now);
-    lobby.poll_add_discovery();
-    lobby.poll_add_completion();
+    lobby.poll_add_discovery(now);
+    lobby.poll_add_completion(now);
 
     let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
     let nav = poll_menu_nav(pad, menu_pad);
@@ -1115,6 +1156,18 @@ pub fn step_join_lobby(
                 Some(ep) => EndpointState::Ready(ep),
                 None => EndpointState::Failed,
             };
+            lobby.last_mapping_refresh = now; // discovery itself just refreshed it
+        }
+    }
+    // spec: §15.2 step 1 — keep the advertised NAT mapping alive for as long
+    // as the code exchange takes, and surface it if the mapping moved anyway.
+    if let EndpointState::Ready(ep) = &mut lobby.endpoint {
+        if ep.poll_mapping() {
+            lobby.status = "Your public address changed: send the updated code.".into();
+        }
+        if now - lobby.last_mapping_refresh >= MAPPING_REFRESH_SECS {
+            lobby.last_mapping_refresh = now;
+            ep.send_mapping_keepalive();
         }
     }
     let nav = poll_menu_nav(pad, menu_pad);
@@ -1492,12 +1545,11 @@ mod tests {
         // in for a second process's own joiner on the same machine, so it
         // deliberately skips `PendingEndpoint`'s background-thread path.
         // Uses real `Endpoint::discover` rather than a hand-built loopback
-        // one: a hand-built loopback joiner can only ever match the local
-        // case, not the public one, leaving `best_target`'s choice untested
-        // on a machine with internet access. Real discovery on both sides is
-        // correct either way — same machine implies same public IP (or the
-        // same `local_ipv4` fallback) on both sides, so `best_target`
-        // resolves to a genuinely reachable address regardless of branch.
+        // one, so the codes carry a real public address (when STUN is
+        // reachable) alongside the LAN one, exercising the two-candidate
+        // punch (`ConnectionCode::candidates`) and the nonce check end to
+        // end. On one machine the LAN address is always reachable, so the
+        // handshake completes either way.
         let joiner_ep = mint_endpoint(&mut String::new())
             .expect("binding a local UDP socket must not fail in a test environment");
         let joiner_code = joiner_ep.code().to_string();
@@ -1519,13 +1571,14 @@ mod tests {
         while !matches!(lobby.add, AddConnection::Connecting { .. })
             && discover_start.elapsed() < Duration::from_secs(10)
         {
-            lobby.poll_add_discovery();
+            lobby.poll_add_discovery(0.0);
             std::thread::sleep(Duration::from_millis(5));
         }
 
         let AddConnection::Connecting {
             code: host_code,
             peer_id,
+            ..
         } = &lobby.add
         else {
             panic!("try_add with a well-formed code must reach Connecting, got a different state. status={}", lobby.status);
@@ -1564,7 +1617,7 @@ mod tests {
             "host plus the one real joiner"
         );
 
-        lobby.poll_add_completion();
+        lobby.poll_add_completion(0.0);
         assert!(
             matches!(lobby.add, AddConnection::Idle),
             "the display must auto-clear once that joiner has actually joined"
@@ -1592,6 +1645,63 @@ mod tests {
             AddConnection::EnteringCode(entry) => assert_eq!(entry.text, "stale text", "must not reset an in-progress paste"),
             other => panic!("begin_add must not touch an in-flight EnteringCode, got a different state instead: not EnteringCode({other:?})", other = std::mem::discriminant(other)),
         }
+    }
+
+    /// A host lobby whose pairing is stuck in `Connecting` against a peer
+    /// that never answers (nobody listens on the far socket).
+    fn lobby_connecting_to_nobody() -> (HostLobby, u64) {
+        let mut session = Session::new_host("Host".into());
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let conn = session
+            .net
+            .register(
+                sock,
+                &[silent.local_addr().unwrap()],
+                1,
+                2,
+                crate::session::max_decoded_message_bytes(),
+            )
+            .unwrap();
+        let peer_id = session.add_peer(conn);
+        let lobby = HostLobby {
+            session,
+            add: AddConnection::Connecting {
+                code: "code".into(),
+                peer_id,
+                since: 0.0,
+            },
+            name: TextInput::default(),
+            focus: 1,
+            status: String::new(),
+            backspace_repeat: None,
+        };
+        (lobby, peer_id)
+    }
+
+    /// spec: §15.1a′ — a pairing that never hears a single packet is
+    /// abandoned after `CONNECT_DEADLINE_SECS`, freeing "Add player" for
+    /// the next joiner instead of blocking it forever.
+    #[test]
+    fn an_unanswered_pairing_is_abandoned_after_the_deadline() {
+        let (mut lobby, _) = lobby_connecting_to_nobody();
+        lobby.poll_add_completion(1.0);
+        assert!(matches!(lobby.add, AddConnection::Connecting { .. }));
+        assert_eq!(lobby.session.peers.len(), 1);
+
+        lobby.poll_add_completion(CONNECT_DEADLINE_SECS + 1.0);
+        assert!(matches!(lobby.add, AddConnection::Idle));
+        assert!(lobby.session.peers.is_empty(), "the silent peer is removed");
+    }
+
+    /// spec: §15.1a′ — `[Esc]` while `Connecting` cancels that pairing
+    /// only; the lobby (and every joiner already in it) stays.
+    #[test]
+    fn cancel_add_while_connecting_drops_only_that_pairing() {
+        let (mut lobby, _) = lobby_connecting_to_nobody();
+        lobby.cancel_add();
+        assert!(matches!(lobby.add, AddConnection::Idle));
+        assert!(lobby.session.peers.is_empty());
     }
 
     /// `[Esc]` while pasting cancels just that, back to `Idle` — and mints
@@ -1689,6 +1799,7 @@ mod tests {
             add: AddConnection::Connecting {
                 code: "AAAAAAAA-AAAAAAAA-AAAAAAAA-AAAAAAAA".into(),
                 peer_id: 999,
+                since: 0.0,
             },
             name: TextInput::default(),
             focus: 1,
@@ -1700,7 +1811,7 @@ mod tests {
             "no peer with id 999 (or any id) exists"
         );
 
-        lobby.poll_add_completion();
+        lobby.poll_add_completion(0.0);
 
         assert!(
             matches!(lobby.add, AddConnection::Idle),

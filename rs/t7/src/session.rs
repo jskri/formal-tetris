@@ -39,6 +39,13 @@ pub type Cell = Option<t1::model::PieceOrExtra<Instance>>;
 /// reach it is not fatal, see `Endpoint::discover`.
 const STUN_SERVER: &str = "stun.l.google.com:19302";
 
+/// spec: §15.2 step 1 — how often a joiner's not-yet-connected socket sends
+/// a fresh Binding Request while its code is being exchanged out of band
+/// (`Endpoint::send_mapping_keepalive`). Well under the shortest UDP NAT
+/// mapping timeouts seen in practice (around 30s), so the mapping the code
+/// advertises is still the one in place when the joiner finally connects.
+pub const MAPPING_REFRESH_SECS: f64 = 15.0;
+
 /// spec: §15.4 — how long a peer's channel may go silent before the host
 /// declares it disconnected (and, symmetrically, before a joiner decides its
 /// own link to the host is down). Comfortably more than `STATE_PERIOD_SECS`
@@ -168,6 +175,12 @@ pub struct Endpoint {
     pub public: SocketAddrV4,
     pub local: SocketAddrV4,
     pub nonce: u64,
+    /// The STUN server `public` was discovered through; `None` when
+    /// discovery failed (there is then no mapping to keep alive).
+    pub stun_server: Option<SocketAddr>,
+    /// Transaction id of the last keepalive Binding Request whose response
+    /// has not been read yet (`poll_mapping`).
+    pending_txid: Option<[u8; 12]>,
 }
 
 impl Endpoint {
@@ -185,10 +198,11 @@ impl Endpoint {
         };
         let local = SocketAddrV4::new(local_ipv4().unwrap_or(Ipv4Addr::LOCALHOST), port);
 
-        let stun_result = STUN_SERVER
+        let stun_server = STUN_SERVER
             .to_socket_addrs()
             .ok()
-            .and_then(|mut it| it.find(|a| a.is_ipv4()))
+            .and_then(|mut it| it.find(|a| a.is_ipv4()));
+        let stun_result = stun_server
             .and_then(|server| net::stun::query(&socket, server, Duration::from_secs(2), 3).ok());
 
         // The read timeout STUN set is a query-time concern only; the
@@ -205,9 +219,68 @@ impl Endpoint {
                 public,
                 local,
                 nonce: fresh_nonce(),
+                stun_server: stun_server.filter(|_| stun_ok),
+                pending_txid: None,
             },
             stun_ok,
         ))
+    }
+
+    /// spec: §15.2 step 1 — keeps this socket's NAT mapping open while its
+    /// code is exchanged out of band. Nothing else is sent on the socket
+    /// until it connects, and a NAT drops an idle mapping after a while; a
+    /// mapping recreated later may get a different public port, which the
+    /// peer (accepting packets only from the advertised addresses) would
+    /// then ignore. Sends one Binding Request and returns at once; the
+    /// response is read by `poll_mapping`. A no-op without a STUN server.
+    pub fn send_mapping_keepalive(&mut self) {
+        let Some(server) = self.stun_server else {
+            return;
+        };
+        let txid = net::stun::fresh_txid();
+        if self
+            .socket
+            .send_to(&net::stun::build_binding_request(txid), server)
+            .is_ok()
+        {
+            self.pending_txid = Some(txid);
+        }
+    }
+
+    /// Non-blocking: reads whatever has arrived on the socket since the last
+    /// call and, if a response to the pending keepalive reports a different
+    /// public mapping, adopts it. Returns `true` exactly when `public` (and
+    /// so `code()`) changed, so the caller can tell the player to share the
+    /// new code. Anything else that arrives before the socket connects (an
+    /// early `Hello` from the peer) is dropped; the reliable channel
+    /// retransmits it.
+    pub fn poll_mapping(&mut self) -> bool {
+        let Some(server) = self.stun_server else {
+            return false;
+        };
+        if self.socket.set_nonblocking(true).is_err() {
+            return false;
+        }
+        let mut changed = false;
+        let mut buf = [0u8; 1500];
+        while let Ok((n, from)) = self.socket.recv_from(&mut buf) {
+            let Some(txid) = self.pending_txid else {
+                continue;
+            };
+            if from != server {
+                continue;
+            }
+            let parsed = net::stun::parse_binding_response(&buf[..n], &txid);
+            if let Some(SocketAddr::V4(mapped)) = parsed {
+                self.pending_txid = None;
+                if mapped != self.public {
+                    self.public = mapped;
+                    changed = true;
+                }
+            }
+        }
+        let _ = self.socket.set_nonblocking(false);
+        changed
     }
 
     pub fn code(&self) -> ConnectionCode {
@@ -369,6 +442,16 @@ impl Session {
         id
     }
 
+    /// Host lobby (§15.1a′): drops a pairing that never completed — the peer
+    /// with stable id `id`, if it is still present and has not joined. A
+    /// peer that already holds a roster index is left alone (it is a real
+    /// player now, and only `Leave` or a timeout removes those).
+    pub fn remove_unjoined_peer(&mut self, id: u64) {
+        if let Some(slot) = self.peers.iter().position(|p| p.id == id && p.index.is_none()) {
+            self.peers.remove(slot);
+        }
+    }
+
     pub fn started(&self) -> bool {
         self.machine.is_some()
     }
@@ -387,8 +470,12 @@ impl Session {
     }
 
     /// spec: §15.1b — drops the finished match's `Machine`/roster/boards
-    /// while keeping every peer connection; the host also clears peer
+    /// while keeping every live peer connection; the host also clears peer
     /// indices so the fresh roster rebuilds from the `Join`s that follow.
+    /// A peer the host declared disconnected during the match
+    /// (`declare_disconnected`) is dropped here rather than kept: it is never
+    /// serviced again (`handle`), so keeping it would only let it linger as
+    /// a slot no timeout ever reaps.
     pub fn reset_for_rematch(&mut self) {
         self.machine = None;
         self.player_count = None;
@@ -396,6 +483,7 @@ impl Session {
         self.roster.clear();
         self.noticed_disconnect = false;
         if self.role == Role::Host {
+            self.peers.retain(|p| p.connected);
             for p in self.peers.iter_mut() {
                 p.index = None;
             }
@@ -593,6 +681,15 @@ impl Session {
     }
 
     pub fn handle(&mut self, slot: usize, msg: WireMessage) {
+        // spec: §15.4 — once the host has declared a peer disconnected
+        // (`DisconnectPlayer`, `declare_disconnected`), nothing more from it
+        // is applied or relayed, even if its link comes back: its
+        // `Disconnect` has already been broadcast and must stay the last
+        // message anyone receives from it (`LastMessagesGameoverDisconnect`),
+        // and `connected` never flips back (`DisconnectedMonotone`).
+        if self.role == Role::Host && !self.peers[slot].connected {
+            return;
+        }
         match msg {
             WireMessage::Untagged(payload) => self.handle_untagged(slot, payload),
             WireMessage::Routed(msg) => {
@@ -652,8 +749,12 @@ impl Session {
                 }
                 self.broadcast_roster();
             }
+            // The roster is frozen at `Start`: a later `Players` (the host
+            // renumbering after another peer's post-match `Leave`) describes
+            // the next lobby, not this match's indices, which the winner
+            // screen and the opponent strip still read.
             Payload::Players { roster } => {
-                if self.role == Role::Joiner {
+                if self.role == Role::Joiner && !self.started() {
                     self.roster = roster;
                 }
             }
@@ -671,19 +772,27 @@ impl Session {
                     self.init_machine(my_index, player_count);
                 }
             }
-            // spec: §15.1b — host-only, evicted outright (no phantom slot).
-            // Allowed before a match starts, or once one has resolved a
-            // winner (`find_winner`); ignored mid-match, since renumbering a
-            // frozen roster then would misalign indices already in flight.
+            // spec: §15.1b — host-only. Before a match starts, or once one
+            // has resolved a winner (`find_winner`), the slot is evicted
+            // outright (no phantom slot). Mid-match, renumbering the frozen
+            // roster would misalign indices already in flight, so the slot is
+            // kept and the departure is realized as `DisconnectPlayer` for
+            // that player instead (`declare_disconnected`) — the same effect
+            // a timeout would have, without waiting for it.
             Payload::Leave => {
+                if self.role != Role::Host {
+                    return;
+                }
                 let match_over = self
                     .machine
                     .as_ref()
                     .is_some_and(|m| find_winner(m).is_some());
-                if self.role == Role::Host && (!self.started() || match_over) {
+                if !self.started() || match_over {
                     self.peers.remove(slot);
                     self.reindex_peers();
                     self.broadcast_roster();
+                } else {
+                    self.declare_disconnected(slot);
                 }
             }
             // Garbage/Gameover/Disconnect/State never legitimately arrive
@@ -710,6 +819,13 @@ impl Session {
             },
             Role::Joiner => msg.from,
         };
+        // spec: §4-T7f — `DisconnectMessage` is only ever originated by the
+        // host (`declare_disconnected`), on behalf of the player that
+        // dropped. One arriving from a joiner states nothing the host has
+        // established, so it is neither applied nor relayed.
+        if self.role == Role::Host && matches!(msg.body, Payload::Disconnect) {
+            return;
+        }
 
         let for_me = match msg.to {
             Destination::Broadcast => true,
@@ -950,17 +1066,7 @@ impl Session {
                         self.broadcast_roster();
                         continue; // the next peer has shifted down into this position
                     }
-                    self.peers[slot].connected = false;
-                    let Some(pl) = self.peers[slot].index else {
-                        slot += 1;
-                        continue;
-                    };
-                    if let Some(m) = &mut self.machine {
-                        if pl < m.connected_view.len() {
-                            m.receive_disconnect(pl);
-                        }
-                    }
-                    self.send_routed_from(pl, Destination::Broadcast, Payload::Disconnect);
+                    self.declare_disconnected(slot);
                     slot += 1;
                 }
             }
@@ -978,6 +1084,29 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// spec: `DisconnectPlayer pl` for `pl ≠ Host` (§4-T7f/§15.4), host only,
+    /// mid-match: marks the slot disconnected (once — `DisconnectPlayer`'s
+    /// own `connected s pl` guard), applies the host's own copy of the
+    /// `DisconnectMessage` directly, and relays one from `pl` to every other
+    /// connected peer. From here on `handle` drops everything this slot
+    /// sends. Reached from a timeout (`check_timeouts`) or a mid-match
+    /// `Leave`.
+    fn declare_disconnected(&mut self, slot: usize) {
+        if self.role != Role::Host || !self.peers[slot].connected {
+            return;
+        }
+        self.peers[slot].connected = false;
+        let Some(pl) = self.peers[slot].index else {
+            return; // never joined this match — nobody's view holds a slot for it
+        };
+        if let Some(m) = &mut self.machine {
+            if pl < m.connected_view.len() {
+                m.receive_disconnect(pl);
+            }
+        }
+        self.send_routed_from(pl, Destination::Broadcast, Payload::Disconnect);
     }
 
     /// spec: §14.3 — one `OpponentView` per player but this one. `gameover`
@@ -1015,11 +1144,24 @@ impl Session {
 }
 
 /// spec: §15.0 — the resolved winner of a finished match, or `None` while
-/// more than one player is still in it; `winner_multi` is the "that winner
-/// is me" special case.
+/// more than one player is still in it.
+///
+/// This peer's own slot counts as playing iff it is not gameover, whatever
+/// `connected_view[my_index]` says: noticing one's own disconnection
+/// (`notice_disconnection`) says nothing about who else is left, so it must
+/// not resolve the match in favour of the one remaining opponent — that case
+/// is S10 ("connection to host lost"), not S9. Every other slot is read
+/// through `playing_view`. While this peer has not noticed a disconnection,
+/// `Some(my_index)` is exactly `winner_multi(.., my_index)`.
 pub fn find_winner(m: &Machine<Instance>) -> Option<usize> {
-    let mut playing = (0..m.gameover_view.len())
-        .filter(|&pl| crate::model::playing_view(&m.gameover_view, &m.connected_view, pl));
+    let me = m.my_index;
+    let mut playing = (0..m.gameover_view.len()).filter(|&pl| {
+        if pl == me {
+            !m.gameover_view[me]
+        } else {
+            crate::model::playing_view(&m.gameover_view, &m.connected_view, pl)
+        }
+    });
     match (playing.next(), playing.next()) {
         (Some(w), None) => Some(w),
         _ => None,
@@ -1083,20 +1225,23 @@ impl PendingEndpoint {
     }
 }
 
-/// Connects `endpoint`'s socket to the peer named by `code`
-/// (`ConnectionCode::best_target`, §15.2 step 3), and registers it against
-/// `net`, which immediately starts sending `Hello`, punching the local NAT
-/// mapping open in the process.
+/// Registers `endpoint`'s socket against `net` as the connection to the
+/// peer named by `code`: both of its advertised addresses
+/// (`ConnectionCode::candidates`, §15.2 step 3) are punched at once, and
+/// the peer must prove itself with the nonce in `code` before anything from
+/// it is accepted. `net` immediately starts sending `Hello`, punching the
+/// local NAT mapping open in the process.
 pub fn connect_to(
     net: &NetWorkerHandle,
     endpoint: Endpoint,
     code: ConnectionCode,
 ) -> io::Result<Connection> {
-    let target = code.best_target(endpoint.public);
+    let candidates: Vec<SocketAddr> = code.candidates().into_iter().map(SocketAddr::V4).collect();
     net.register(
         endpoint.socket,
-        SocketAddr::V4(target),
+        &candidates,
         endpoint.nonce,
+        code.nonce,
         max_decoded_message_bytes(),
     )
 }

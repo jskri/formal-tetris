@@ -889,7 +889,7 @@ returns an outcome, and a matching `draw_*` function. With no widget toolkit at 
 | `ModeSelect` | `S1` | "Single Player" / "Multi Player" | `[1]` → `Single`; `[2]` → `RoleSelect` |
 | `RoleSelect` | `S2` | "Host" / "Join" | `[1]` → `Host`; `[2]` → `Join` |
 | `Single` | `S1`'s SP branch | the T6 board alone | ordinary game input |
-| `Host` | `S3` | name field; "Add player" button (`AddConnection::Idle`) → a paste field for the joiner's code, no host code shown yet (`EnteringCode`, §15.1a′) → the host's own code for that pairing, itself shown as a read-only field (`Connecting`, auto-clears on Join); the joiner list; "Start game" button, greyed with "Not enough players." until there's a joiner | `[↑]/[↓]`/gamepad D-pad move focus among the 3 stops (§15.1a), `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+N]`/`[Ctrl+S]` remain as power-user aliases for Add/Start, `[Esc]` cancels the paste box or leaves the lobby (§15.1a′), `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
+| `Host` | `S3` | name field; "Add player" button (`AddConnection::Idle`) → a paste field for the joiner's code, no host code shown yet (`EnteringCode`, §15.1a′) → the host's own code for that pairing, itself shown as a read-only field (`Connecting`, auto-clears on Join); the joiner list; "Start game" button, greyed with "Not enough players." until there's a joiner | `[↑]/[↓]`/gamepad D-pad move focus among the 3 stops (§15.1a), `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+N]`/`[Ctrl+S]` remain as power-user aliases for Add/Start, `[Esc]` cancels the open pairing (paste box, discovery, or `Connecting`) or, with none open, leaves the lobby (§15.1a′), `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
 | `Join` | `S4` | name field; own code, shown as a read-only field, initially focused; the "paste the host's code" field, always editable (§15.1a′ — no gate); "Connect" button | `[↑]/[↓]`/gamepad D-pad move focus among the 4 stops, `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
 | — | `S5` Rejoin | — | none: `S5`'s only action is automatic, so it is `Session::rejoin` called in passing, with no frame on which it would be drawn |
 | `Waiting` | `S6` | `t6::model::Machine` filler game; roster; "Waiting for host…" | ordinary game input |
@@ -919,8 +919,13 @@ resolved winner takes `S9` instead even if the connection is lost immediately af
 consults `find_winner` before `noticed_disconnect` for exactly that ordering.
 
 **`find_winner`** — has no `T7.v` counterpart and lives in
-`session.rs`, not `model.rs`: it is the "exactly one player still `playing_view`" fold over
-`gameover_view`/`connected_view`, and `winner_multi(self)` is its `Some(my_index)` special case.
+`session.rs`, not `model.rs`: it is the "exactly one player still playing" fold over
+`gameover_view`/`connected_view`. Every other player's slot is read through `playing_view`; this
+peer's own slot counts as playing iff it is not gameover, whatever `connected_view[my_index]`
+says. Noticing one's own disconnection (`notice_disconnection`) says nothing about who else is
+left, so it must not resolve the match: otherwise a joiner losing the host in a 2-player match
+(or with one opponent left) would show "Winner: `<that opponent>`" instead of `S10`. While this
+peer has not noticed a disconnection, `Some(my_index)` is exactly `winner_multi(self)`.
 
 ### 15.1 Lobby and roster
 
@@ -1045,18 +1050,26 @@ field is captured from the *same* `Endpoint` that `poll_add_discovery` goes on t
 `connect_to` with — captured before that call consumes it — so there is no second endpoint for
 the display to drift from.
 
-**A fresh endpoint per joiner is required, not merely convenient.** `NetWorkerHandle::register`
-calls `socket.connect(peer)`, which locks a UDP socket to exactly one remote peer for its
-lifetime — this is what makes the star topology's "no joiner ever punches a hole to another
-joiner" hold at all (§15.2's own closing paragraph: "one `UdpSocket` per connection"). A
-connection code names one specific socket's STUN-discovered address, so one code is tied to one
-socket is tied to one joiner; §15.1 already says "one STUN lookup per prospective joiner ... and
-repeats per additional joiner." Reusing one socket/code across simultaneous joiners is not a
-viable alternative: a shared socket can only ever be `connect()`-locked to one peer, so a second
-joiner's traffic would have nowhere valid to land.
+**A fresh endpoint per joiner is required, not merely convenient.** A connection code names one
+specific socket's STUN-discovered NAT mapping and carries that socket's own nonce, and
+`NetWorkerHandle::register` binds the socket to exactly one remote peer for its lifetime: one
+reliable channel, accepting only that peer's advertised addresses and only once the peer has
+proven itself with the nonce in its own code (§15.2 steps 3–4). That is what makes the star
+topology's "no joiner ever punches a hole to another joiner" hold at all (§15.2's own closing
+paragraph: "one `UdpSocket` per connection"). So one code is tied to one socket is tied to one
+joiner; §15.1 already says "one STUN lookup per prospective joiner ... and repeats per additional
+joiner." Reusing one socket/code across simultaneous joiners is not a viable alternative: a
+shared socket's single reliable channel and single expected peer nonce leave a second joiner's
+traffic nowhere valid to land.
 
 **One connection in flight at a time.** `begin_add` (`[Ctrl+N]`) is a no-op unless `Idle`: only
-one paste-box-then-code dialog is ever open at once. `poll_add_completion`, called every frame,
+one paste-box-then-code dialog is ever open at once. `Connecting` records the frame time it was
+entered: a pairing that has received not a single packet `CONNECT_DEADLINE_SECS` (120s) later is
+abandoned, its peer removed (`Session::remove_unjoined_peer`) and the sub-flow back to `Idle` with
+a status line. Without a deadline, a hole punch that never succeeds would block "Add player" for
+good, since a connection that never heard from its peer never times out (§15.2's
+`seconds_since_last_activity` is `None`, read as "not yet timed out"). The deadline is generous
+because it has to cover the host's code travelling back to the joiner out of band. `poll_add_completion`, called every frame,
 resolves the specific `peer_id` recorded in `Connecting` to its *current* slot in
 `session.peers` via `Peer::id` — not a `Vec` position, since a `Leave` elsewhere in the lobby
 (§15.1b) can splice an earlier peer out and shift every later one down while this pairing is
@@ -1065,12 +1078,12 @@ still in flight — and auto-clears back to `Idle` once that joiner's `Join` has
 either way the roster line, or its absence, becomes the visible confirmation, and `[Ctrl+N]` is
 available again for the next joiner.
 
-**`[Esc]` cancels the innermost open thing.** While `EnteringCode` (the paste box is open),
-`[Esc]` calls `cancel_add` — back to `Idle`, nothing minted, the whole lobby not left. In every
-other state (`Idle`, `Discovering`, `Connecting`, or no `S3` sub-dialog at all) `[Esc]` keeps its
-ordinary meaning: leave the lobby entirely, back to `S2`. Leaving mid-`Discovering` drops the
-`PendingEndpoint`; its background thread finishes its one STUN round trip and exits normally with
-nowhere to send the result.
+**`[Esc]` cancels the innermost open thing.** While a pairing is open (`EnteringCode`,
+`Discovering` or `Connecting`), `[Esc]` calls `cancel_add`: back to `Idle`, the whole lobby not
+left, and every joiner already in it kept. Cancelling `Discovering` drops the `PendingEndpoint`;
+its background thread finishes its one STUN round trip and exits normally with nowhere to send the
+result. Cancelling `Connecting` removes that pairing's not-yet-joined peer. Only when `Idle` does
+`[Esc]` keep its ordinary meaning: leave the lobby entirely, back to `S2`.
 
 **`S4`'s two fields are both always reachable — no lock is needed.** The host's code for a given
 pairing does not exist until the host has already processed that joiner's own code (minted only
@@ -1082,17 +1095,26 @@ host has one to give — both of `S4`'s fields stay open for input the whole tim
 Three lobby-flow features beyond the base `Join`/`Players`/`Start` exchange (§15.1), each
 addressing a specific gap that exchange alone leaves:
 
-- **`Leave`** — sent by a joiner leaving from `S9`. The host splices that
-  slot out of `peers`, shifts every later slot's roster index down, and re-broadcasts `Players`.
-  Unlike a mid-match disconnect (§15.4), a `Leave` slot is *not* kept as a phantom. Host-only in
-  effect, and ignored once a `Machine` exists — renumbering a frozen roster mid-match would
-  invalidate every index already in flight. A leaving **host** sends nothing at all: its own
-  departure is exactly what every other client's `DisconnectPlayer pl = Host` case already
-  reasons about (§4-T7f).
+- **`Leave`** — sent by a joiner leaving the lobby (`S6`), a match (`S7`/`S8`) or the winner
+  screen (`S9`). Host-only in effect. Before a match starts, or once the host's own `find_winner`
+  has resolved one, the host splices that slot out of `peers`, shifts every later slot's roster
+  index down, and re-broadcasts `Players`: unlike a mid-match disconnect (§15.4), the slot is
+  *not* kept as a phantom. Mid-match, renumbering the frozen roster would invalidate every index
+  already in flight, so the slot is kept and the departure is realized as `DisconnectPlayer` for
+  that player right away (`Session::declare_disconnected`, §15.4) — the same effect the disconnect
+  timeout would have, without the wait. The caller queues `Leave` and drops its `Session` in the
+  same frame; delivery relies on the dropped connection's close linger (§15.5). A leaving
+  **host** sends nothing at all: its own departure is exactly what every other client's
+  `DisconnectPlayer pl = Host` case already reasons about (§4-T7f).
+- **The roster is frozen at `Start`** for a joiner: `Players` is applied only while no `Machine`
+  exists. A `Players` sent after a post-match `Leave` describes the next lobby's numbering, not
+  this match's, which the winner screen and the opponent strip still index by.
 - **Rematch** — the host's post-game screen *is* its pre-match `S3`, and a
   joiner re-sends `Join` over the connection it already has (`S5`). `Session::reset_for_rematch`
-  drops the `Machine`, roster, boards, and disconnect latch while keeping every `Connection`;
-  the host additionally clears peer indices so the fresh roster is rebuilt from the `Join`s that
+  drops the `Machine`, roster, boards, and disconnect latch while keeping every live
+  `Connection`; the host additionally drops every peer it declared disconnected during the match
+  (§15.4: such a peer is never serviced again, so it would otherwise linger with nothing to reap
+  it) and clears the remaining peers' indices so the fresh roster is rebuilt from the `Join`s that
   follow — a peer that leaves instead of rematching simply never sends one. The host and a joiner
   press Rematch independently, so a joiner's rejoin `Join` can arrive before the host has pressed
   its own Rematch (and thus before the host's `reset_for_rematch` has run) — the host's `Join`
@@ -1129,10 +1151,31 @@ another joiner):
    a different external port per *destination*, would make the address STUN discovered (talking
    to the STUN server) unusable for a joiner's own hole-punch attempt (talking to the joiner);
    this crate does not detect or work around that case.
+
+   The mapping must also still exist when it is used. A joiner discovers it on entering `S4`,
+   then sends nothing on that socket for as long as the out-of-band exchange takes (its code out,
+   the host's STUN lookup, the host's code back), which can outlast a NAT's idle timeout for UDP
+   mappings; a mapping recreated later may get another public port, which the host ignores,
+   since it accepts packets only from the advertised addresses (step 3). So while in `S4` the joiner sends a fresh
+   Binding Request every `MAPPING_REFRESH_SECS` (15s, `Endpoint::send_mapping_keepalive`) and
+   reads any response without blocking (`Endpoint::poll_mapping`); if the reported mapping ever
+   differs, the shown code is updated and the status line asks the player to send it again. The
+   host needs no such refresh: its `Hello`s start the moment its own lookup resolves.
 2. **Manual code exchange** (§15.1) — the only signaling step, no server involved.
-3. **Simultaneous open.** Both sides send a few UDP packets, a few hundred ms apart, to the
-   other's discovered address, tagged with the shared nonce so the first genuine reply is
-   distinguishable from noise. Knowing the peer's address from the code exchange is not enough on
+3. **Simultaneous open.** Both sides send a few UDP packets, a few hundred ms apart, to *both*
+   of the other's advertised addresses at once (`ConnectionCode::candidates`: public, then LAN),
+   rather than guessing which one is routable. Behind the same home router, many routers won't
+   hairpin a packet back to their own external address, so only the LAN address works; behind the
+   same carrier-grade NAT, the two peers share a public IP but sit on different LANs, so only the
+   public address works (carrier NATs are required to hairpin). The packets are the `Hello`
+   carrying the sender's own nonce (below), so sending to a LAN address that happens to belong to
+   some other device is harmless.
+
+   The socket is never `connect()`-locked to one address. Each side may settle on a *different*
+   path (A reaching B's LAN address while B reaches A's public one); a socket locked to one
+   address would then drop the other side's packets, which arrive from the address *they* chose.
+   Instead a packet is accepted only if its source is one of the peer's advertised addresses, and
+   replies go to wherever the peer was last heard from (`net::PeerPath`). Knowing the peer's address from the code exchange is not enough on
    its own: most NATs only forward an inbound packet from an address this socket has already sent
    an outbound packet *to* — the mapping is opened by outbound traffic, per destination, not
    merely by the socket existing. So each side still has to punch its own NAT open before the
@@ -1147,8 +1190,14 @@ another joiner):
    reliable layer anyway (below), sized to this app's own needs, while `State` is deliberately
    best-effort — a lost or stale frame should be superseded by the next one, not held up behind a
    retransmit the way a TCP stream would.
-4. **Handshake.** Once a tagged packet is received from the expected peer, a `Hello`/`HelloAck`
-   pair (over the reliable framing below) confirms two-way delivery before `Join` is ever sent.
+4. **Handshake.** A `Hello`/`HelloAck` pair (over the reliable framing below) confirms two-way
+   delivery before `Join` is ever sent. The transport itself refuses everything from the peer's
+   addresses until one of two proofs arrives: a `Hello` carrying the nonce from the peer's own
+   code, or a `HelloAck` echoing this side's nonce. Anything dropped before that, bare acks
+   included (they carry no nonce), is simply resent by the peer's retransmit timer, and nothing
+   counts as activity (`seconds_since_last_activity` stays `None`). This tells the genuine peer
+   apart from anything else that reaches the socket from one of those addresses: a stale socket
+   at a reused address or port, or an unrelated device at the LAN address.
 5. **Keepalive.** Once a match has started, no separate mechanism is needed — the periodic
    `State` broadcast (§15.3, ≥3 Hz) is far more frequent than any NAT mapping's inactivity
    timeout, and doubles as one for free. But `State` only exists once a `Machine` does, i.e.
@@ -1251,9 +1300,17 @@ joiner's own `Machine::target`/broadcast-to-everyone-else semantics — read off
 `gameover_view[my_index]`, §4-T7d, exactly as any peer would for its own outgoing messages), the
 host forwards it over the *target* joiner's own channel — a physical relay, not a model-level
 concept (`T7.v`'s `messages` already models this as "whoever the host is currently relaying
-between," §0.1). On detecting a joiner's channel has gone silent past a timeout, the host applies
-`DisconnectPlayer`'s effect locally (§4-T7f) and relays `Disconnect` to every *other* connected
-joiner. The host is a peer like any other for its own gameplay — it runs its own `Machine`
+between," §0.1). On detecting a joiner's channel has gone silent past a timeout, or on a mid-match
+`Leave` (§15.1b), the host applies `DisconnectPlayer`'s effect locally (§4-T7f,
+`Session::declare_disconnected`: `Peer::connected := false`, its own `receive_disconnect`) and
+relays `Disconnect` to every *other* connected joiner.
+
+From then on, nothing that peer sends is applied or relayed, even if its link turns out to work
+after all (a long outage that recovers): its `Disconnect` has already been broadcast and must stay
+the last message anyone receives from it (`LastMessagesGameoverDisconnect`), and `connected` never
+flips back (`DisconnectedMonotone`). Likewise, a `Disconnect` *arriving* from a joiner is neither
+applied nor relayed — only the host originates `DisconnectMessage`s, on behalf of the player that
+dropped. The host is a peer like any other for its own gameplay — it runs its own `Machine`
 exactly as every joiner does, with `my_index = 0`.
 
 ### 15.5 Threading
@@ -1269,8 +1326,9 @@ reliable-channel protocol (§15.2) in staying small and fully auditable.
 `net::NetWorkerHandle::spawn()` starts that thread and returns a cheaply-`Clone`-able handle;
 `Session` holds one (`new_host` mints its own, since the host lobby's `S3` starts with zero
 connections; `new_joiner` is handed the one its caller already minted to make its first
-connection, §15.1a′). `NetWorkerHandle::register(socket, peer, local_nonce, max_decoded_bytes)`
-runs `socket.connect(peer)`/`set_read_timeout` synchronously on the caller's own thread (§15.2
+connection, §15.1a′). `NetWorkerHandle::register(socket, candidates, local_nonce, peer_nonce,
+max_decoded_bytes)` sets the socket's read timeout and queues the initial `Hello` synchronously on
+the caller's own thread (`candidates`/`peer_nonce` come from the peer's code and drive §15.2
 steps 3–4); only handing the socket itself to the worker thread crosses a channel, drained
 between round-robin passes. `max_decoded_bytes` is a decode-size bound (§15.2's hardening
 paragraph) computed from the concrete instance's board dimensions
@@ -1292,10 +1350,15 @@ ever be kept waiting behind another's turn — worst case, one full round costs 
 reaches.
 
 Removing a connection (a `Leave`, §15.1b, or the whole `Session` going away) tells the worker to
-stop servicing it and returns immediately — no thread to join, since the socket was never that
-connection's own thread to begin with. The worker thread needs no explicit shutdown call either:
-it idles without touching a socket whenever it owns zero connections, and exits the moment every
-handle/connection sharing it has dropped.
+wind it down and returns immediately — no thread to join, since the socket was never that
+connection's own thread to begin with. The worker does not drop the socket at once: it keeps
+servicing the connection (draining its outgoing queue, retransmitting, receiving acks) until
+everything sent has been acknowledged or `CLOSE_LINGER` (1s) has elapsed. That linger is what
+delivers a final message queued in the same frame the connection is dropped — the usual shape of
+a `Leave`, which would otherwise be discarded before its first send. The worker thread needs no
+explicit shutdown call either: it idles without touching a socket whenever it owns zero
+connections, and exits once every handle/connection sharing it has dropped and every lingering
+connection has finished.
 
 Outgoing sends go the other way: `Session::fire_and_broadcast` (`session.rs`) samples
 `machine.gameover_view[machine.my_index]`/`machine.target` immediately **before** the

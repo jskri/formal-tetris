@@ -20,7 +20,7 @@ the actual `net.rs`/`session.rs` source it is about, not `implementation.md`
 
 ## 0. Result
 
-No unresolved gap. Three accepted, bounded divergences, each argued rather
+No unresolved gap. Five accepted, bounded divergences, each argued rather
 than closed outright:
 
 - `fix_piece`'s own `if connected s pl then SendMessages ... else messages s`
@@ -35,11 +35,18 @@ than closed outright:
   a precondition (~1024 outstanding unacked sends to one peer) this app's own
   traffic volume cannot reach against a peer that is not already effectively
   dead (§8).
+- A joiner's own `notice_disconnection` can fire before the host has
+  declared that joiner disconnected, so `NoticeDisconnection`'s
+  `¬connected s pl` conjunct can be briefly false under `α` (§9).
+- Messages from a player the host has declared disconnected that had not
+  yet reached the host are never delivered, whereas `T7.v`'s
+  `DisconnectPlayer` appends its `DisconnectMessage` *behind* them in a
+  lossless queue (§10).
 
 Two further points are load-bearing enough to call out up front, both argued
 in full: `receive_gameover`/`receive_disconnect`'s target redirect and the
 `from ↦ false` override in `redirect_target_from` (§6, §8), and the host's own
-synchronous `receive_disconnect` call in `Session::check_timeouts`, which
+synchronous `receive_disconnect` call in `Session::declare_disconnected`, which
 collapses two `T7.v` steps (`DisconnectPlayer`, then the host's own
 `ReceiveMessage`) into one real action (§10).
 
@@ -93,10 +100,14 @@ field, in `T7.v`'s own field order, for a fixed player `pl`:
 - `connected α(σ) pl` — not read off any `Machine<P>` field (none exists —
   `connected`/`messages` are realized entirely in `net.rs`/`session.rs`).
   Realized as: for `pl ≠ Host`, `true` iff the host's own `Peer::connected`
-  for that player's slot is still `true` — a flag `Session::check_timeouts`'s
-  `Role::Host` branch sets `false` exactly once, on that peer's
-  `seconds_since_last_activity()` first exceeding `DISCONNECT_TIMEOUT_SECS`,
-  never reset afterward; for `pl = Host`, no Rust quantity represents it at
+  for that player's slot is still `true` — a flag only
+  `Session::declare_disconnected` sets `false`, exactly once, reached either
+  from `Session::check_timeouts`'s `Role::Host` branch (that peer's
+  `seconds_since_last_activity()` first exceeding `DISCONNECT_TIMEOUT_SECS`)
+  or from a mid-match `Leave` (`Session::handle_untagged`), never reset
+  afterward within the match: a peer marked `false` is removed outright by
+  the host's `Session::reset_for_rematch`, between matches, never revived.
+  For `pl = Host`, no Rust quantity represents it at
   all — `connected(Host)` becoming `false` is the host process itself
   ceasing to exist, unobservable to `α` directly (§7 below argues this
   case). `Peer::connected` is the *declared* fact the rest of the system
@@ -425,7 +436,7 @@ liveness. For `pl = Host`: trivially satisfied, since the host's own
 file's scope (§7's own move: the host process dying ends the trace rather
 than appearing as a mid-trace state). For `pl ≠ Host`: a genuine corner case survives — `pl`'s own
 reliable channel to the host can go bad before the host's own
-`check_timeouts`-based detection has caught up (α's `connected(pl)`, §3, is
+`declare_disconnected`-based detection has caught up (α's `connected(pl)`, §3, is
 the host's own *declared* `Peer::connected` fact, not `pl`'s own immediate
 knowledge of her own link), so a trace exists where `T7.v`'s `FixPiece`
 computes a `messages'` with a new entry appended (because α still says
@@ -434,7 +445,7 @@ computes a `messages'` with a new entry appended (because α still says
 closed by `pl` sending fast — `pl` has no way to observe the host's own
 `Peer::connected` flag before deciding whether to attempt the send, and the
 host-driven half of `DisconnectPlayer pl≠Host`'s own effect
-(`Session::check_timeouts`'s broadcast) is realizable only by the host,
+(`Session::declare_disconnected`'s broadcast) is realizable only by the host,
 never by `pl` herself (§10). **Harmless:** neither `MessageSound` nor `LastMessagesGameoverDisconnect`
 (`T7.v`'s only invariants mentioning `messages`) requires a message to be
 *present* — both only constrain its *content* when one is. A message
@@ -471,18 +482,20 @@ to`'s FIFO shape (`LastMessagesGameoverDisconnect`) exists precisely so
   only inside `DisconnectPlayer`, only for `pl ≠ Host` (its own `messages`
   field's guard) —
   realized by the host's own single detection-and-broadcast for that
-  connection (`Session::check_timeouts`'s `Role::Host` branch,
-  timeout-driven, `send_routed_from(pl, Broadcast, Payload::Disconnect)`),
-  guarded by that same branch's own `!self.peers[slot].connected` check so a
+  connection (`Session::declare_disconnected`, reached on a timeout or a
+  mid-match `Leave`, `send_routed_from(pl, Broadcast, Payload::Disconnect)`),
+  guarded by its own `!self.peers[slot].connected` check so a
   repeat firing is already excluded before any send is attempted —
   matching `DisconnectPlayer`'s own guard (`if connected s pl then ... else
   None`): once `connected s pl` flips `false`, a repeat event is excluded
   at the Rocq level too, and `Peer::connected` is exactly the Rust-side
   realization of that same fact (no other place `connected`'s Rust-side
-  truth, §3, could un-flip). One case not present at the Rocq-event level
-  at all: the host's own copy of this fact is applied synchronously, in
-  the same `check_timeouts` iteration, rather than via a queued
-  self-message — argued separately in §10.
+  truth, §3, could un-flip). No `DisconnectMessage` originates anywhere
+  else: one arriving at the host from a joiner is neither applied nor
+  relayed (`Session::handle_routed`'s `Role::Host` check). One case not
+  present at the Rocq-event level at all: the host's own copy of this fact
+  is applied synchronously, in the same `declare_disconnected` call, rather
+  than via a queued self-message — argued separately in §10.
 - **Dequeued in order, exactly the message that was enqueued first.**
   `ReliableReceiver::on_packet` (`net.rs`) — sequence number, ack via
   `TAG_ACK`, retransmit via `ReliableSender::due_retransmits`, deliver only
@@ -578,9 +591,26 @@ checks only the second
 `self.peers.first()`'s `seconds_since_last_activity() >
 DISCONNECT_TIMEOUT_SECS` (its own link to the host, since a joiner has
 exactly one connection), guarded by `!self.noticed_disconnect` so the call
-site itself never repeats — which *is* the trigger condition for
-`¬connected s pl` becoming true from `pl`'s own local vantage, not
-something `model.rs` needs to reconstruct. The second conjunct (`hasn't
+site itself never repeats.
+
+**Accepted divergence: the first conjunct can be briefly false.** Under §3's
+`α`, `connected s pl` for `pl ≠ Host` is the host's *declared*
+`Peer::connected`, and the two timeouts run on two machines: when the link
+fails, the joiner's own `DISCONNECT_TIMEOUT_SECS` can expire before the
+host's does, and then `notice_disconnection` fires while `α` still says
+`connected(pl) = true` — a step `T7.v`'s `NoticeDisconnection` would reject.
+In the window up to the host's own `declare_disconnected` (at most one
+further `DISCONNECT_TIMEOUT_SECS`, since the joiner's own link is already
+silent), `ViewSound`'s second conjunct fails for `(pl, pl)` alone. Bounded
+and confined to `pl` itself: `connected_view[my_index]` is read only by
+`pl`'s own `winner_multi` (which it can only make false — `pl` is no longer
+`playing_view` for herself — so it unblocks nothing) and by
+`session::find_winner`, which ignores this player's own `connected_view` slot
+by design (`implementation.md` §15.0). Nobody else reads `pl`'s views, and
+`pl` sends nothing further (her `S10` transition drops the session). In the
+case that matters most, the host itself having died, the conjunct is
+already true (`DisconnectPlayer Host` makes everyone disconnected, §10), so
+the step is exact. The second conjunct (`hasn't
 already noticed`) *is* checked inside `model.rs` too, making the method
 idempotent by construction independent of the caller's own guard
 (`model_unit_test.rs`'s own `notice_disconnection_idempotent` is the
@@ -604,11 +634,12 @@ repeat call there would simply be `None`, a stutter; `model.rs` returns
   `Role::Joiner` branch, but that firing is `NoticeDisconnection`, a
   separate `T7.v` event with its own argument (§9), not a re-derivation of
   `DisconnectPlayer(Host)` itself.
-- **`pl ≠ Host` — realized by the host's own `Session::check_timeouts`**,
-  never by any `Machine<P>`. On detecting, in its `Role::Host` branch, that
-  `self.peers[slot].conn.seconds_since_last_activity() >
-  DISCONNECT_TIMEOUT_SECS`, the host — as the relay for every other joiner
-  — sets `self.peers[slot].connected = false` (once; the branch's own
+- **`pl ≠ Host` — realized by the host's own `Session::declare_disconnected`**,
+  never by any `Machine<P>`. On detecting, in `check_timeouts`'s
+  `Role::Host` branch, that `self.peers[slot].conn.seconds_since_last_activity() >
+  DISCONNECT_TIMEOUT_SECS`, or on receiving that player's `Leave`
+  mid-match, the host — as the relay for every other joiner
+  — sets `self.peers[slot].connected = false` (once; the function's own
   guard skips an already-`false` entry) and calls
   `self.send_routed_from(pl, Destination::Broadcast, Payload::Disconnect)`,
   which reaches every other connected peer over their own reliable channel
@@ -626,6 +657,27 @@ repeat call there would simply be `None`, a stutter; `model.rs` returns
   `Payload::Disconnect` push per recipient's own outbound reliable channel
   (`send_routed_from`'s per-peer loop), matching one append per `(pl, to)`
   pair for every connected `to ≠ pl`.
+- **After the declaration, nothing from `pl` is delivered — accepted
+  divergence.** `Session::handle` drops every event arriving on a host-side
+  slot whose `Peer::connected` is `false`, before any dispatch. This is what
+  keeps the `DisconnectMessage` the *last* message anyone ever receives from
+  `pl` (`LastMessagesGameoverDisconnect`) even if `pl`'s link turns out to
+  work after all: without it, a long outage that recovers would let the host
+  relay `pl`'s later `Garbage`/`Gameover` behind a `Disconnect` already
+  broadcast, a shape `T7.v` never produces (`FixPiece` sends only while
+  `connected s pl`). The price is the converse: anything `pl` sent *before*
+  the declaration that had not yet reached the host (still unacked on `pl`'s
+  side, or never received at all) is now never delivered, while `T7.v`'s
+  `DisconnectPlayer` appends its `DisconnectMessage` behind those messages
+  in a lossless queue, so the receivers would have to pop them first. In
+  `α`'s terms those messages are simply removed from the head of each
+  `messages pl to` queue at the declaration step. Harmless for the same
+  reason as §7a and §8's eviction: `MessageSound` and
+  `LastMessagesGameoverDisconnect` only constrain messages that are
+  present, and the queue after removal (just the `DisconnectMessage`) has
+  exactly the required shape. Only liveness — `pl`'s last `Garbage` or
+  `Gameover` taking effect elsewhere — is lost, and liveness is out of
+  scope (§1).
 - **The host's own copy: `receive_disconnect(pl)` applied synchronously,
   not via a queued self-message.** `DisconnectPlayer`'s own record literal
   appends a `DisconnectMessage` from `pl` to *every*
@@ -633,7 +685,7 @@ repeat call there would simply be `None`, a stutter; `model.rs` returns
   models the host's own updated view of `pl` as arriving through the same
   queue-and-`ReceiveMessage` mechanism §8 argues for every other recipient,
   one further, logically separate step (`Next Host (Receive pl) s`). The
-  same `check_timeouts` branch instead calls `m.receive_disconnect(pl)`
+  same `declare_disconnected` call instead calls `m.receive_disconnect(pl)`
   directly on the host's own `Machine`, in the same real action as the
   broadcast above, rather than pushing a message to itself and later
   draining it back out of its own queue. This collapses two `T7.v` steps
@@ -646,7 +698,9 @@ repeat call there would simply be `None`, a stutter; `model.rs` returns
   `OtherS6Unchanged`/§11), and `ReceiveMessage`'s own `DisconnectMessage`
   branch reads only the message's `from` (`= pl`, fixed) and the
   pre-existing `gameoverView`/`connectedView`/`target` state
-  `DisconnectPlayer` did not touch — so computing it immediately, from the
+  `DisconnectPlayer` did not touch — and, by the previous point, no message
+  from `pl` is left ahead of it in the `(pl, Host)` queue — so computing it
+  immediately, from the
   state `DisconnectPlayer` just produced, yields the identical result
   computing it from any later state would (no other host-side event can
   fire strictly between these two Rocq steps in any trace this file's
@@ -700,7 +754,11 @@ public API — no other code path mutates a `Machine<P>`):
   Rust-side realization (`Peer::connected`, §10) is set-once, never
   cleared, for the lifetime of a match — `Session::init_machine` (called
   from `start_match`, once per `Start`) is the only place a new roster
-  begins, never a step within one run. `connected_view[i]` is only ever
+  begins, never a step within one run, and `Session::reset_for_rematch`
+  removes every `false` slot before that next roster is built, so a
+  declared-disconnected peer cannot rejoin as connected. Within the match,
+  `Session::handle` ignoring that slot (§10) means nothing it sends can act
+  as if `connected` had flipped back. `connected_view[i]` is only ever
   set to `false` (`notice_disconnection`, `receive_disconnect`), never
   back to `true` (same grep argument as above).
 - **`SelfViewAccurate`.** The one place `self.s6.gameover()` can newly
@@ -736,8 +794,8 @@ public API — no other code path mutates a `Machine<P>`):
   the same step the corresponding truth (`gameover`/`connected`) becomes
   false→true/won't-revert — never before: `Session::broadcast_after_fix`
   reads `machine.gameover_view[machine.my_index]` *after* the `fix_piece`
-  call that may have just set it, and `Session::check_timeouts`'s
-  `Role::Host` branch sets `Peer::connected = false` at the same point
+  call that may have just set it, and `Session::declare_disconnected`
+  sets `Peer::connected = false` at the same point
   that triggers the broadcast, never earlier — and `SendMessages`'s own
   `to =? pl` self-exclusion is realized by
   `Session::send_routed_from` never addressing an outbound message to its
@@ -796,9 +854,9 @@ crosses the wire) would otherwise violate `check_invariants`'s own
 | `fall_step` | disjoint-guard sequencing over `move_piece`/`fix_piece`, both above |
 | `drop_piece` | no-use relocation, guarded before mutation (§4-T7h) + §5 in full (§7) |
 | `receive_garbage`/`receive_gameover`/`receive_disconnect` | cross-machine, message-queue argument against `Session`/`net.rs` (§8), redirect soundness via §6 case 1, ordering reconciled by `redirect_target_from`'s override |
-| `notice_disconnection` | stutter w.r.t. `s6`, `Session::check_timeouts`-detected trigger, idempotent by construction (§9) |
+| `notice_disconnection` | stutter w.r.t. `s6`, `Session::check_timeouts`-detected trigger, idempotent by construction; may precede the host's own declaration — bounded, local divergence (§9) |
 | `Disconnect`, `pl = Host` | realized by nobody — argued against reality (§10) |
-| `Disconnect`, `pl ≠ Host` | realized by `Session::check_timeouts`'s own broadcast, plus the host's own synchronous self-`receive_disconnect` (a step-collapsing move, argued explicitly) (§10) |
+| `Disconnect`, `pl ≠ Host` | realized by `Session::declare_disconnected`'s broadcast (on timeout or mid-match `Leave`), plus the host's own synchronous self-`receive_disconnect` (a step-collapsing move, argued explicitly); `pl`'s undelivered messages are discarded — bounded divergence (§10) |
 | `Correct` | inductive, one clause per method (§11) |
 | `garbage`/`rem_gen_garbage`'s range | `i64`, unclamped; overflow argued unreachable; the wire-receive clamp is a harmless, separate hardening (§12) |
 | `fix_piece`'s outer `connected s pl` message gate | bounded, invariant-harmless divergence — not an exact match, argued against `Session::broadcast_after_fix` (§7a) |

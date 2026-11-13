@@ -227,17 +227,19 @@ fn connection_code_rejects_malformed() {
     );
 }
 
-/// The same-NAT hairpin case `best_target` exists for: a peer whose public
-/// IP matches ours is reached on its LAN address, anyone else on their
-/// public one.
+/// spec: §15.2 step 3 — both advertised addresses are punched at once,
+/// public first; a code whose two addresses coincide (STUN failed) yields
+/// just the one.
 #[test]
-fn best_target_prefers_local_address_behind_a_shared_nat() {
+fn candidates_are_the_public_then_the_local_address() {
     let peer = sample_code();
-    let same_nat = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 7), 9999);
-    assert_eq!(peer.best_target(same_nat), peer.local);
+    assert_eq!(peer.candidates(), vec![peer.public, peer.local]);
 
-    let elsewhere = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 3), 9999);
-    assert_eq!(peer.best_target(elsewhere), peer.public);
+    let lan_only = ConnectionCode {
+        public: peer.local,
+        ..peer
+    };
+    assert_eq!(lan_only.candidates(), vec![peer.local]);
 }
 
 // ── base32 ────────────────────────────────────────────────────────────
@@ -578,10 +580,10 @@ fn connection_handshake_and_reliable_exchange_over_loopback() {
     let (sock_a, addr_a, sock_b, addr_b) = loopback_pair();
     let net = NetWorkerHandle::spawn();
     let conn_a = net
-        .register(sock_a, addr_b, 111, test_max_decoded_bytes())
+        .register(sock_a, &[addr_b], 111, 222, test_max_decoded_bytes())
         .expect("register a");
     let conn_b = net
-        .register(sock_b, addr_a, 222, test_max_decoded_bytes())
+        .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
         .expect("register b");
 
     // Each side's own Hello, sent automatically by `spawn`, must reach the
@@ -664,7 +666,7 @@ fn connection_reports_no_activity_before_the_first_packet_arrives() {
     // reads/replies — `conn_a`'s own automatic Hello (fired by `register()`)
     // targets `addr_b`, so `conn_a` itself never receives anything back.
     let conn_a = net
-        .register(sock_a, addr_b, 111, test_max_decoded_bytes())
+        .register(sock_a, &[addr_b], 111, 222, test_max_decoded_bytes())
         .expect("register a");
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(
@@ -679,10 +681,10 @@ fn connection_best_effort_exchange_over_loopback() {
     let (sock_a, addr_a, sock_b, addr_b) = loopback_pair();
     let net = NetWorkerHandle::spawn();
     let conn_a = net
-        .register(sock_a, addr_b, 1, test_max_decoded_bytes())
+        .register(sock_a, &[addr_b], 1, 2, test_max_decoded_bytes())
         .expect("register a");
     let conn_b = net
-        .register(sock_b, addr_a, 2, test_max_decoded_bytes())
+        .register(sock_b, &[addr_a], 2, 1, test_max_decoded_bytes())
         .expect("register b");
     // Drain the automatic Hello handshake first so it doesn't get confused
     // with the State messages below.
@@ -734,4 +736,120 @@ fn connection_best_effort_exchange_over_loopback() {
         Some(2),
         "the most recent State observed is the last one sent"
     );
+}
+
+// ── Candidate punching and the nonce check (§15.2 steps 3–4) ───────────
+
+/// The raw bytes of a reliable `Hello { nonce }`, as some other socket
+/// would put on the wire.
+fn raw_hello(nonce: u64) -> Vec<u8> {
+    encode_packet(
+        TAG_RELIABLE,
+        0,
+        &encode_message(&WireMessage::Untagged(Payload::Hello { nonce })),
+    )
+}
+
+/// A connection given two candidates, the first of which never answers,
+/// still completes the handshake through the second, and settles on it.
+#[test]
+fn handshake_completes_through_whichever_candidate_answers() {
+    let (sock_a, addr_a, sock_b, addr_b) = loopback_pair();
+    let silent = UdpSocket::bind("127.0.0.1:0").unwrap(); // bound, never read
+    let net = NetWorkerHandle::spawn();
+    let conn_a = net
+        .register(
+            sock_a,
+            &[silent.local_addr().unwrap(), addr_b],
+            111,
+            222,
+            test_max_decoded_bytes(),
+        )
+        .unwrap();
+    let conn_b = net
+        .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
+        .unwrap();
+    assert_eq!(
+        conn_a.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        WireMessage::Untagged(Payload::Hello { nonce: 222 })
+    );
+    assert_eq!(
+        conn_b.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        WireMessage::Untagged(Payload::Hello { nonce: 111 })
+    );
+    assert_eq!(conn_a.peer_addr(), Some(addr_b));
+    assert_eq!(conn_b.peer_addr(), Some(addr_a));
+}
+
+/// Something answering from one of the candidate addresses with the wrong
+/// nonce is not the peer: nothing is delivered and nothing counts as
+/// activity, and the genuine peer still gets through afterwards.
+#[test]
+fn a_wrong_nonce_from_a_candidate_address_is_ignored() {
+    let (sock_a, addr_a, sock_b, addr_b) = loopback_pair();
+    let impostor = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let net = NetWorkerHandle::spawn();
+    let conn_a = net
+        .register(
+            sock_a,
+            &[impostor.local_addr().unwrap(), addr_b],
+            111,
+            222,
+            test_max_decoded_bytes(),
+        )
+        .unwrap();
+    impostor.send_to(&raw_hello(999), addr_a).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(conn_a.incoming.try_recv().is_err(), "impostor not delivered");
+    assert_eq!(conn_a.seconds_since_last_activity(), None);
+    assert_eq!(conn_a.peer_addr(), None);
+
+    let _conn_b = net
+        .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
+        .unwrap();
+    assert_eq!(
+        conn_a.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        WireMessage::Untagged(Payload::Hello { nonce: 222 })
+    );
+    assert_eq!(conn_a.peer_addr(), Some(addr_b));
+}
+
+/// The right nonce from an address the peer never advertised is not the
+/// peer either.
+#[test]
+fn a_correct_nonce_from_a_non_candidate_address_is_ignored() {
+    let (sock_a, addr_a, _sock_b, addr_b) = loopback_pair();
+    let stranger = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let net = NetWorkerHandle::spawn();
+    let conn_a = net
+        .register(sock_a, &[addr_b], 111, 222, test_max_decoded_bytes())
+        .unwrap();
+    stranger.send_to(&raw_hello(222), addr_a).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(conn_a.incoming.try_recv().is_err());
+    assert_eq!(conn_a.seconds_since_last_activity(), None);
+}
+
+/// A peer whose nonce does not match the code never gets through, even from
+/// the right address and even though the other side does accept *us* (and
+/// acks our `Hello`: a bare ack carries no nonce, so it proves nothing).
+#[test]
+fn a_peer_with_an_unexpected_nonce_is_never_accepted() {
+    let (sock_a, addr_a, sock_b, addr_b) = loopback_pair();
+    let net = NetWorkerHandle::spawn();
+    let conn_a = net
+        .register(sock_a, &[addr_b], 111, 999, test_max_decoded_bytes())
+        .unwrap();
+    let conn_b = net
+        .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
+        .unwrap();
+    assert_eq!(
+        conn_b.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        WireMessage::Untagged(Payload::Hello { nonce: 111 }),
+        "B expects A's nonce, so A gets through to B"
+    );
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(conn_a.incoming.try_recv().is_err(), "B never gets through to A");
+    assert_eq!(conn_a.seconds_since_last_activity(), None);
+    assert_eq!(conn_a.peer_addr(), None);
 }
