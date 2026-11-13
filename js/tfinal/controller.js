@@ -301,15 +301,48 @@ export function main(canvas, root) {
   // callback, and sendToPlayer's own fail-fast path below — all three are
   // realizations of the same `DisconnectPlayer pl` transition (`pl ≠ Host`),
   // so they share one guarded, idempotent implementation (§4-T7f, §10).
+  // Declaring a player disconnected also closes her channel: from then on
+  // `connected(pl)` is false for real — nothing she sends is relayed any more
+  // (hostHandleFromJoiner drops it anyway), and her own client notices the
+  // loss through its own detection (watchConnection / heartbeat / fail-fast).
   function declarePlayerDisconnected(idx) {
     const p = playerData[idx];
     if (!p || p.declaredDisconnected) return;
     p.declaredDisconnected = true;
+    closeSlot(p);
+    if (screen === 'S3') renderS3Joiners();
+    if (t7machine && screen === 'S7') announceDisconnect(idx);
+  }
+  // The DISCONNECT notification itself, only meaningful while a match is
+  // running (a t7.Machine exists to receive it): applied to the host's own
+  // view, then broadcast to every other player.
+  function announceDisconnect(idx) {
     const msg = { type: 'DISCONNECT', from: idx, to: null };
     applyIncoming(msg); // host's own view
     broadcastFromHost(tag(msg), idx);
     maybeEnterWinnerScreen(idx); // a disconnect can decide the match on its own,
     // same as a GAMEOVER can
+  }
+  // Unbinds and closes one slot's channel and peer connection.
+  function closeSlot(p) {
+    if (!p) return;
+    if (p.conn) {
+      p.conn.onmessage = null;
+      p.conn.onclose = null;
+      try {
+        p.conn.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    if (p.pc) {
+      p.pc.onconnectionstatechange = null;
+      try {
+        p.pc.close();
+      } catch {
+        /* already closed */
+      }
+    }
   }
   function sendToPlayer(idx, msg) {
     if (idx === 0) return;
@@ -338,7 +371,8 @@ export function main(canvas, root) {
           px: msg.px,
           pr: msg.pr,
           gameover: msg.gameover,
-          connected: true,
+          // a STATE never revives a player already known to be disconnected
+          connected: opponents[msg.from]?.connected ?? true,
         };
         break;
       case 'GARBAGE':
@@ -371,7 +405,12 @@ export function main(canvas, root) {
       return;
     }
     if (msg.gen !== matchGen) return; // stale — different match
-    if (playerData[fromIdx]) playerData[fromIdx].lastHeard = performance.now();
+    const p = playerData[fromIdx];
+    // A player declared disconnected is not connected: nothing she sends may
+    // reach anyone (T7.v's FixPiece only sends when `connected pl`).
+    if (!p || p.declaredDisconnected) return;
+    p.lastHeard = performance.now();
+    msg.from = fromIdx; // the channel identifies the sender, not the payload
     switch (msg.type) {
       case 'STATE':
         applyIncoming(msg);
@@ -393,21 +432,25 @@ export function main(canvas, root) {
   // A joiner who truly leaves (rather than rematching) must be evicted, not
   // left in playerData — otherwise it stays there indefinitely, dealt into
   // the next startMatch() by index as a permanently-grey ghost opponent still
-  // carrying its old name. Splicing it out is only index-safe if every later
-  // slot's dc.onmessage (each closes over its own fixed fromIdx from when it
-  // was created) is also rebound to its new, shifted index, and every
-  // remaining player is told their possibly-new yourIndex.
+  // carrying its old name. Every slot's handlers look their index up from the
+  // slot object at call time (see 's3-add-connection'), so splicing shifts
+  // later slots safely; the evicted slot's own channel is closed, so its
+  // joiner learns she is out instead of waiting forever. Callers re-send
+  // PLAYERS so every remaining player learns her possibly-new yourIndex.
   function evictSlot(idx) {
     if (idx <= 0 || idx >= playerData.length) return;
-    playerData.splice(idx, 1);
-    for (let i = idx; i < playerData.length; i++) {
-      const p = playerData[i];
-      if (p && p.conn)
-        p.conn.onmessage = (ev) => hostHandleFromJoiner(i, decodeMsg(ev.data));
-    }
+    const [removed] = playerData.splice(idx, 1);
+    closeSlot(removed);
   }
 
+  // Mid-match, indices must stay fixed (every Machine's Player roster is
+  // built from them), so a LEAVE then counts as a disconnection; the slot
+  // is evicted at the next 's3-start'.
   function hostHandleLeave(fromIdx) {
+    if (screen === 'S7') {
+      declarePlayerDisconnected(fromIdx);
+      return;
+    }
     evictSlot(fromIdx);
     broadcastPlayers();
     renderS3Joiners();
@@ -445,9 +488,8 @@ export function main(canvas, root) {
     // reaches the host while the host is still on S9 (game over, its own
     // Rematch not yet clicked) rather than back on S3 already. That JOIN is
     // legitimately for the *next* round and must still be recorded now, not
-    // dropped — evictSlot() already keeps every fromIdx correctly rebound
-    // across evictions, so there's no index-corruption risk in accepting it
-    // early.
+    // dropped — every slot's handler looks its index up at call time, so
+    // later evictions cannot corrupt it.
     if (screen === 'S7') return;
     if (!playerData[fromIdx]) return; // evicted since this JOIN was sent
     // fromIdx assigned at connection-accept time (see S3 wiring below); msg
@@ -537,9 +579,11 @@ export function main(canvas, root) {
     retargetGravity();
   }
 
+  // The STATE timer keeps running: the frozen board's STATE is this player's
+  // heartbeat — without it, the host would declare her disconnected after
+  // HEARTBEAT_TIMEOUT_MS of silence while she waits for the match to end.
   function enterMidMatchFiller() {
     inMidMatchFiller = true;
-    stopStateTimer();
     enterWaitingRoom();
     // t7machine is kept alive headless — still fed receiveGarbage/receiveGameover
     // (via applyIncoming/hostHandleFromJoiner) so findWinner() stays current.
@@ -581,18 +625,19 @@ export function main(canvas, root) {
         ? disconnectedPl !== undefined
           ? `You win! (your last opponent, ${nameOf(disconnectedPl)} was disconnected)`
           : 'You win!'
-        : `You lose! Winner: ${nameOf(w)}`;
+        : // only a self-claimed win is sound (ViewSound): w's own
+          // GAMEOVER may still be in flight, so w is not named here
+          'You lose!';
     showScreen('S9');
   }
 
   function noticeHostLost() {
     if (hostLostHandled) return; // watchConnection() and the heartbeat can
     hostLostHandled = true; // both observe the same loss
-    if (!t7machine) {
-      showScreen('S1');
-      return;
-    }
-    t7machine.noticeDisconnection();
+    if (t7machine) t7machine.noticeDisconnection();
+    // A resolved winner keeps S9 (§15.0); a later Rematch click finds the
+    // channel closed and lands on S10 then.
+    if (screen === 'S9') return;
     // Always S10, never routed through findWinner()/maybeEnterWinnerScreen():
     // losing my own connection to the host is not a legitimate win or loss
     // result, even though winnerMulti() (t7/model.js) may happen to resolve
@@ -1140,11 +1185,42 @@ export function main(canvas, root) {
     canvas.height = constants.HM * cell;
   }
 
+  // Ends the multiplayer session: closes every connection this client holds
+  // (as host: every joiner's; as joiner: the one to the host) and resets the
+  // role, so a following Host or Join starts from scratch. Closing is what
+  // makes the host's Leave a real `DisconnectPlayer Host`: joiners waiting
+  // for a rematch notice it through their own detection.
+  function teardownSession() {
+    stopHeartbeat();
+    stopStateTimer();
+    stopGravity();
+    for (const p of playerData) closeSlot(p);
+    closeSlot({ conn: hostConn, pc: hostPc });
+    playerData = [];
+    roster = [];
+    opponents = [];
+    hostConn = null;
+    hostPc = null;
+    isHost = false;
+    myIndex = null;
+    hostLostHandled = false;
+    t7machine = null;
+    t7eng = null;
+    t6machine = null;
+    inMidMatchFiller = false;
+    clearAnim = null;
+    garbageAnim = null;
+    gameoverAt = null;
+    canvas.style.transform = ''; // no shake left frozen on the menu
+  }
+
   // ── DOM wiring ──
   function renderS3Joiners() {
     const el = document.getElementById('s3-joiners');
     el.innerHTML = '';
-    const joined = playerData.slice(1).filter((p) => p.joined);
+    const joined = playerData
+      .slice(1)
+      .filter((p) => p.joined && !p.declaredDisconnected);
     for (const p of joined) {
       const div = document.createElement('div');
       div.textContent = p.name;
@@ -1192,6 +1268,7 @@ export function main(canvas, root) {
         break;
       }
       case 'join':
+        isHost = false;
         showScreen('S4');
         break;
 
@@ -1221,25 +1298,40 @@ export function main(canvas, root) {
         }
         const { pc, dcPromise, sdpText } =
           await createAnswerConnection(offerText);
-        const idx = playerData.length;
-        playerData.push({
-          name: `player${idx}`,
+        // Handlers hold the slot object, not an index: evictions shift
+        // indices, so the index is looked up when a handler runs.
+        const slot = {
+          name: `player${playerData.length}`,
           conn: null,
+          pc,
           lastHeard: performance.now(),
           declaredDisconnected: false,
           joined: false,
-        });
+        };
+        playerData.push(slot);
         block.innerHTML = `
           <div class="small">Host's code — copy to joiner:</div>
           <textarea readonly></textarea>
         `;
         block.querySelector('textarea').value = sdpText;
         const dc = await dcPromise;
-        playerData[idx].conn = dc;
-        playerData[idx].pc = pc;
-        dc.onmessage = (ev) => hostHandleFromJoiner(idx, decodeMsg(ev.data));
-        watchConnection(pc, () => declarePlayerDisconnected(idx));
         block.remove();
+        if (!playerData.includes(slot)) {
+          // evicted (e.g. by 's3-start') before its channel arrived
+          closeSlot({ conn: dc, pc });
+          break;
+        }
+        slot.conn = dc;
+        dc.onmessage = (ev) => {
+          const i = playerData.indexOf(slot);
+          if (i > 0) hostHandleFromJoiner(i, decodeMsg(ev.data));
+        };
+        const onLost = () => {
+          const i = playerData.indexOf(slot);
+          if (i > 0) declarePlayerDisconnected(i);
+        };
+        watchConnection(pc, onLost);
+        dc.onclose = onLost; // the peer closing is seen here first
         break;
       }
       case 's3-start': {
@@ -1258,7 +1350,8 @@ export function main(canvas, root) {
           if (
             !playerData[i] ||
             !playerData[i].joined ||
-            playerData[i].declaredDisconnected
+            playerData[i].declaredDisconnected ||
+            playerData[i].conn?.readyState !== 'open'
           )
             evictSlot(i);
         }
@@ -1287,6 +1380,11 @@ export function main(canvas, root) {
           sendToPlayer(i, { type: 'START', gen: matchGen });
         showScreen('S7');
         startMatch();
+        // A START send that failed above declared its player disconnected
+        // while no match was running yet; she is in every roster, so the
+        // DISCONNECT is announced now, after every survivor has START.
+        for (let i = 1; i < playerData.length; i++)
+          if (playerData[i].declaredDisconnected) announceDisconnect(i);
         startHeartbeat();
         break;
       }
@@ -1307,6 +1405,7 @@ export function main(canvas, root) {
         hostLostHandled = false;
         watchConnection(hostPc, () => noticeHostLost());
         hostConn.onmessage = (ev) => joinerHandleFromHost(decodeMsg(ev.data));
+        hostConn.onclose = () => noticeHostLost(); // the host closing is seen here first
         // The data channel isn't usable the instant the answer is applied —
         // ICE/DTLS still has to finish connecting. Waiting for 'open' here,
         // rather than relying on sendToHost's own fail-fast path, avoids
@@ -1328,13 +1427,10 @@ export function main(canvas, root) {
 
       case 's9-rematch': {
         if (isHost) {
-          // Reused connections keep their slot/fromIdx from the first match —
-          // that index is baked into each dc.onmessage closure set up back in
-          // 's3-add-connection', and a rematching joiner resends JOIN over
-          // that very same channel (no fresh offer/answer). playerData must
-          // not be truncated here: doing so would discard those live
-          // connections and could make hostHandleJoin's own
-          // `playerData[fromIdx].name = ...` write land out of range.
+          // Reused connections keep their slot from the first match, and a
+          // rematching joiner resends JOIN over that very same channel (no
+          // fresh offer/answer). playerData must not be truncated here:
+          // doing so would discard those live connections.
           // `joined`/`name`/etc. are intentionally left untouched here:
           // a joiner's own rematch click (and JOIN) can race ahead of this
           // one, and 's3-start' is what actually resets readiness for the
@@ -1344,8 +1440,13 @@ export function main(canvas, root) {
           document.getElementById('s3-pending').innerHTML = '';
           showScreen('S3');
         } else {
-          hostLostHandled = false;
-          sendToHost({ type: 'JOIN', name: myName });
+          if (hostLostHandled) {
+            // host lost while on S9 (noticeHostLost kept the winner screen,
+            // and its sound, for now)
+            sfx.hostLost();
+            showScreen('S10');
+            break;
+          }
           // t7machine stays alive after a match ends (used by findWinner()/
           // opponents while on the winner screen); the pre-match filler that
           // follows is plain SP and must not keep showing the finished
@@ -1356,28 +1457,19 @@ export function main(canvas, root) {
           showScreen('S6');
           enterWaitingRoom();
           startHeartbeat();
+          // Sent last: a failed send routes to S10 (noticeHostLost), and
+          // nothing after it may overwrite that screen.
+          sendToHost({ type: 'JOIN', name: myName });
         }
         break;
       }
       case 's9-leave':
         if (!isHost && hostConn) sendToHost({ type: 'LEAVE', from: myIndex });
-        stopHeartbeat();
-        stopStateTimer();
-        stopGravity();
-        t7machine = null;
-        t6machine = null;
-        hostConn = null;
-        hostPc = null;
+        teardownSession();
         showScreen('S1');
         break;
       case 's10-menu':
-        stopHeartbeat();
-        stopStateTimer();
-        stopGravity();
-        t7machine = null;
-        t6machine = null;
-        hostConn = null;
-        hostPc = null;
+        teardownSession();
         showScreen('S1');
         break;
     }

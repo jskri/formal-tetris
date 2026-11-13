@@ -578,7 +578,7 @@ One DOM overlay state machine, `<canvas>` shown only in `S7`/`S8` (gameplay).
 | `S6` Waiting Room (pre-`START`) | `t6.Machine` filler game; joiner-name list from `PLAYERS`; "waiting for host" text | ordinary SP input | `START` received → `S7` |
 | `S7` Gameplay | `t7.Machine`; mini-grid strip + garbage gauge (§14) | ordinary game input | own `gameover` → `S8`. `winnerMulti(self)` → `S9` |
 | `S8` Mid-match Filler | `t6.Machine` filler game; mini-grid strip stays live (`t7.Machine` kept alive headless, §15.2); own link failing → `S10` | ordinary SP input | `findWinner() ≠ null` → `S9` |
-| `S9` Winner Screen | "You win" (if `findWinner() = myIndex`) or "Winner: `<name>`"; "Rematch" button; "Leave" button | `Rematch` / `Leave` | Rematch, host → `S3` (fresh lobby, connections reused for rejoiners, still accepts brand-new ones). Rematch, joiner → `S5`. Leave, joiner → sends `LEAVE` to host (§15.1), → `S1`. Leave, host → `S1`, no message (the host process itself is what every other client's own `DisconnectPlayer pl = Host` case reasons about, §4-T7f) |
+| `S9` Winner Screen | "You win" (if `findWinner() = myIndex`), otherwise "You lose" (no winner named: only a self-claimed win is sound, `ViewSound`); "Rematch" button; "Leave" button | `Rematch` / `Leave` | Rematch, host → `S3` (fresh lobby, connections reused for rejoiners, still accepts brand-new ones). Rematch, joiner → `S5` (→ `S10` if the host was lost meanwhile). Leave, joiner → sends `LEAVE` to host (§15.1), → `S1`. Leave, host → `S1`, no message. Either Leave closes every connection this client holds and resets its role (`teardownSession`); for the host, closing is the `DisconnectPlayer pl = Host` case (§4-T7f) that every other client then notices |
 | `S10` Host Lost | "Connection to host lost."; "Return to menu" button | click | → `S1` |
 
 `S8` is not a distinct value of the `screen` variable — `showScreen('S8')` is
@@ -589,9 +589,9 @@ itself stays `'S7'`. This is why `processGameInput`'s own `screen === 'S6' ||
 screen === 'S7'` gate (and the DOM overlay, hidden for both) needs no separate
 `'S8'` case.
 
-`S10` is reached from `S6`/`S7`/`S8` whenever `noticeDisconnection()` fires while
-`findWinner()` is still `null` at that moment — a resolved winner takes `S9`
-instead, even if the connection is lost immediately after. Mini-grids in
+`S10` is reached from `S6`/`S7`/`S8` whenever the link to the host is lost
+(`noticeHostLost`) — a resolved winner keeps `S9`, even if the connection is lost
+immediately after; a Rematch click from there then leads to `S10`. Mini-grids in
 `S7`/`S8` grey out a player on either "no `STATE` received yet" or
 "`receiveDisconnect` received for that player" (§14.2).
 
@@ -605,11 +605,18 @@ roster into `Player` (index = `playerData` position), constructs
 waiting room.
 
 `LEAVE` (host only, sent by a joiner clicking "Leave" on the winner screen,
-`S9`): evicts the sender's slot from `playerData` outright — splicing it out
-and rebinding every later slot's `dc.onmessage` closure to its new, shifted
-index — then re-broadcasts `PLAYERS` so every remaining client's roster/index
-stays correct. Unlike a mid-match disconnect (§15.4), a `LEAVE` slot is not
-kept around as a phantom for the next `startMatch()`.
+`S9`): evicts the sender's slot from `playerData` outright, then re-broadcasts
+`PLAYERS` so every remaining client's roster/index stays correct. Unlike a
+mid-match disconnect (§15.4), a `LEAVE` slot is not kept around as a phantom for
+the next `startMatch()`. A `LEAVE` received mid-match (`S7`) is handled as a
+disconnection (§15.4) instead, since indices must stay fixed during a match.
+
+Slots are referenced by object, not by index: every slot's `dc.onmessage`,
+`dc.onclose` and `watchConnection` callback look the slot's current index up
+(`playerData.indexOf(slot)`) when they run, so evictions can shift indices
+safely. Evicting a slot (`evictSlot`) closes its channel and peer connection, so
+its joiner learns she is out. `s3-start` evicts every slot that has not sent
+`JOIN` for this round, is declared disconnected, or whose channel is not open.
 
 ### 15.2 Waiting room
 
@@ -618,7 +625,8 @@ Two entry points, one implementation: pre-`START`, and a player's own
 own input/fall-timer code — not `t6/controller.js`'s `main()`. During
 mid-match waiting, the real `t7.Machine` is kept alive, headless, still fed
 `receiveGarbage`/`receiveGameover`/`receiveDisconnect`, so `winnerMulti` stays
-current. No waiting room after the match ends — the winner screen offers only
+current, and its `STATE` timer keeps running: that `STATE` is the player's
+heartbeat (§15.4). No waiting room after the match ends — the winner screen offers only
 rematch (re-send `JOIN`) or not.
 
 ### 15.3 Message dispatch (star topology, host-relayed)
@@ -649,15 +657,19 @@ sent immediately at `START`.
 
 ### 15.4 Host responsibilities
 
-Relay `STATE`/`GARBAGE`/`GAMEOVER` between all connected players. Detect an
-ordinary player's disconnection via either of two paths — the peer
-connection's own `connectionState` reaching `failed`, or a `10` s silence on
-that player's `STATE`/`JOIN` heartbeat (`lastHeard`) — and on either, apply
+Relay `STATE`/`GARBAGE`/`GAMEOVER` between all connected players, with `from`
+set to the index of the channel the message arrived on. Detect an ordinary
+player's disconnection via any of: the peer connection's own `connectionState`
+reaching `failed`, the data channel closing, a failed send, a mid-match
+`LEAVE`, or a `10` s silence on that player's `STATE`/`JOIN` heartbeat
+(`lastHeard`). On the first of these (`declarePlayerDisconnected`), set
+`declaredDisconnected` for that player (preventing a duplicate broadcast),
+close her channel and peer connection, and, while a match is running, apply
 `DISCONNECT` to the host's own view and broadcast it to every other player
 immediately (there is no message buffer to flush: each `DISCONNECT` is
-constructed and sent directly at detection time). Track
-`declaredDisconnected` per player to prevent a duplicate broadcast if both
-paths fire for the same player. No action for the host's own loss (§4-T7f).
+constructed and sent directly at detection time). Every match message later
+received from a declared player is dropped, never relayed or applied. No
+action for the host's own loss (§4-T7f).
 
 ### 15.5 Match-generation counter
 

@@ -372,17 +372,16 @@ nothing left to reorder once α is defined per §3.
   (`fixFamily`'s own `fired`/`wasFix` guard) — one JS call per one successful
   `T7.v` `FixPiece` step, matching one
   Rocq append per step. A `DisconnectMessage` is appended only inside
-  `DisconnectPlayer`, only for `pl ≠ Host` (its `! (pl =? Host)` guard) — realized by **two**
-  independent call sites in `controller.js`, each guarded by the same
-  `declaredDisconnected` flag, checked and immediately set before any send: the
-  heartbeat branch (`startHeartbeat`'s host case)
-  and `watchConnection`'s `onFailed` callback for that player's own connection
-  (wired up when a host-side connection is added, reacting to
-  `pc.onconnectionstatechange === 'failed'`). Whichever fires first for a given
-  `pl` sets `declaredDisconnected = true` before broadcasting; the other is then
-  a no-op by its own guard (heartbeat: `continue`s past an already-declared
-  player; `watchConnection`'s callback: returns early if
-  `p.declaredDisconnected`) — so exactly one `DISCONNECT` is ever broadcast per
+  `DisconnectPlayer`, only for `pl ≠ Host` (its `! (pl =? Host)` guard) — realized by
+  `declarePlayerDisconnected` (`controller.js`), reached from several
+  independent triggers: the heartbeat branch (`startHeartbeat`'s host case),
+  `watchConnection`'s `onFailed` callback and the data channel's `onclose` for
+  that player's own connection (both wired up when a host-side connection is
+  added), `sendToPlayer`'s fail-fast path, and a `LEAVE` received mid-match
+  (`hostHandleLeave`). All of them go through the same `declaredDisconnected`
+  flag, checked and immediately set before any send. Whichever fires first for a given
+  `pl` sets `declaredDisconnected = true` before broadcasting; every later one is then
+  a no-op by the same guard — so exactly one `DISCONNECT` is ever broadcast per
   `pl`, matching `DisconnectPlayer`'s own single-append shape regardless of
   which JS trigger realized it — matching `DisconnectPlayer`'s own guard (`if
   connected s pl then ... else None`): once `connected s pl` flips
@@ -390,6 +389,15 @@ nothing left to reorder once α is defined per §3.
   level, and `declaredDisconnected` is exactly the JS-side realization of that
   same fact (there is no other place `connected`'s JS-side truth, §3, could
   un-flip).
+- **Nothing is enqueued from a disconnected player.** Once `connected s pl` is
+  false, `FixPiece pl` leaves `messages` unchanged (its `if connected s pl`
+  branch). JS: `hostHandleFromJoiner` drops every match message from a slot
+  whose `declaredDisconnected` is set, before relaying or applying it, and
+  `declarePlayerDisconnected` closes that slot's channel and peer connection.
+  So no `GARBAGE`/`GAMEOVER` from `pl` reaches anyone after her `DISCONNECT`,
+  which also keeps `LastMessagesGameoverDisconnect`'s "disconnect last" shape.
+  The host also overwrites each relayed message's `from` with the index of
+  the channel it arrived on, so the sender recorded in a queue is the real one.
 - **Dequeued in order, exactly the message that was enqueued first.** `applyIncoming`
   dispatches on `msg.type` directly against the concrete message
   object the host relayed or the direct channel delivered — channels are
@@ -463,12 +471,10 @@ proof: `controller.js` never reads a return value from this call.
   `NoticeDisconnection`, a separate `T7.v` event with its own argument (§9), not a
   re-derivation of `DisconnectPlayer(Host)` itself.
 - **`pl ≠ Host` — realized by the host's controller**, never by any `Machine`.
-  Two call sites reproduce `DisconnectPlayer pl`'s two field changes directly,
-  identically, via different triggers (§8): `startHeartbeat`'s host branch,
-  on a `10` s `lastHeard` silence, and `watchConnection`'s
-  `onFailed` callback for that connection (wired up when a host-side connection
-  is added), on `pc.onconnectionstatechange` reaching `'failed'`. Either one, on
-  first firing for a given `pl`: `connected` — only `pl`'s own entry flips
+  `declarePlayerDisconnected` reproduces `DisconnectPlayer pl`'s two field changes
+  directly, whichever trigger reached it (§8): a `10` s `lastHeard` silence,
+  `pc.onconnectionstatechange` reaching `'failed'`, the data channel closing, a
+  failed send, or a mid-match `LEAVE`. On first firing for a given `pl`: `connected` — only `pl`'s own entry flips
   (`connected' pl1 = if pl1 =? pl then false else connected s pl1` when `pl ≠
   Host`, since the `pl =? Host` disjunct is false) — realized as
   `p.declaredDisconnected = true` for that one player, §3's `connected α(σ)`
@@ -476,13 +482,22 @@ proof: `controller.js` never reads a return value from this call.
   else; `messages` — `DisconnectMessage` appended from `pl` to every `to ≠ pl`
   — realized as `applyIncoming(msg)` (the host's own local delivery,
   §8) plus `broadcastFromHost(tag(msg), i)` (every other connected player), one
-  send per recipient, matching one append per `(pl, to)` pair for every `to ≠ pl`.
-  Whichever site fires first, the argument is the same — nothing here depends on
-  which trigger detected the loss.
+  send per recipient, matching one append per `(pl, to)` pair for every `to ≠ pl`
+  (`announceDisconnect`). Whichever trigger fires first, the argument is the
+  same — nothing here depends on which one detected the loss.
 
-`implementation.md` §15.4 describes disconnection detection as either
-`connectionState` reaching `'failed'` or a `10` s `STATE`-heartbeat timeout —
-both realized in the code, as above; there is no third, `onclose`-based path.
+  `announceDisconnect` only runs while a match is running (host on `S7` with a
+  `t7.Machine`): outside a match there is no `T7.State` to step, and the slot is
+  evicted at the next `START`. The one exception is a `START` send that fails:
+  that player is already in every survivor's roster, so `s3-start` calls
+  `announceDisconnect` for her right after `startMatch()`. Every survivor has
+  received `START` by then (ordered channels), so this is a `DisconnectPlayer`
+  step taken from the fresh `Init`.
+
+  The `10` s silence trigger is sound only while a connected player keeps
+  sending. A player who is gameover keeps her `STATE` timer running during the
+  mid-match filler (§15.2 of `implementation.md`), so the host never mistakes
+  her silence for a lost link.
 
 ## 11. Representation invariant — `Correct`, by induction
 
