@@ -256,13 +256,17 @@ impl<P: Params> Machine<P> {
 
         let mut gameover2 = self.s6.gameover();
         if !gameover2 && rem_garbage > 0 {
-            gameover2 = if rem_garbage >= hm {
-                true // pushes the entire board off — no scan needed
-            } else {
-                // must read the top rows BEFORE the shift below overwrites them
-                (hm - rem_garbage..hm)
-                    .any(|y| (0..wm).any(|x| self.s6.mg()[y as usize][x as usize].is_some()))
-            };
+            // spec: FP.Gameover' `Mg' ⊈ CroppedMg'` — some occupied block of
+            // the materialized grid lies above the box. Either a garbage row
+            // itself does (rows `hm..rem_garbage`, each with `wm - 1` blocks,
+            // one hole per row), or a block of the current grid's top
+            // `rem_garbage` rows gets shifted out — read BEFORE the shift
+            // below overwrites them. At `rem_garbage == hm` exactly, every
+            // garbage row still fits, so only the scan decides.
+            let garbage_row_overflows = rem_garbage > hm && wm > 1;
+            gameover2 = garbage_row_overflows
+                || (hm - rem_garbage.min(hm)..hm)
+                    .any(|y| (0..wm).any(|x| self.s6.mg()[y as usize][x as usize].is_some()));
         }
 
         // shift always runs, regardless of gameover2 — the stored grid always
@@ -313,12 +317,17 @@ impl<P: Params> Machine<P> {
         self.fix_piece(bag_new, holes)
     }
 
-    /// spec: DropPiece — req-piece-drop. An explicit `winner_multi` guard is
-    /// required *before* the relocation below (§4-T7h): Rust's in-place
-    /// mutation would otherwise commit a `WinnerMulti` player's relocation
-    /// before the trailing `fix_piece` call rejects it.
+    /// spec: DropPiece — req-piece-drop. Explicit guards are required
+    /// *before* the relocation below (§4-T7h): Rust's in-place mutation would
+    /// otherwise commit the relocation before the trailing `fix_piece` call
+    /// rejects it, where `T7.v` yields `None` with no state change. They are
+    /// exactly the two ways that call can reject after the relocation:
+    /// `WinnerMulti`, and T1's own `gameover` guard. (T1's other guard,
+    /// "the piece can still move down", never holds at `gy`.)
     pub fn drop_piece(&mut self, bag_new: &[P::Piece], holes: impl Fn(i64) -> i64) -> bool {
-        if winner_multi(&self.gameover_view, &self.connected_view, self.my_index) {
+        if winner_multi(&self.gameover_view, &self.connected_view, self.my_index)
+            || self.s6.gameover()
+        {
             return false; // guards the relocation below, not just the trailing fix
         }
         let gy = self.s6.gy;
@@ -413,8 +422,8 @@ pub fn check_invariants<P: Params>(s: &Machine<P>) {
         s.s6.gameover(),
         "SelfViewAccurate"
     );
-    // TargetNotSelf / TargetPlaying (T7.v) both hold only under NoWinner
-    // (T7.v:623), which reads the true state of every player — a fact this
+    // TargetNotSelf / TargetPlaying (T7.v) both hold only under T7.v's
+    // NoWinner, which reads the true state of every player — a fact this
     // single-player Machine structurally cannot observe (it only ever holds
     // my_index's own, possibly-stale view of others). No sound local proxy
     // exists; left to proofs.md, as rs/t7/implementation.md already does.

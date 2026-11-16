@@ -114,7 +114,7 @@ reads cannot change what `α` computes, by construction — the same reasoning t
 
 `gameover_since`/`filler_gameover_since` apply the identical lockout-delay *pattern*
 `own_gameover_since`/`step_playing_transition` already use for `GAMEOVER_FILLER_DELAY_SECS`, to
-two transitions `t7/main.rs`/`t7::app` drive with no delay at all today:
+two transitions `t7/main.rs`/`t7::app` drive with no delay at all:
 `SP_GAMEOVER_LOCKOUT_SECS` gates single-player's own restart-on-keypress (`App::Single` there
 restarts on the very next keypress), `FILLER_GAMEOVER_LOCKOUT_SECS` gates the filler's own
 (`t7::app::restart_filler_on_keypress` has no delay of its own either). Delaying *when* a

@@ -119,6 +119,7 @@ enum App {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    t1::misc::seed_rng(); // before anything draws a random piece
     if t5::model::CHECK_AXIOMS {
         // Reached via t5::model — neither t6::model nor t7::model re-exports
         // it (model.rs's own header comment).

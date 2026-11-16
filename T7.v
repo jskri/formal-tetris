@@ -308,7 +308,7 @@ Definition NewMainGridGameoverState (mg : Grid) (gameover : bool) (s6 : T6.State
   let s3' := T3.UnchangedT3Part s3 s2' in
   let s4' := T4.UnchangedT4Part s4 s3' in
     (T6.UnchangedT6Part s6
-      (T5.UpdateShadowY s5 s4')). (* was: T5.UnchangedT5Part s5 s4' *)
+      (T5.UpdateShadowY s5 s4')). (* not T5.UnchangedT5Part: mg changed, so the shadow must be recomputed *)
 
 (* Holes are valid iff they are positioned inside a row. *)
 Definition ValidHoles (f : ℤ → ℕ) : Prop :=
@@ -389,8 +389,9 @@ Definition FixPiece (pl : Player)
           UpdatePlayer s pl s6'
         else
           (* If here player pl is gameover, she has fixed a piece in the forbidden zone.
-          This means no line has been cleared. Therefore no garbage is generated and in
-          the following mg' = mg, resulting in a no-op from the garbage point of view. *)
+          This means no line has been cleared. Therefore no garbage is generated
+          (remGenGarbage = 0, no GarbageMessage), but any pending garbage still
+          materializes in the following mg' (remGarbage = garbage s pl). *)
           let gameover' := FP.Gameover' s pl s6' holes in
           let remGenGarbage := FP.RemGenGarbage s pl s6' in
           {| s6 := λ pl2,

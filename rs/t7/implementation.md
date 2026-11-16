@@ -306,13 +306,14 @@ trait carries `rotate_kick_piece` (`t6/implementation.md` §4-T6b), so one impor
 
   let mut gameover2 = self.s6.gameover();
   if !gameover2 && rem_garbage > 0 {
-      gameover2 = if rem_garbage >= hm {
-          true // pushes the entire board off — no scan needed
-      } else {
-          // must read the top rows BEFORE the shift below overwrites them
-          (hm - rem_garbage..hm)
-              .any(|y| (0..wm).any(|x| self.s6.mg()[y as usize][x as usize].is_some()))
-      };
+      // FP.Gameover' `Mg' ⊈ CroppedMg'`: a garbage row itself lies above the box
+      // (rows hm..rem_garbage, wm - 1 blocks each), or a block of the top rem_garbage
+      // rows is shifted out — read BEFORE the shift below overwrites them. At
+      // rem_garbage == hm exactly, every garbage row still fits: only the scan decides.
+      let garbage_row_overflows = rem_garbage > hm && wm > 1;
+      gameover2 = garbage_row_overflows
+          || (hm - rem_garbage.min(hm)..hm)
+              .any(|y| (0..wm).any(|x| self.s6.mg()[y as usize][x as usize].is_some()));
   }
 
   // shift always runs, regardless of gameover2 — the stored grid always reflects
@@ -427,19 +428,23 @@ trait carries `rotate_kick_piece` (`t6/implementation.md` §4-T6b), so one impor
   }
   ```
 
-- **§4-T7h. `drop_piece` — an explicit `winner_multi` guard `T7.v` doesn't show at this level,
-  required by Rust's in-place mutation.** `T7.v`'s own `DropPiece` has no guard of its own —
-  `NewPieceYXState` produces a *fresh, discardable* Rocq state value, so a `WinnerMulti` player's
-  relocation, followed by `FixPiece`'s own internal guard rejecting the fix, simply returns
-  `None` overall, with nothing ever observably mutated (Rocq state is immutable). Rust's
-  `new_piece_yx_state` mutates `self.s6.s4.s3.s2.s1.py`/`.px` in place — without an explicit
-  guard *before* that mutation, a `WinnerMulti` player's relocation would commit and never be
-  undone, even though the `fix_piece` call that follows correctly rejects. This is the same
+- **§4-T7h. `drop_piece` — explicit `winner_multi`/`gameover` guards `T7.v` doesn't show at
+  this level, required by Rust's in-place mutation.** `T7.v`'s own `DropPiece` has no guard of
+  its own — `NewPieceYXState` produces a *fresh, discardable* Rocq state value, so a relocation
+  followed by `FixPiece` rejecting the fix (a `WinnerMulti` player, or a gameover one via T1's
+  own `FixPiece` guard) simply returns `None` overall, with nothing ever observably mutated
+  (Rocq state is immutable). Rust's `new_piece_yx_state` mutates `self.s6.s4.s3.s2.s1.py`/`.px`
+  in place — without explicit guards *before* that mutation, such a relocation would commit and
+  never be undone, even though the `fix_piece` call that follows correctly rejects. These two
+  are exactly the rejections reachable after the relocation: T1's remaining guard ("the piece
+  can still move down") never holds at `gy`. This is the same
   category of pitfall skill §4b warns about (sequential mutation where Rocq has a single
   simultaneous/immutable step), just surfacing one call deeper than usual:
   ```rust
   pub fn drop_piece(&mut self, bag_new: &[P::Piece], holes: impl Fn(i64) -> i64) -> bool {
-      if winner_multi(&self.gameover_view, &self.connected_view, self.my_index) {
+      if winner_multi(&self.gameover_view, &self.connected_view, self.my_index)
+          || self.s6.gameover()
+      {
           return false; // req-flow — guards the relocation below, not just the trailing fix
       }
       let gy = self.s6.gy;
@@ -671,7 +676,7 @@ Same module-level shape as every prior layer's own `model.rs`.
   materialization), `drop_piece` reaching the same materialized result as an equivalent
   `fall_step` sequence ending in a fix, target round-robin across a 3-player trace, each
   `receive_*` method's field update, `notice_disconnection`'s idempotency, §4-T7h's guard
-  (a `WinnerMulti` `drop_piece` leaves `py`/`px` byte-identical to before the call).
+  (a `WinnerMulti` or gameover `drop_piece` leaves `py`/`px` byte-identical to before the call).
 - **`model_properties_test.rs`** — `proptest`: `winner_multi`/`next_target` never return `self`
   except the documented no-alternative case; differential oracle over every snapshot field.
 - **`model_fuzz_test.rs`** — multi-instance harness: several `Machine`s in one process, each
@@ -692,7 +697,7 @@ Same module-level shape as every prior layer's own `model.rs`.
    shift/overwrite after (no `player_count = 1` branch anywhere in `model.rs`), short-circuits
    the overflow/`intersect` checks but not the shift/overwrite when `self.s6`'s `gameover` is
    already `true`, and returns `false` with zero mutation if the inner call fails.
-4. `drop_piece` guards `winner_multi` **before** relocating (§4-T7h), and calls `self.fix_piece`
+4. `drop_piece` guards `winner_multi` and `gameover` **before** relocating (§4-T7h), and calls `self.fix_piece`
    (T7's own), never `self.s6.drop_piece`.
 5. `receive_garbage` takes no `from`; `receive_gameover`/`receive_disconnect` do.
 6. No method checks `connected` internally (it doesn't exist to check).
@@ -1381,8 +1386,8 @@ exactly as every joiner does, with `my_index = 0`.
 ### 15.5 Threading
 
 One background thread **per `Session`, not per connection**, owns every `UdpSocket` and
-reliability state machine that session has open, round-robining across them with a short
-per-socket read timeout — not one OS thread per connection, and not `mio`/`epoll`/async: at the
+reliability state machine that session has open, round-robining across them with non-blocking
+reads and one short idle sleep per round — not one OS thread per connection, and not `mio`/`epoll`/async: at the
 connection counts a lobby ever reaches (host plus a handful of manually-paired joiners),
 near-zero-latency event wakeup buys nothing a game loop already running at 60 Hz needs, and a
 hand-rolled poll loop needs no new dependency, matching this file's own STUN client and
@@ -1392,7 +1397,7 @@ reliable-channel protocol (§15.2) in staying small and fully auditable.
 `Session` holds one (`new_host` mints its own, since the host lobby's `S3` starts with zero
 connections; `new_joiner` is handed the one its caller already minted to make its first
 connection, §15.1a′). `NetWorkerHandle::register(socket, candidates, local_nonce, peer_nonce,
-max_decoded_bytes)` sets the socket's read timeout and queues the initial `Hello` synchronously on
+max_decoded_bytes)` switches the socket to non-blocking and queues the initial `Hello` synchronously on
 the caller's own thread (`candidates`/`peer_nonce` come from the peer's code and drive §15.2
 steps 3–4); only handing the socket itself to the worker thread crosses a channel, drained
 between round-robin passes. `max_decoded_bytes` is a decode-size bound (§15.2's hardening
@@ -1406,13 +1411,14 @@ by the worker thread alone. Never a blocking read on the frame thread, satisfyin
 stay playable" regardless of network conditions.
 
 Each round-robin pass, per connection: drain that connection's outgoing queue (assigning sequence
-numbers, recording for retransmit), resend anything past `RETRANSMIT_INTERVAL`, then one bounded
-`socket.recv` capped at the per-socket read timeout — so no one connection's silence can stall the
-next connection's turn, or the worker's own next check of newly-registered/removed connections, by
-more than that bound. That same bound is what caps how long any connection this thread owns can
-ever be kept waiting behind another's turn — worst case, one full round costs (connection count) ×
-(read timeout), comfortably under `RETRANSMIT_INTERVAL` at the connection counts §15.1 ever
-reaches.
+numbers, recording for retransmit), resend anything past `RETRANSMIT_INTERVAL`, then read every
+datagram already waiting on the non-blocking socket, up to `MAX_DATAGRAMS_PER_TURN` (so a flooding
+peer cannot starve the others). No read ever blocks, so no connection's silence stalls the next
+connection's turn or the worker's own next check of newly-registered/removed connections. After a
+round in which no connection had anything to read, the worker sleeps `IDLE_POLL_INTERVAL`: that one
+sleep bounds both an idle session's CPU cost and how long a newly-arrived datagram can sit unread,
+independently of the connection count. Draining (rather than one read per turn) is what lets the
+host keep up with every joiner's 10 Hz `State` stream at once.
 
 Removing a connection (a `Leave`, §15.1b, or the whole `Session` going away) tells the worker to
 wind it down and returns immediately — no thread to join, since the socket was never that

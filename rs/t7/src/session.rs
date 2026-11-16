@@ -63,6 +63,11 @@ const LOBBY_KEEPALIVE_PERIOD_SECS: f64 = 2.0;
 /// rather than steppy.
 const STATE_PERIOD_SECS: f64 = 0.1;
 
+/// Largest roster a match accepts, host included. Bounds every allocation
+/// sized by a peer-supplied player count (`Start`) or roster (`Players`),
+/// and is what the host's lobby enforces on `Join`.
+pub const MAX_PLAYERS: usize = 16;
+
 /// req-preview-init's "fair" randomization source. Bound at
 /// `t1::model::Params` rather than `t7::model::Params` — the minimum this
 /// actually reads (`piece_all()`) — so the single-player engine's own
@@ -206,7 +211,8 @@ impl Endpoint {
             .and_then(|server| net::stun::query(&socket, server, Duration::from_secs(2), 3).ok());
 
         // The read timeout STUN set is a query-time concern only; the
-        // connection thread sets its own poll timeout when it takes over.
+        // socket is switched to non-blocking when the connection thread
+        // takes it over (`NetWorkerHandle::register`).
         socket.set_read_timeout(None)?;
 
         let (public, stun_ok) = match stun_result {
@@ -307,8 +313,16 @@ pub fn local_ipv4() -> Option<Ipv4Addr> {
     }
 }
 
+/// The nonce a connection code carries — the one secret that proves a
+/// `Hello`'s sender is the peer the code was exchanged with (`net.rs`'s
+/// `PeerPath`), so it must be unpredictable: drawn from OS entropy, all 64
+/// bits. Only if the OS source fails does it fall back to macroquad's
+/// (seeded, but not cryptographic) RNG. Never 0.
 pub fn fresh_nonce() -> u64 {
-    macroquad::rand::gen_range(1u64, u64::MAX)
+    let n = getrandom::u64().unwrap_or_else(|_| {
+        (u64::from(macroquad::rand::rand()) << 32) | u64::from(macroquad::rand::rand())
+    });
+    n.max(1)
 }
 
 // ── Session: one networked match (never touches macroquad) ─────────────
@@ -447,7 +461,11 @@ impl Session {
     /// peer that already holds a roster index is left alone (it is a real
     /// player now, and only `Leave` or a timeout removes those).
     pub fn remove_unjoined_peer(&mut self, id: u64) {
-        if let Some(slot) = self.peers.iter().position(|p| p.id == id && p.index.is_none()) {
+        if let Some(slot) = self
+            .peers
+            .iter()
+            .position(|p| p.id == id && p.index.is_none())
+        {
             self.peers.remove(slot);
         }
     }
@@ -733,6 +751,9 @@ impl Session {
                 }
                 if self.peers[slot].index.is_none() {
                     let next = 1 + self.peers.iter().filter(|p| p.index.is_some()).count();
+                    if next >= MAX_PLAYERS {
+                        return; // roster full: this peer stays unjoined
+                    }
                     self.peers[slot].index = Some(next);
                     let trimmed = name.trim();
                     // Hardening: `name` is peer-supplied and otherwise unbounded (up to the
@@ -755,7 +776,13 @@ impl Session {
             // screen and the opponent strip still read.
             Payload::Players { roster } => {
                 if self.role == Role::Joiner && !self.started() {
-                    self.roster = roster;
+                    // Hardening: peer-supplied — bounded like the host's own
+                    // `Join` handling bounds what it accepts.
+                    self.roster = roster
+                        .into_iter()
+                        .take(MAX_PLAYERS)
+                        .map(|n| n.chars().take(crate::text::NAME_FIELD_MAX_LEN).collect())
+                        .collect();
                 }
             }
             Payload::Start {
@@ -766,6 +793,7 @@ impl Session {
                 if self.role == Role::Joiner
                     && !self.started()
                     && player_count > 1
+                    && player_count <= MAX_PLAYERS // hardening: sizes allocations below
                     && my_index < player_count
                 {
                     self.match_gen = match_gen; // spec: §15.1b — the host's counter is authoritative
@@ -826,6 +854,25 @@ impl Session {
         if self.role == Role::Host && matches!(msg.body, Payload::Disconnect) {
             return;
         }
+        // Hardening: `T7.v`'s `SendMessages` only ever emits one
+        // `GarbageMessage` per fix, to the sender's single target, carrying
+        // `RemGenGarbage` — at most what one lock can generate. Anything else
+        // claiming to be garbage (a broadcast, or an impossible amount) is a
+        // misbehaving peer, so the host neither applies nor relays it.
+        if self.role == Role::Host {
+            if let Payload::Garbage { amount } = msg.body {
+                let max = crate::model::generated_garbage(Instance::PW, true);
+                if !matches!(msg.to, Destination::Single(_)) || !(1..=max).contains(&amount) {
+                    return;
+                }
+            }
+        }
+        // Hardening: a `State` that would not decode into a renderable board
+        // is dropped here, before the host relays it — otherwise one peer's
+        // malformed board would reach every other peer's renderer too.
+        if matches!(msg.body, Payload::State { .. }) && remote_board_from(&msg.body).is_none() {
+            return;
+        }
 
         let for_me = match msg.to {
             Destination::Broadcast => true,
@@ -877,51 +924,12 @@ impl Session {
                 }
             }
             // Rendering only — never model state (implementation.md §14.3).
-            Payload::State {
-                p,
-                py,
-                px,
-                pr,
-                mg,
-                gameover,
-            } => {
-                let Some(p) = net::code_to_piece(p) else {
+            body @ Payload::State { .. } => {
+                let Some(board) = remote_board_from(&body) else {
                     return;
                 };
-                // Hardening: `mg`'s dimensions are otherwise never checked
-                // against this instance's actual board size — a peer could
-                // broadcast an arbitrarily large or ragged grid. Reject the
-                // whole message, same as the per-cell decode check below.
-                let (expected_h, expected_w) = instance_grid_dims();
-                if mg.len() != expected_h || mg.iter().any(|row| row.len() != expected_w) {
-                    return;
-                }
-                let mut rows: Vec<Vec<Cell>> = Vec::with_capacity(mg.len());
-                for row in mg {
-                    let mut out: Vec<Cell> = Vec::with_capacity(row.len());
-                    for cell in row {
-                        match cell {
-                            None => out.push(None),
-                            // A cell naming a piece index this build doesn't
-                            // have: drop the whole State rather than render a
-                            // guessed board.
-                            Some(c) => match t1::model::PieceOrExtra::<Instance>::try_from(c) {
-                                Ok(v) => out.push(Some(v)),
-                                Err(()) => return,
-                            },
-                        }
-                    }
-                    rows.push(out);
-                }
                 if from < self.boards.len() {
-                    self.boards[from] = Some(RemoteBoard {
-                        mg: rows,
-                        p,
-                        py,
-                        px,
-                        pr,
-                        gameover,
-                    });
+                    self.boards[from] = Some(board);
                 }
             }
             _ => {}
@@ -1253,6 +1261,65 @@ pub fn connect_to(
 pub fn instance_grid_dims() -> (usize, usize) {
     let mg = Instance::initial_main_grid();
     (mg.len(), mg.first().map_or(0, |r| r.len()))
+}
+
+/// Number of rotation states a piece can be in — `t1::model`'s rotation is
+/// taken modulo 4, so a valid `pr` is always below this.
+const ROTATION_COUNT: u8 = 4;
+
+/// Validates a peer-supplied `Payload::State` and converts it into a
+/// renderable `RemoteBoard`; `None` for any other payload, and for a `State`
+/// the renderer could not draw safely. Every field is peer-controlled:
+/// - `p` and every `mg` cell must name a piece this build has;
+/// - `mg` must have this instance's exact board dimensions;
+/// - `pr` must be a real rotation (the renderer indexes the rotation table
+///   with it);
+/// - `py`/`px` must lie within one piece width of the board (the renderer
+///   adds piece offsets to them, which must not overflow).
+pub fn remote_board_from(body: &Payload) -> Option<RemoteBoard> {
+    let Payload::State {
+        p,
+        py,
+        px,
+        pr,
+        mg,
+        gameover,
+    } = body
+    else {
+        return None;
+    };
+    let p = net::code_to_piece(*p)?;
+    if *pr >= ROTATION_COUNT {
+        return None;
+    }
+    let (expected_h, expected_w) = instance_grid_dims();
+    let pw = Instance::PW;
+    let in_range = |v: i64, len: usize| -pw <= v && v <= len as i64 + pw;
+    if !in_range(*py, expected_h) || !in_range(*px, expected_w) {
+        return None;
+    }
+    if mg.len() != expected_h || mg.iter().any(|row| row.len() != expected_w) {
+        return None;
+    }
+    let mut rows: Vec<Vec<Cell>> = Vec::with_capacity(mg.len());
+    for row in mg {
+        let mut out: Vec<Cell> = Vec::with_capacity(row.len());
+        for cell in row {
+            out.push(match cell {
+                None => None,
+                Some(c) => Some(t1::model::PieceOrExtra::<Instance>::try_from(*c).ok()?),
+            });
+        }
+        rows.push(out);
+    }
+    Some(RemoteBoard {
+        mg: rows,
+        p,
+        py: *py,
+        px: *px,
+        pr: *pr,
+        gameover: *gameover,
+    })
 }
 
 /// The decode-size bound this build's connections should enforce; `net.rs`

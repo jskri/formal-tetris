@@ -79,6 +79,12 @@ pub struct GarbageAnim {
 }
 
 impl GarbageAnim {
+    /// `start` may lie in the future: the flash waits for the same lock's
+    /// clear flash to finish first.
+    pub fn started(&self, now: f64) -> bool {
+        now >= self.start
+    }
+
     pub fn done(&self, now: f64) -> bool {
         now - self.start >= GARBAGE_ANIM_SECS
     }

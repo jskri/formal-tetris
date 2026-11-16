@@ -114,6 +114,21 @@ impl RepeatTimer {
     }
 }
 
+/// Seeds macroquad's global RNG, which every piece draw, bag shuffle and
+/// garbage-hole column reads. macroquad never seeds it itself (its state
+/// starts at a fixed value), so without this call every launch would deal
+/// the same pieces. Called once, first thing in every `main`. The seed
+/// comes from OS entropy, falling back to the wall clock if that is
+/// unavailable.
+pub fn seed_rng() {
+    let seed = getrandom::u64().unwrap_or_else(|_| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64)
+    });
+    macroquad::rand::srand(seed);
+}
+
 /// spec: §15.2 — `Instance::piece_all()[macroquad::rand::gen_range(0,
 /// Instance::piece_all().len())]`, generic over `P`.
 pub fn random_piece<P: Params>() -> P::Piece {

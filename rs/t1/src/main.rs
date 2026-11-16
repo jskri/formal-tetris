@@ -96,6 +96,7 @@ fn process_input<P: Params>(
 /// `Esc` quits.
 #[macroquad::main(window_conf)]
 async fn main() {
+    t1::misc::seed_rng(); // before anything draws a random piece
     if model::CHECK_AXIOMS {
         model::check_axioms::<Instance>(); // once, before touching Instance (§7)
     }

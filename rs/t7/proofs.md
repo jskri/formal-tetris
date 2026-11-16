@@ -388,22 +388,33 @@ sites:
 
 ## 7. `drop_piece` — no-use relocation, then §5 in full
 
-The `winner_multi` guard runs **before** the relocation
+The `winner_multi` and `gameover` guards run **before** the relocation
 (`t1::model::new_piece_yx_state`) — `implementation.md` §4-T7h's own
 required deviation from `T7.v`'s literal shape: `T7.v`'s own `DropPiece`
 has no guard of its own, because `NewPieceYXState` produces a fresh,
-discardable Rocq value — a `WinnerMulti` player's relocation, followed by
-`FixPiece`'s own internal guard rejecting the fix, simply yields `None`
-overall with nothing ever observably mutated (Rocq state is immutable).
-Rust's `t1::model::new_piece_yx_state` mutates `self.s6`'s own `py`/`px` in
-place; without the explicit guard *before* that call, a `WinnerMulti`
-player's relocation would commit and never be undone, even though the
-trailing `fix_piece` call correctly rejects — the same category of
-sequential-mutation-where-Rocq-has-a-single-simultaneous-step pitfall
+discardable Rocq value — a relocation followed by `FixPiece` rejecting the
+fix simply yields `None` overall with nothing ever observably mutated
+(Rocq state is immutable). Rust's `t1::model::new_piece_yx_state` mutates
+`self.s6`'s own `py`/`px` in place; without explicit guards *before* that
+call, a rejected drop's relocation would commit and never be undone, even
+though the trailing `fix_piece` call correctly rejects — the same category
+of sequential-mutation-where-Rocq-has-a-single-simultaneous-step pitfall
 `rotate_kick_piece` (`t6/proofs.md`) already had to account for one layer
-down, surfacing one call deeper here. `model_unit_test.rs`'s own
-`drop_piece_winner_multi_guard_leaves_state_untouched` is the operational
-check for exactly this. Given the guard passes: the relocation itself
+down, surfacing one call deeper here.
+
+The guards are exactly the rejections reachable after the relocation.
+`FixPiece` (§5) rejects on `WinnerMulti s pl`, or when `T6.FixPiece`
+rejects, which bottoms out in T1's `FixPiece` guard `gameover || can move
+down`. The relocation leaves `gameoverView` and `connectedView` unchanged,
+so `WinnerMulti` evaluates identically before and after it; it leaves
+`gameover` unchanged too; and at `py = gy` the piece cannot move down, by
+`gy`'s definition (`T5.ShadowY`, invariant `T5.LowestShadowY`). So `FixPiece (NewPieceYXState …)` is
+`None` iff `WinnerMulti s pl || gameover s pl`, which is precisely what the
+upfront guards test: on that branch Rust returns `false` with zero
+mutation, matching `None`. `model_unit_test.rs`'s own
+`drop_piece_winner_multi_guard_leaves_state_untouched` and
+`drop_piece_gameover_guard_leaves_state_untouched` are the operational
+checks for exactly this. Given the guards pass: the relocation itself
 (`t1::model::new_piece_yx_state::<P>(gy, px, self.s6.s1_mut())`) is `T1.
 NewPieceYXState (gy s pl, px s pl) pl s` wrapped in `UnchangedT7Part`
 (nothing outside `s6` moves), touching only
@@ -536,7 +547,7 @@ to`'s FIFO shape (`LastMessagesGameoverDisconnect`) exists precisely so
   own independent `ReliableSender`/`ReliableReceiver` and its own `mpsc`
   channel pair, and `worker_loop`'s round-robin (`service_one` called once
   per registered connection per outer iteration) processes one connection's
-  incoming socket read fully before moving to the next, so processing one
+  incoming socket reads fully before moving to the next, so processing one
   connection's own incoming message never touches another connection's
   buffer. This is `OtherS6Unchanged`'s counterpart for the network layer —
   needed so this argument doesn't have to account for interleaving with

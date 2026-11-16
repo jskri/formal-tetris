@@ -97,13 +97,16 @@ impl TextInput {
 
     /// Applies one frame's edit to this field, capping it at `max_len`
     /// Unicode scalar values across both typed and pasted input. Only
-    /// ever called for the focused field.
+    /// ever called for the focused field. Pasted text gets the same
+    /// `is_typable` filter typed characters already get in `poll_text_edit`,
+    /// so a clipboard holding newlines or control characters can't put them
+    /// into a name (which is sent to peers, or saved to disk).
     pub fn apply(&mut self, e: &TextEdit, max_len: usize) {
         if e.backspace {
             self.text.pop();
         }
         if let Some(s) = &e.paste {
-            for c in s.chars() {
+            for c in s.chars().filter(|&c| is_typable(c)) {
                 if self.text.chars().count() >= max_len {
                     break;
                 }
@@ -297,6 +300,21 @@ fn paste_in() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pasted control characters are dropped like typed ones, and the
+    /// length cap counts only what was kept.
+    #[test]
+    fn pasted_control_characters_are_dropped() {
+        let mut field = TextInput::default();
+        let edit = TextEdit {
+            chars: Vec::new(),
+            backspace: false,
+            paste: Some("Ab\ncd\t\u{7}e\u{F700}f".into()),
+            copy: false,
+        };
+        field.apply(&edit, 5);
+        assert_eq!(field.text, "Abcde");
+    }
 
     /// A missing helper must be reported as "did not copy", not panic and
     /// not silently pass — that verdict is what makes `copy_out` fall

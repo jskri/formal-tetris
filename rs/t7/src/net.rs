@@ -30,7 +30,7 @@
 //!   guarantees, unit-tested without a real socket.
 //! - [`NetWorkerHandle`]/[`Connection`] — one round-robin thread per
 //!   `Session` (§15.5), visiting each connection in turn to drain its
-//!   outgoing queue and run a short-timeout receive.
+//!   outgoing queue and every datagram already waiting on its socket.
 //!
 //! **Hole-punching is folded into the reliable channel** (§15.2): the
 //! initial `Hello{nonce}` is sent as a normal reliable message, so
@@ -767,7 +767,15 @@ pub enum Reliability {
     BestEffort,
 }
 
-const RECV_POLL_TIMEOUT: Duration = Duration::from_millis(50);
+/// How long the worker sleeps after a round in which no connection had
+/// anything to read. Sockets are non-blocking, so this is the only wait in
+/// the loop: it bounds both the CPU an idle session costs and the latency
+/// a newly-arrived datagram can sit unread.
+const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Most datagrams one connection's turn reads before yielding to the next,
+/// so a peer flooding its socket cannot starve the others.
+const MAX_DATAGRAMS_PER_TURN: usize = 64;
 
 /// How long a dropped `Connection` stays serviced so that what its owner
 /// queued last still goes out. A caller routinely queues a final reliable
@@ -943,7 +951,7 @@ impl NetWorkerHandle {
     /// identified by `peer_nonce` (the nonce in the peer's code); this
     /// side's own `local_nonce` goes out in the initial `Hello`. Nothing is
     /// accepted from the peer until it proves itself with that nonce
-    /// (`PeerPath`). `set_read_timeout`/the `Hello` enqueue (the hole-punch
+    /// (`PeerPath`). `set_nonblocking`/the `Hello` enqueue (the hole-punch
     /// handshake folded into the reliable channel, module doc comment above)
     /// happen synchronously here, on the caller's own thread — only handing
     /// the socket itself to the worker thread crosses a channel, without
@@ -971,7 +979,7 @@ impl NetWorkerHandle {
                 "no address to reach the peer at",
             ));
         }
-        socket.set_read_timeout(Some(RECV_POLL_TIMEOUT))?;
+        socket.set_nonblocking(true)?;
         let peer_addr = Arc::new(std::sync::Mutex::new(None));
         let path = PeerPath {
             candidates: deduped,
@@ -1094,17 +1102,21 @@ fn worker_loop(control_rx: mpsc::Receiver<Control>) {
             apply_control(msg, &mut conns);
         }
         // One send/retransmit/recv pass per registered connection, per
-        // outer iteration — round-robin, `implementation.md` §15.5. No one
-        // connection's silence can stall another's turn (or the control
-        // channel's own next drain) by more than RECV_POLL_TIMEOUT.
+        // outer iteration — round-robin, `implementation.md` §15.5. Reads
+        // never block, so no connection's silence stalls another's turn;
+        // the one wait is a short sleep after a round where nothing arrived.
         let ids: Vec<ConnId> = conns.keys().copied().collect();
+        let mut received = false;
         for id in ids {
             if let Some(state) = conns.get_mut(&id) {
-                service_one(id, state, &mut buf);
+                received |= service_one(id, state, &mut buf);
             }
         }
         let now = Instant::now();
         conns.retain(|_, state| !state.linger_expired(now));
+        if !received {
+            thread::sleep(IDLE_POLL_INTERVAL);
+        }
     }
 }
 
@@ -1148,15 +1160,15 @@ fn apply_control(msg: Control, conns: &mut HashMap<ConnId, ConnState>) {
 }
 
 /// One round-robin pass over a single connection: drain everything queued
-/// to send, resend anything reliable gone unacked too long, then receive
-/// once, bounded by `RECV_POLL_TIMEOUT` so no connection's silence can
-/// stall another's turn by more than that. A socket error other than
-/// would-block/timeout doesn't tear down anything by itself — that would
-/// take every other connection this thread owns down with it — it just
-/// leaves this entry inert (no more events, `last_activity` stops
-/// advancing) until a `Deregister` removes it, matching `main.rs`'s own
-/// `check_timeouts`.
-fn service_one(id: ConnId, state: &mut ConnState, buf: &mut [u8]) {
+/// to send, resend anything reliable gone unacked too long, then read every
+/// datagram already waiting on the (non-blocking) socket, up to
+/// `MAX_DATAGRAMS_PER_TURN`. Returns whether any datagram was read. A
+/// socket error other than would-block doesn't tear down anything by itself
+/// — that would take every other connection this thread owns down with it
+/// — it just ends this turn's reads, leaving the entry inert if the error
+/// persists (no more events, `last_activity` stops advancing) until a
+/// `Deregister` removes it, matching `main.rs`'s own `check_timeouts`.
+fn service_one(id: ConnId, state: &mut ConnState, buf: &mut [u8]) -> bool {
     // 1. Drain everything currently queued to send.
     while let Ok((reliability, msg)) = state.out_rx.try_recv() {
         let now = Instant::now();
@@ -1177,27 +1189,36 @@ fn service_one(id: ConnId, state: &mut ConnState, buf: &mut [u8]) {
         state.path.send(&state.socket, &bytes);
     }
 
-    // 3. Receive, bounded by this socket's own RECV_POLL_TIMEOUT — never a
-    // blocking read past it, so every other connection this thread owns
-    // waits at most that long behind this one's turn.
-    match state.socket.recv_from(buf) {
-        Ok((n, from)) => {
-            if !handle_datagram(state, from, &buf[..n]) {
-                return; // Connection dropped from the other side — a Deregister for this id is already on its way
+    // 3. Receive everything already waiting, without blocking: a peer
+    // streaming `State` at 10 Hz must be read at least that fast however
+    // many other connections share this thread.
+    let mut received = false;
+    for _ in 0..MAX_DATAGRAMS_PER_TURN {
+        match state.socket.recv_from(buf) {
+            Ok((n, from)) => {
+                received = true;
+                if !handle_datagram(state, from, &buf[..n]) {
+                    return received; // Connection dropped from the other side — a Deregister for this id is already on its way
+                }
             }
+            // Nothing left to read this turn.
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                break
+            }
+            // Socket genuinely broken (or e.g. an ICMP port-unreachable
+            // surfacing as a receive error right after the peer's process
+            // dies) — leave it registered; a Deregister, not this pass, is
+            // what removes it. It reports no datagram, so a round where
+            // only this happens still ends in the idle sleep rather than
+            // spinning at full CPU while `check_timeouts` catches up.
+            Err(_) => break,
         }
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {}
-        // Socket genuinely broken — leave it registered; a Deregister, not
-        // this pass, is what removes it. Unlike every other path above,
-        // this error returns immediately rather than blocking for
-        // RECV_POLL_TIMEOUT (e.g. an ICMP port-unreachable surfacing as a
-        // receive error right after the peer's process dies) — sleep that
-        // off so this connection can't spin the round-robin at full CPU
-        // while `check_timeouts` catches up.
-        Err(_) => std::thread::sleep(RECV_POLL_TIMEOUT),
     }
 
     net_debug_tick(id, state);
+    received
 }
 
 /// One received datagram: accepted only from one of the peer's advertised
@@ -1206,37 +1227,53 @@ fn service_one(id: ConnId, state: &mut ConnState, buf: &mut [u8]) {
 /// Anything dropped before then (including bare acks, which carry no
 /// nonce) is simply resent by the peer's own retransmit timer. Returns
 /// `false` once the owning `Connection`'s receiving end is gone.
+///
+/// Only a packet that actually decodes counts as hearing from the peer: a
+/// well-formed ack refreshes `last_activity`, and a decoded message
+/// additionally makes `from` the active path. A truncated, undecodable or
+/// unknown-tag datagram changes nothing, so stray bytes arriving from one of
+/// the peer's advertised addresses can neither redirect this connection's
+/// traffic nor keep a silent peer looking alive.
 fn handle_datagram(state: &mut ConnState, from: SocketAddr, bytes: &[u8]) -> bool {
     if !state.path.admits(from) {
         return true; // not the peer — a stray STUN reply, or anyone else
     }
-    let packet = decode_packet(bytes);
-    // Decoded up front: before verification, the payload itself is what
-    // proves the sender.
-    let reliable_msg = match packet {
-        Some((TAG_RELIABLE, _, payload)) => decode_message(payload, state.max_decoded_bytes).ok(),
-        _ => None,
-    };
-    if !state.path.verified() && !reliable_msg.as_ref().is_some_and(|m| state.path.proves_peer(m)) {
-        return true;
-    }
-    state.path.set_active(from);
-    *state
-        .last_activity
-        .lock()
-        .expect("poisoned only on a panic in this same thread") = Some(Instant::now());
-
-    let Some((tag, seq, payload)) = packet else {
+    let Some((tag, seq, payload)) = decode_packet(bytes) else {
         return true; // malformed/truncated — dropped, never a panic
     };
+    // Decoded up front: before verification, the payload itself is what
+    // proves the sender.
+    let reliable_msg = match tag {
+        TAG_RELIABLE => decode_message(payload, state.max_decoded_bytes).ok(),
+        _ => None,
+    };
+    if !state.path.verified()
+        && !reliable_msg
+            .as_ref()
+            .is_some_and(|m| state.path.proves_peer(m))
+    {
+        return true;
+    }
+    let heard_from_peer = |state: &mut ConnState| {
+        *state
+            .last_activity
+            .lock()
+            .expect("poisoned only on a panic in this same thread") = Some(Instant::now());
+    };
+
     match tag {
-        TAG_ACK => state.sender.on_ack(seq),
+        TAG_ACK => {
+            heard_from_peer(state);
+            state.sender.on_ack(seq);
+        }
         TAG_RELIABLE => {
             // An undecodable payload is simply dropped — the sender's own
             // retransmit will resend it verbatim.
             let Some(msg) = reliable_msg else {
                 return true;
             };
+            state.path.set_active(from);
+            heard_from_peer(state);
             let (ack_seq, delivered) = state.receiver.on_packet(seq, msg);
             // `None` — outside MAX_REORDER_WINDOW — means deliberately not
             // acked (`on_packet`'s own doc comment): sending no ack lets the
@@ -1255,6 +1292,8 @@ fn handle_datagram(state: &mut ConnState, from: SocketAddr, bytes: &[u8]) -> boo
         TAG_BEST_EFFORT => {
             state.best_effort_recv += 1;
             if let Ok(msg) = decode_message(payload, state.max_decoded_bytes) {
+                state.path.set_active(from);
+                heard_from_peer(state);
                 if let Some(m) = state.best_effort.on_packet(seq, msg) {
                     if state.event_tx.send(m).is_err() {
                         return false;
@@ -1328,6 +1367,74 @@ mod tests {
         let (ack0, d0) = r.on_packet(0, WireMessage::Untagged(Payload::Ping));
         assert_eq!(ack0, Some(0));
         assert_eq!(d0, vec![WireMessage::Untagged(Payload::Ping)]);
+    }
+
+    /// A verified connection to a peer advertising two addresses, currently
+    /// talking to the first.
+    fn verified_conn(a: SocketAddr, b: SocketAddr) -> (ConnState, mpsc::Receiver<WireMessage>) {
+        let (_out_tx, out_rx) = mpsc::channel();
+        let (event_tx, event_rx) = mpsc::channel();
+        let state = ConnState {
+            socket: UdpSocket::bind("127.0.0.1:0").unwrap(),
+            path: PeerPath {
+                candidates: vec![a, b],
+                local_nonce: 1,
+                peer_nonce: 2,
+                active: Some(a),
+                shared: Arc::new(std::sync::Mutex::new(Some(a))),
+            },
+            out_rx,
+            event_tx,
+            last_activity: Arc::new(std::sync::Mutex::new(None)),
+            sender: ReliableSender::new(),
+            receiver: ReliableReceiver::new(),
+            best_effort: BestEffortReceiver::default(),
+            best_effort_next_seq: 0,
+            max_decoded_bytes: MIN_DECODED_MESSAGE_BYTES,
+            best_effort_sent: 0,
+            best_effort_recv: 0,
+            net_debug_logged_at: Instant::now(),
+            closing_since: None,
+        };
+        (state, event_rx)
+    }
+
+    /// Hardening regression: bytes that don't decode, even from one of the
+    /// peer's own advertised addresses, must neither move the active path
+    /// nor count as activity; a decoded message from there does both.
+    #[test]
+    fn undecodable_datagrams_do_not_move_the_path_or_refresh_activity() {
+        let a: SocketAddr = "127.0.0.1:40001".parse().unwrap();
+        let b: SocketAddr = "127.0.0.1:40002".parse().unwrap();
+        let (mut state, events) = verified_conn(a, b);
+
+        for junk in [
+            &b"\x00"[..],                                        // too short for a header
+            &encode_packet(TAG_RELIABLE, 0, b"not deflate")[..], // undecodable payload
+            &encode_packet(TAG_BEST_EFFORT, 0, b"junk")[..],
+            &encode_packet(9, 0, b"")[..], // unknown tag
+        ] {
+            assert!(handle_datagram(&mut state, b, junk));
+            assert_eq!(state.path.active, Some(a), "path unchanged");
+            assert!(state.last_activity.lock().unwrap().is_none(), "no activity");
+        }
+
+        let ping = encode_message(&WireMessage::Untagged(Payload::Ping));
+        assert!(handle_datagram(
+            &mut state,
+            b,
+            &encode_packet(TAG_BEST_EFFORT, 0, &ping)
+        ));
+        assert_eq!(
+            state.path.active,
+            Some(b),
+            "a decoded message moves the path"
+        );
+        assert!(state.last_activity.lock().unwrap().is_some());
+        assert_eq!(
+            events.try_recv().unwrap(),
+            WireMessage::Untagged(Payload::Ping)
+        );
     }
 
     /// Pinned to the private `RETRANSMIT_INTERVAL` tuning constant.

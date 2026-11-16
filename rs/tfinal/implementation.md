@@ -47,7 +47,7 @@ music. Backend: `rodio` (`DeviceSinkBuilder` opening a `MixerDeviceSink`, with a
 played sound connected to its `mixer::Mixer`), not macroquad's own
 `audio` feature — that feature plays back sample files via `quad-snd` and has
 no oscillator-synthesis path, and no audio dependency exists anywhere in
-`t1`–`t7` today to build on.
+`t1`–`t7` to build on.
 
 - **`Waveform`**: `Sine | Square | Triangle | Sawtooth`.
 - **`ToneSpec { waveform, freq_hz, duration, gain, slide_to: Option<f32> }`** —
@@ -128,31 +128,37 @@ same `now` (`get_time()`) every other per-frame calculation already uses.
   `t7::model::gen_rem_garbage`'s second component, the same free function
   `fix_piece` itself calls internally, given the same pre-call `garbage`
   amount and post-call `cleared_lines`/`perfect_clear`). Sequenced to start
-  only after any `ClearAnim` from the same lock has finished — matching the
-  model's own sequencing (materialization always follows this player's own
-  clear in `fix_piece`'s body), not merely a rendering convenience. Duration
+  only after any `ClearAnim` from the same lock has finished — its `start`
+  is set to that clear's start plus its duration, and it is drawn only once
+  `started` holds — matching the model's own sequencing (materialization
+  always follows this player's own clear in `fix_piece`'s body), not merely
+  a rendering convenience. `Sfx::GarbageSlam` itself is not delayed. Duration
   `GARBAGE_ANIM_SECS`, alpha `1.0 → 0.0` linearly — a hard, fast-cutoff flash,
   deliberately not a fade-in.
-- **Screen shake**: `fn shake_offset(amp_px: f32, remaining_frac: f32) ->
-  (f32, f32)` — a decaying random offset, applied by the caller as a
-  translation of the render origin for the duration of a Tetris clear
+- **Shake**: `fn shake_offset(amp_px: f32, remaining_frac: f32) ->
+  (f32, f32)` — a decaying random offset, for the duration of a Tetris clear
   (`TETRIS_SHAKE_PX`) or a garbage arrival (`GARBAGE_SHAKE_PX`, scaled by
   `row_count.min(2)`, since a bigger delivery should read as a harder hit).
-  Applied by offsetting the coordinates every draw call for that frame uses —
-  there is no separate transform layer to apply it to once, only immediate
-  per-call drawing.
+  Applied only to the flashing rows themselves (the `shake` argument of
+  `draw_clear_flash`/`draw_garbage_flash`), never to the whole frame: the
+  board, panel and preview stay at their ordinary position.
 - **Draw functions**, each taking already-computed data, never a `Machine` —
   except `draw_board_without_gameover_overlay` below, which genuinely needs
   the live `Machine` since (unlike the other two) it isn't animating any
   transient, precomputed snapshot; it's the ordinary board render with one
   branch skipped:
-  - `draw_clear_flash(constants, grid, rows, progress, piece_color, font)` —
-    redraws the frozen `grid` (no falling piece — already merged in) via the
-    same primitives `t6::view`/`t1::view` already expose, then fills only
-    `rows` white at `alpha = progress.clamp(0.0, 1.0)`.
-  - `draw_garbage_flash(constants, row_count, progress)` — a flat reddish fill
-    over the bottom `row_count` rows at `alpha = 1.0 - progress`.
-  - `draw_gameover_partial(constants, font)` — dim overlay + "GAME OVER"
+  - `draw_clear_flash(constants, machine, grid, rows, progress, shake,
+    piece_color, font)` — redraws the frozen `grid` (no falling piece —
+    already merged in) via the same primitives `t6::view`/`t1::view` already
+    expose, with the hold box, panel and preview read off `machine` (a
+    `t6::model::Machine`, so both engines share it), then fills only `rows`
+    white at `alpha = progress.clamp(0.0, 1.0)`. It draws the own-board half
+    only: the multiplayer caller follows it with `t7::view::draw_side_regions`
+    so the garbage gauge and opponent strip stay live during the flash.
+  - `draw_garbage_flash(constants, layout, row_count, progress, shake)` — a
+    flat reddish fill over the bottom `row_count` rows at
+    `alpha = 1.0 - progress`.
+  - `draw_gameover_partial(constants, layout, font)` — dim overlay + "GAME OVER"
     heading only, omitting whatever restart-prompt line the normal gameover
     render already draws elsewhere — used during the lockout window below.
   - `draw_board_without_gameover_overlay(constants, machine, piece_color,
@@ -161,9 +167,8 @@ same `now` (`get_time()`) every other per-frame calculation already uses.
     its trailing gameover-overlay call. Used under `draw_gameover_partial`
     during the lockout window so the frozen board renders without the
     normal gameover overlay, without mutating `machine`'s own `gameover`
-    field to dodge that one branch. `t5::view`'s own `draw_ghost` is made
-    `pub` for this (`t5/implementation.md` §14.3) — every other primitive
-    it calls was already `pub`.
+    field to dodge that one branch. Every primitive it calls, `t5::view`'s
+    own `draw_ghost` included (`t5/implementation.md` §14.3), is `pub`.
 - **Combo / perfect-clear banners are *not* new here.** `t2::view::Banner` /
   `draw_banners` already exist and are already wired into every render call in
   `t7/main.rs`'s own `RunState`/`after_action` (populated whenever
@@ -186,7 +191,7 @@ a versioned schema.
 
 - **`Entry { name: String, score: u64, level: u64, lines: u64, date:
   SystemTime }`**, `Vec<Entry>` sorted descending by `score`.
-- **`MAX_ENTRIES: usize = 10`.**
+- **`MAX_ENTRIES: usize = 10`**, **`NAME_MAX_LEN: usize = 20`**.
 - **Storage location**: `directories::ProjectDirs`'s data directory, file
   name `highscores-v1.json` — versioned so a later schema change doesn't have
   to migrate or crash reading old data.
@@ -194,16 +199,23 @@ a versioned schema.
   call wrapped so a missing directory, permissions failure, or corrupt JSON
   degrades to an empty list / silent no-op rather than panicking. A
   never-created data directory is exactly the "storage disabled" case, not an
-  error.
+  error. `load` normalizes what it reads (the file is outside this program's
+  control): sorted descending, truncated to `MAX_ENTRIES`, names stripped of
+  control characters and cut to `NAME_MAX_LEN`. `save` writes a temporary
+  file and renames it over the real one, so an interrupted write never
+  leaves a truncated table behind.
+- **`get_high_scores() -> Vec<Entry>`** — the public read: `load()`.
 - **`is_storage_available() -> bool`** — a real write-then-read-back probe
   against the actual target path, not merely "does the directory exist" —
   the failure modes that matter (read-only filesystem, out of space,
   sandboxed/no-write environment) only surface on an actual write attempt.
 - **`qualifies(entries: &[Entry], score: u64) -> bool`** — true if the table
   has fewer than `MAX_ENTRIES` entries, or `score` beats the current lowest.
-- **`record_score(name, score, level, lines) -> Vec<Entry>`** — loads,
-  appends, sorts descending, truncates to `MAX_ENTRIES`, persists, returns the
-  new list.
+- **`record_score(name, score, level, lines, date) -> (Vec<Entry>,
+  Option<usize>)`** — loads, inserts the new entry after every entry with an
+  equal or higher score, truncates to `MAX_ENTRIES`, persists, and returns
+  the new list together with the new entry's row (`None` if it didn't make
+  the cut).
 
 ## 5. `main.rs` — delta over `t7/main.rs`
 
@@ -229,7 +241,8 @@ its whole purpose is capturing state that call is about to overwrite.
 - At the `App::Winner`/`App::HostLost`/own-gameover transitions already
   matched in the frame loop's `outcome` block: `Sfx::Winner` (only when the
   resolved winner is `machine.my_index`), `Sfx::HostLost`, `Sfx::Gameover`
-  (on this player's own gameover-view flipping true).
+  (on this player's own gameover-view flipping true). The waiting room's own
+  transition to `App::HostLost` plays `Sfx::HostLost` too.
 - Disconnect: diff `machine.connected_view` against its previous frame's
   snapshot (a local `Vec<bool>` kept alongside `RunState`) — on any `true →
   false` transition not caused by this player itself, `Sfx::Disconnect`. This
@@ -245,21 +258,22 @@ path):**
 - Same hook shape applied to `fire_single`'s `Action` match and
   `after_action`'s level/clear branches — no `Sfx::GarbageSlam`/`Winner`/
   `Disconnect`/`HostLost` (none apply outside multiplayer).
-- Gameover handling gains the lockout described in §3
-  (`gameover_since`/`SP_GAMEOVER_LOCKOUT_SECS`), replacing the current
-  instant-restart-on-keypress with: draw `draw_gameover_partial` until the
+- Gameover handling uses the lockout described in §3
+  (`gameover_since`/`SP_GAMEOVER_LOCKOUT_SECS`) instead of an
+  instant restart on keypress: draw `draw_gameover_partial` until the
   lockout elapses, then — once elapsed — branch on
   `highscores::is_storage_available() && highscores::qualifies(&entries,
   score)`:
   - **Qualifies**: a new local screen state holding a text-entry buffer
     (reusing the same `TextInput`/`poll_text_edit` machinery
     `t7/main.rs`'s lobby screens already use for name entry), capped at
-    `HOF_NAME_MAX_LEN` (20) characters for both typed and pasted input (via
+    `HOF_NAME_MAX_LEN` (`highscores::NAME_MAX_LEN`, 20) characters for both typed and pasted input (via
     `TextInput::apply`'s parameterized `max_len`, shared with the lobby
     fields which pass the larger `t7::text::NAME_FIELD_MAX_LEN`), and driving the same
     `drive_backspace_repeat`/`RepeatTimer` auto-repeat the lobby name fields
     already use — submitting calls `record_score` and transitions to the
-    hall-of-fame display below, highlighting the just-added entry.
+    hall-of-fame display below, highlighting the just-added entry by the row
+    `record_score` returns (not by score, which other entries may share).
   - **Doesn't qualify, or storage unavailable**: skip straight to the
     hall-of-fame display, unhighlighted; if storage is unavailable, the
     display also shows a short "scores can't be saved right now" notice

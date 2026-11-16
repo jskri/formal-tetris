@@ -325,7 +325,9 @@ fn draw_mini<P: Params>(
         }
     }
 
-    if !dead {
+    // `pr < 4`: the rotation table only has four entries (`t1::model` takes
+    // rotations modulo 4); a peer-supplied out-of-range value is not drawn.
+    if !dead && board.pr < 4 {
         let pg = P::rot_grid(board.p, board.pr);
         let [r, g, b, a] = piece_color(board.p);
         for dy in 0..constants.pw {
@@ -333,7 +335,7 @@ fn draw_mini<P: Params>(
                 if pg[dy as usize][dx as usize].is_none() {
                     continue;
                 }
-                let (y, x) = (board.py + dy, board.px + dx);
+                let (y, x) = (board.py.saturating_add(dy), board.px.saturating_add(dx));
                 if y < 0 || y >= constants.hm || x < 0 || x >= constants.wm {
                     continue;
                 }

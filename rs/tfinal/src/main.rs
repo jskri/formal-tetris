@@ -53,7 +53,7 @@ const SP_GAMEOVER_LOCKOUT_SECS: f64 = 1.0;
 /// *into* the filler after the real match's gameover.
 const FILLER_GAMEOVER_LOCKOUT_SECS: f64 = 1.0;
 
-const HOF_NAME_MAX_LEN: usize = 20;
+const HOF_NAME_MAX_LEN: usize = highscores::NAME_MAX_LEN;
 
 /// Plays the sound effects tied to a clear's cumulative outcome (level-up,
 /// clear/perfect-clear/combo), read off `t7::app::after_action`'s event
@@ -99,7 +99,8 @@ enum SpPost {
     },
     HallOfFame {
         entries: Vec<highscores::Entry>,
-        highlight: Option<u64>,
+        /// Row of the entry just recorded, if any.
+        highlight: Option<usize>,
         notice: bool,
     },
 }
@@ -158,14 +159,6 @@ fn entered_name(field: &TextInput, fallback: &str) -> String {
     }
 }
 
-/// True while something other than `LogicalKeys::update` is going to read
-/// `get_char_pressed()` this frame — gates that other reader's exclusive
-/// access to the queue: `get_char_pressed()` is a single-consumption
-/// queue, so whichever reader runs first drains it for the other. Covers `Single`'s
-/// name-entry field and Hall-of-Fame alnum-restart check, plus `Host`/
-/// `Join`'s text-entry fields; for the latter two, knowing the screen is
-/// `Host`/`Join` is enough — their step functions poll the text-edit queue
-/// unconditionally regardless of which field has focus.
 /// The in-game menu's items, in `GAME_MENU_CONTINUE`/`GAME_MENU_QUIT`
 /// order, then the mute toggle, labelled with what activating it does.
 fn game_menu_items(muted: bool) -> [&'static str; 3] {
@@ -180,6 +173,14 @@ fn is_game_screen(app: &App) -> bool {
         || matches!(app, App::Single(game) if matches!(game.post, SpPost::None))
 }
 
+/// True while something other than `LogicalKeys::update` is going to read
+/// `get_char_pressed()` this frame — gates that other reader's exclusive
+/// access to the queue: `get_char_pressed()` is a single-consumption
+/// queue, so whichever reader runs first drains it for the other. Covers `Single`'s
+/// name-entry field and Hall-of-Fame alnum-restart check, plus `Host`/
+/// `Join`'s text-entry fields; for the latter two, knowing the screen is
+/// `Host`/`Join` is enough — their step functions poll the text-edit queue
+/// unconditionally regardless of which field has focus.
 fn char_queue_reserved(app: &App) -> bool {
     matches!(app, App::Host(_) | App::Join(_))
         || matches!(app, App::Single(game) if !matches!(game.post, SpPost::None))
@@ -218,7 +219,7 @@ fn draw_name_entry(
 
 fn draw_hall_of_fame(
     entries: &[highscores::Entry],
-    highlight: Option<u64>,
+    highlight: Option<usize>,
     notice: bool,
     labels: Option<PadLabels>,
     font: Option<&Font>,
@@ -248,7 +249,7 @@ fn draw_hall_of_fame(
             font,
         );
         for (i, e) in entries.iter().enumerate() {
-            let color = if Some(e.score) == highlight {
+            let color = if Some(i) == highlight {
                 CODE_COLOR
             } else {
                 BODY_COLOR
@@ -458,9 +459,16 @@ fn apply_lock_effects(
     garbage_anim: &mut Option<anim::GarbageAnim>,
     now: f64,
 ) {
+    // The garbage flash is sequenced after this lock's own clear flash, as
+    // materialization follows the clear in `fix_piece`; it is drawn only
+    // once the clear flash is gone, so starting it at `now` would let it
+    // expire unseen.
+    let mut garbage_start = now;
     if let Some((grid, rows)) = pre {
         if !rows.is_empty() {
-            *clear_anim = Some(anim::ClearAnim::new(grid, rows, now));
+            let a = anim::ClearAnim::new(grid, rows, now);
+            garbage_start = now + a.duration();
+            *clear_anim = Some(a);
         }
     }
     if garbage_before > 0 {
@@ -474,7 +482,7 @@ fn apply_lock_effects(
             sound.play(Sfx::GarbageSlam(eff_rem.min(8) as u8));
             *garbage_anim = Some(anim::GarbageAnim {
                 row_count: eff_rem as u8,
-                start: now,
+                start: garbage_start,
             });
         }
     }
@@ -484,6 +492,7 @@ fn apply_lock_effects(
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    t1::misc::seed_rng(); // before anything draws a random piece
     if t5::model::CHECK_AXIOMS {
         t5::model::check_axioms::<Instance>();
     }
@@ -672,7 +681,10 @@ async fn main() {
                                 connected_prev: Vec::new(),
                             });
                         }
-                        WaitingOutcome::HostLost => app = App::HostLost,
+                        WaitingOutcome::HostLost => {
+                            sound.play(Sfx::HostLost);
+                            app = App::HostLost;
+                        }
                         WaitingOutcome::Stay => {
                             if !menu.is_open() {
                                 drive_filler(
@@ -931,6 +943,16 @@ async fn main() {
                                             &t1::instance::piece_color,
                                             Some(&font),
                                         );
+                                        // The flash replaces only the own-board
+                                        // half; the gauge and opponent strip
+                                        // stay live.
+                                        view::draw_side_regions(
+                                            &constants,
+                                            machine,
+                                            t1::instance::piece_color,
+                                            &opponents,
+                                            Some(&font),
+                                        );
                                     } else {
                                         let garbage_expired = playing
                                             .mp_garbage_anim
@@ -947,7 +969,11 @@ async fn main() {
                                             &opponents,
                                             Some(&font),
                                         );
-                                        if let Some(a) = &playing.mp_garbage_anim {
+                                        if let Some(a) = playing
+                                            .mp_garbage_anim
+                                            .as_ref()
+                                            .filter(|a| a.started(now))
+                                        {
                                             let p = a.progress(now);
                                             let amp = anim::GARBAGE_SHAKE_PX
                                                 * (a.row_count as f32).min(2.0);
@@ -1157,7 +1183,7 @@ async fn main() {
                         if nav.confirm {
                             let entered = entered_name(name, "Player");
                             let (score, level, lines) = (*score, *level, *lines);
-                            let entries = highscores::record_score(
+                            let (entries, highlight) = highscores::record_score(
                                 entered,
                                 score,
                                 level,
@@ -1166,7 +1192,7 @@ async fn main() {
                             );
                             game.post = SpPost::HallOfFame {
                                 entries,
-                                highlight: Some(score),
+                                highlight,
                                 notice: false,
                             };
                         }

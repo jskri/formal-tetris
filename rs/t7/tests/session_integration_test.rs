@@ -365,6 +365,198 @@ fn state_with_wrong_grid_dimensions_is_rejected() {
     );
 }
 
+/// A well-shaped `State` of this instance's board size, with every other
+/// field chosen by the caller.
+fn state_payload(py: i64, px: i64, pr: u8) -> Payload {
+    let (h, w) = t7::session::instance_grid_dims();
+    Payload::State {
+        p: t7::net::piece_to_code(t1::instance::Piece::T),
+        py,
+        px,
+        pr,
+        mg: vec![vec![None; w]; h],
+        gameover: false,
+    }
+}
+
+/// Hardening: the renderer indexes the rotation table with `pr` and adds
+/// piece offsets to `py`/`px`, so out-of-range values must be rejected
+/// before a board is stored.
+#[test]
+fn state_with_out_of_range_piece_fields_is_rejected() {
+    use t7::session::remote_board_from;
+    assert!(remote_board_from(&state_payload(5, 3, 0)).is_some());
+    assert!(remote_board_from(&state_payload(5, 3, 3)).is_some());
+    assert!(remote_board_from(&state_payload(5, 3, 4)).is_none(), "pr");
+    assert!(remote_board_from(&state_payload(5, 3, 255)).is_none(), "pr");
+    assert!(
+        remote_board_from(&state_payload(i64::MAX, 3, 0)).is_none(),
+        "py"
+    );
+    assert!(
+        remote_board_from(&state_payload(i64::MIN, 3, 0)).is_none(),
+        "py"
+    );
+    assert!(
+        remote_board_from(&state_payload(5, i64::MAX, 0)).is_none(),
+        "px"
+    );
+
+    let mut host = Session::new_host("Host".into());
+    host.boards = vec![None];
+    host.apply_local(0, state_payload(5, 3, 200));
+    assert!(host.boards[0].is_none(), "rejected, not stored");
+}
+
+/// Hardening: the host must not relay a `State` that would not decode —
+/// one joiner's malformed board would otherwise reach every other peer.
+/// A valid one injected the same way still goes through, so the silence
+/// on the bad one is the filter and not a broken relay path.
+#[test]
+fn host_does_not_relay_a_malformed_state() {
+    let (mut host, mut js) = lobby(2);
+    assert!(host.start_match());
+    {
+        let mut refs: Vec<&mut Session> = std::iter::once(&mut host).chain(js.iter_mut()).collect();
+        pump_until(&mut refs, "every joiner receives Start", |s| {
+            s.iter().all(|x| x.started())
+        });
+    }
+    let sender = js[0].my_index.unwrap();
+    let slot = host
+        .peers
+        .iter()
+        .position(|p| p.index == Some(sender))
+        .unwrap();
+    let routed = |body| {
+        WireMessage::Routed(Message {
+            from: sender,
+            to: Destination::Broadcast,
+            match_gen: host.match_gen,
+            body,
+        })
+    };
+    // Joiner 0 is never pumped below, so it broadcasts nothing itself: the
+    // only States from `sender` are the ones injected here.
+    let bad = routed(state_payload(5, 3, 9));
+    let good = routed(state_payload(5, 3, 1));
+
+    host.handle(slot, bad);
+    let start = Instant::now();
+    let mut t = 100.0;
+    while start.elapsed() < Duration::from_millis(500) {
+        host.pump(t);
+        js[1].pump(t);
+        t += 0.05;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(host.boards[sender].is_none(), "host did not store it");
+    assert!(js[1].boards[sender].is_none(), "host did not relay it");
+
+    host.handle(slot, good);
+    let start = Instant::now();
+    while js[1].boards[sender].is_none() {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "valid State relayed"
+        );
+        host.pump(t);
+        js[1].pump(t);
+        t += 0.05;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(js[1].boards[sender].as_ref().unwrap().pr, 1);
+}
+
+/// Hardening: a `Start` sizes the joiner's `Machine` and roster by its
+/// `player_count`, so one above `MAX_PLAYERS` is ignored instead of
+/// allocating without bound; an oversized `Players` roster is truncated.
+#[test]
+fn oversized_start_and_roster_from_the_host_are_bounded() {
+    use t7::session::MAX_PLAYERS;
+    let (_host, mut js) = lobby(1);
+    let j = &mut js[0];
+
+    j.handle_untagged(
+        0,
+        Payload::Start {
+            player_count: usize::MAX,
+            my_index: 1,
+            match_gen: 1,
+        },
+    );
+    assert!(!j.started(), "an oversized Start is ignored");
+
+    j.handle_untagged(
+        0,
+        Payload::Players {
+            roster: vec!["x".repeat(10_000); MAX_PLAYERS * 4],
+        },
+    );
+    assert_eq!(j.roster.len(), MAX_PLAYERS);
+    assert!(j
+        .roster
+        .iter()
+        .all(|n| n.chars().count() == t7::text::NAME_FIELD_MAX_LEN));
+
+    j.handle_untagged(
+        0,
+        Payload::Start {
+            player_count: MAX_PLAYERS,
+            my_index: 1,
+            match_gen: 1,
+        },
+    );
+    assert!(j.started(), "a Start at the cap is accepted");
+}
+
+/// Hardening: a fix emits at most one `Garbage`, to a single target, of at
+/// most what one lock can generate. The host drops anything else rather
+/// than applying or relaying it.
+#[test]
+fn host_drops_garbage_no_fix_could_have_produced() {
+    let (mut host, mut js) = lobby(1);
+    assert!(host.start_match());
+    {
+        let mut refs: Vec<&mut Session> = std::iter::once(&mut host).chain(js.iter_mut()).collect();
+        pump_until(&mut refs, "the joiner receives Start", |s| {
+            s.iter().all(|x| x.started())
+        });
+    }
+    let sender = js[0].my_index.unwrap();
+    let slot = host
+        .peers
+        .iter()
+        .position(|p| p.index == Some(sender))
+        .unwrap();
+    let max = t7::model::generated_garbage(Instance::PW, true);
+    let send = |host: &mut Session, to, amount| {
+        let env = WireMessage::Routed(Message {
+            from: sender,
+            to,
+            match_gen: host.match_gen,
+            body: Payload::Garbage { amount },
+        });
+        host.handle(slot, env);
+        host.machine.as_ref().unwrap().garbage
+    };
+
+    assert_eq!(send(&mut host, Destination::Broadcast, 2), 0, "broadcast");
+    assert_eq!(
+        send(&mut host, Destination::Single(0), max + 1),
+        0,
+        "too much"
+    );
+    assert_eq!(send(&mut host, Destination::Single(0), 0), 0, "empty");
+    assert_eq!(send(&mut host, Destination::Single(0), -5), 0, "negative");
+    assert_eq!(send(&mut host, Destination::Single(0), 2), 2, "a real one");
+    assert_eq!(
+        send(&mut host, Destination::Single(0), max),
+        2 + max,
+        "the cap"
+    );
+}
+
 /// `rem_gen_garbage` is sticky across calls, so the send path must
 /// *consume* it — otherwise a later non-fixing frame would re-send the same
 /// garbage (`take_rem_gen_garbage`'s own doc comment).
@@ -823,8 +1015,16 @@ fn noticing_ones_own_disconnection_resolves_no_winner() {
     let mut m =
         Machine::<Instance>::new(1, 2, make_bags_fn::<Instance>(), random_piece::<Instance>);
     assert!(m.notice_disconnection());
-    assert_eq!(find_winner(&m), None, "the host is not the winner by default");
+    assert_eq!(
+        find_winner(&m),
+        None,
+        "the host is not the winner by default"
+    );
 
     m.gameover_view[1] = true; // this player was already out
-    assert_eq!(find_winner(&m), Some(0), "an already-resolved winner stands");
+    assert_eq!(
+        find_winner(&m),
+        Some(0),
+        "an already-resolved winner stands"
+    );
 }

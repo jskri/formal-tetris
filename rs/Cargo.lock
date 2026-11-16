@@ -1419,6 +1419,7 @@ dependencies = [
 name = "t1"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "gilrs",
  "macroquad",
  "proptest",
@@ -1490,6 +1491,7 @@ name = "t7"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "getrandom 0.3.4",
  "gilrs",
  "macroquad",
  "proptest",

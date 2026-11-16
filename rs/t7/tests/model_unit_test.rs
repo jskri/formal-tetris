@@ -314,6 +314,39 @@ fn drop_piece_winner_multi_guard_leaves_state_untouched() {
     assert_eq!(m.s6.s4.s3.s2.s1.mg, before.2);
 }
 
+/// A `drop_piece` on a gameover machine must leave `py`/`px` untouched too:
+/// `T7.v`'s `DropPiece` is `None` there (T1's `FixPiece` guard), so the
+/// relocation must not be committed before that rejection.
+#[test]
+fn drop_piece_gameover_guard_leaves_state_untouched() {
+    let mut m = fresh(0, 2);
+    m.s6.s4.s3.s2.s1.gameover = true;
+    m.gameover_view[0] = true; // SelfViewAccurate
+    assert!(!t7::model::winner_multi(
+        &m.gameover_view,
+        &m.connected_view,
+        m.my_index
+    ));
+    assert_ne!(
+        m.s6.gy, m.s6.s4.s3.s2.s1.py,
+        "fixture: the relocation would be observable"
+    );
+
+    let before = (
+        m.s6.s4.s3.s2.s1.py,
+        m.s6.s4.s3.s2.s1.px,
+        m.s6.s4.s3.s2.s1.mg.clone(),
+    );
+    let bag = vec![Piece::Bar, Piece::Corner];
+
+    let fired = m.drop_piece(&bag, no_holes());
+
+    assert!(!fired);
+    assert_eq!(m.s6.s4.s3.s2.s1.py, before.0);
+    assert_eq!(m.s6.s4.s3.s2.s1.px, before.1);
+    assert_eq!(m.s6.s4.s3.s2.s1.mg, before.2);
+}
+
 // ── differential: one hand-traced materialization case agrees with oracle.rs ──
 
 #[test]
