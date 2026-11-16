@@ -84,8 +84,10 @@ no oscillator-synthesis path, and no audio dependency exists anywhere in
 - One `SoundEngine` instance lives in `main()`'s own local state (constructed
   once, alongside `RunState`), not a global — consistent with everything else
   in this crate's game loop being plain local state, no statics.
-- Bound to a new key (`M`), polled the same way escape/menu-nav already are
-  in every screen arm of `t7/main.rs`'s loop.
+- Toggled from the in-game menu's third item (`game_menu_items`: "Mute" or
+  "Unmute", whichever activating it does), on top of `t7::app`'s
+  Continue/Quit. There is no key binding. The "MUTED" indicator drawn over
+  every screen keeps the state visible.
 
 ## 3. `anim.rs`
 
@@ -268,8 +270,10 @@ path):**
     monospace font makes this a pure formatting concern). Restarting from
     this screen accepts Enter, Space, or any normal alphanumeric key — not
     arrow/movement keys, which (unlike elsewhere in `App::Single`) do not
-    restart from here; Escape, handled one level up unconditionally for
-    `App::Single`, returns to mode-select as before.
+    restart from here; the gamepad's select button (button 0) also restarts.
+    Back (`[Esc]`/gamepad East) returns to mode-select from both this screen
+    and name entry, where `[Enter]`/button 0 submits. The in-game menu opens
+    only while playing (`is_game_screen`), never on these screens.
 - `Sfx::Gameover` fires once, at the moment gameover is first observed —
   before the lockout window, not after — matching the multiplayer path's own
   "gameover flips true → fires immediately" timing.

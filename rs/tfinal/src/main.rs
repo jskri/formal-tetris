@@ -23,13 +23,15 @@ use t1::misc::{window_conf, LogicalKeys, RepeatTimer};
 use t1::model::Params;
 use t6::model::T6MachineExt as _;
 use t7::app::{
-    after_action, draw_gameover_filler_overlay, draw_host_lobby, draw_host_lost, draw_join_lobby,
-    draw_mode_select, draw_role_select, draw_waiting_overlay, draw_winner_screen, fire_single,
-    fresh_single, poll_menu_nav, process_input, step_host_lobby, step_host_lost, step_join_lobby,
+    after_action, back_row, draw_game_menu_or_hint, draw_gameover_filler_overlay, draw_host_lobby,
+    draw_host_lost, draw_join_lobby, draw_mode_select, draw_role_select, draw_waiting_overlay,
+    draw_winner_screen, drive_game_menu, fire_single, fresh_single, poll_menu_nav, process_input,
+    reset_repeat_after_confirm, select_row, step_host_lobby, step_host_lost, step_join_lobby,
     step_mode_select, step_playing_transition, step_role_select, step_waiting_session, step_winner,
-    AfterActionEvents, GamepadEdges, HostLobby, HostLobbyOutcome, JoinLobby, JoinLobbyOutcome,
-    ModeSelectOutcome, PlayingTransition, RoleSelectOutcome, RunState, SingleInstance, TextCursor,
-    WaitingOutcome, Winner, WinnerOutcome, BODY_COLOR, CODE_COLOR, HINT_COLOR, TITLE_COLOR,
+    AfterActionEvents, ControlRow, GameMenu, GameMenuStep, GamepadEdges, HostLobby,
+    HostLobbyOutcome, JoinLobby, JoinLobbyOutcome, ModeSelectOutcome, PadLabels, PlayingTransition,
+    RoleSelectOutcome, RunState, SingleInstance, TextCursor, WaitingOutcome, WindowFocus, Winner,
+    WinnerOutcome, BODY_COLOR, CODE_COLOR, HINT_COLOR, TITLE_COLOR,
 };
 use t7::misc::Action;
 use t7::session::{Instance, Session};
@@ -156,14 +158,28 @@ fn entered_name(field: &TextInput, fallback: &str) -> String {
     }
 }
 
-/// True while something other than `update_logical_keys` is going to read
+/// True while something other than `LogicalKeys::update` is going to read
 /// `get_char_pressed()` this frame — gates that other reader's exclusive
-/// access to the queue (see `update_logical_keys`) and the mute key, so
-/// typing into a text field never toggles mute mid-word. Covers `Single`'s
+/// access to the queue: `get_char_pressed()` is a single-consumption
+/// queue, so whichever reader runs first drains it for the other. Covers `Single`'s
 /// name-entry field and Hall-of-Fame alnum-restart check, plus `Host`/
 /// `Join`'s text-entry fields; for the latter two, knowing the screen is
 /// `Host`/`Join` is enough — their step functions poll the text-edit queue
 /// unconditionally regardless of which field has focus.
+/// The in-game menu's items, in `GAME_MENU_CONTINUE`/`GAME_MENU_QUIT`
+/// order, then the mute toggle, labelled with what activating it does.
+fn game_menu_items(muted: bool) -> [&'static str; 3] {
+    ["Continue", "Quit", if muted { "Unmute" } else { "Mute" }]
+}
+
+/// The screens with a game on them, where `[Esc]`/Start opens the in-game
+/// menu: single-player while playing (its post-gameover screens are menus,
+/// where `[Esc]` goes back), the waiting room and the match.
+fn is_game_screen(app: &App) -> bool {
+    matches!(app, App::Waiting(_) | App::Playing(_))
+        || matches!(app, App::Single(game) if matches!(game.post, SpPost::None))
+}
+
 fn char_queue_reserved(app: &App) -> bool {
     matches!(app, App::Host(_) | App::Join(_))
         || matches!(app, App::Single(game) if !matches!(game.post, SpPost::None))
@@ -173,7 +189,14 @@ fn char_queue_reserved(app: &App) -> bool {
 
 /// Single-player's own name-entry sub-screen — a fresh high score, entered
 /// before the hall-of-fame list is shown.
-fn draw_name_entry(score: u64, level: u64, lines: u64, name: &TextInput, font: Option<&Font>) {
+fn draw_name_entry(
+    score: u64,
+    level: u64,
+    lines: u64,
+    name: &TextInput,
+    labels: Option<PadLabels>,
+    font: Option<&Font>,
+) {
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("NEW HIGH SCORE!", TITLE_COLOR, font);
@@ -186,13 +209,18 @@ fn draw_name_entry(score: u64, level: u64, lines: u64, name: &TextInput, font: O
     c.gap();
     c.field("Name", &name.text, true, true, true, font);
     c.gap();
-    c.line("[Enter] submit", HINT_COLOR, font);
+    c.controls(
+        &[select_row(labels, "submit"), back_row(labels, "menu")],
+        labels,
+        font,
+    );
 }
 
 fn draw_hall_of_fame(
     entries: &[highscores::Entry],
     highlight: Option<u64>,
     notice: bool,
+    labels: Option<PadLabels>,
     font: Option<&Font>,
 ) {
     clear_background(t2::view::BG_COLOR);
@@ -241,32 +269,21 @@ fn draw_hall_of_fame(
         }
     }
     c.gap();
-    c.line("[enter/space] play again   [esc] menu", HINT_COLOR, font);
+    c.controls(
+        &[
+            ControlRow {
+                key: "Enter/Space",
+                pad: labels.map(|l| l.select),
+                action: "play again",
+            },
+            back_row(labels, "menu"),
+        ],
+        labels,
+        font,
+    );
 }
 
 // ── Input ───────────────────────────────────────────────────────────────
-
-/// Learns which physical key currently produces `'x'`/`'z'`/`'m'`
-/// (case-insensitive), same technique as `t1::misc::LogicalKeys::update`
-/// for Cw/Ccw, extended to Mute. Both must be learned in one pass over
-/// `get_char_pressed()`: it's a single-consumption queue, so a separate
-/// mute-learning loop in the same frame would race with `LogicalKeys::update`
-/// and drain it first. Only call while `!char_queue_reserved(&app)` — another
-/// active reader would lose its keystrokes to this loop otherwise.
-fn update_logical_keys(logical: &mut LogicalKeys, mute: &mut Option<KeyCode>) {
-    let pressed_now = get_keys_pressed();
-    while let Some(c) = get_char_pressed() {
-        if pressed_now.len() == 1 {
-            let kc = *pressed_now.iter().next().expect("len() == 1 checked above");
-            match c.to_ascii_lowercase() {
-                'x' => logical.cw = Some(kc),
-                'z' => logical.ccw = Some(kc),
-                'm' => *mute = Some(kc),
-                _ => {}
-            }
-        }
-    }
-}
 
 /// The filler game shared by the waiting room (`S6`) and the mid-match wait
 /// (`S8`): single-player dispatch/gravity/gameover-restart over a
@@ -496,27 +513,57 @@ async fn main() {
     let mut run = RunState::fresh(get_time());
     let mut menu_index: usize = 0;
     let mut menu_pad = GamepadEdges::default();
-    let mut logical_mute: Option<KeyCode> = None;
+    let mut focus = WindowFocus::new();
+    // The in-game menu, open on a game screen (see `is_game_screen`).
+    let mut game_menu: Option<GameMenu> = None;
 
     loop {
         let now = get_time();
-        let escape = is_key_pressed(KeyCode::Escape);
-        if !char_queue_reserved(&app) {
-            update_logical_keys(&mut logical_keys, &mut logical_mute);
-            if logical_mute.is_some_and(is_key_pressed) {
-                sound.toggle_muted();
-            }
+        // gilrs only refreshes a gamepad's cached button state while its
+        // events are pulled, so they are pulled once per frame here, before
+        // any screen reads `pad`.
+        if let Some(g) = &mut gilrs {
+            while g.next_event().is_some() {}
         }
+        // The pad only drives the focused window, like the keyboard
+        // (`WindowFocus`).
+        focus.update();
+        let pad = gilrs
+            .as_ref()
+            .filter(|_| focus.focused())
+            .and_then(|g| g.gamepads().next())
+            .map(|(_, pad)| pad);
+        // Polled on every screen, gameplay included, so `menu_pad`'s edges
+        // are current whenever a menu screen is entered.
+        let nav = poll_menu_nav(pad, &mut menu_pad);
+        let labels = PadLabels::for_pad(pad);
+        if !char_queue_reserved(&app) {
+            logical_keys.update();
+        }
+        // The in-game menu belongs to the screen it was opened on, and is
+        // stepped here, once, for whichever game screen is showing.
+        let screen = std::mem::discriminant(&app);
+        let menu = if is_game_screen(&app) {
+            drive_game_menu(
+                &mut game_menu,
+                nav,
+                game_menu_items(false).len(),
+                pad,
+                &mut key_repeat,
+                now,
+            )
+        } else {
+            GameMenuStep::Closed
+        };
+        if let GameMenuStep::Item(_) = menu {
+            sound.toggle_muted(); // the only item past Continue/Quit
+        }
+        let game_menu_items = game_menu_items(sound.is_muted());
 
         match &mut app {
             // ── S1 Mode Select ─────────────────────────────────────────
             App::ModeSelect => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                let nav = poll_menu_nav(pad, &mut menu_pad);
-                match step_mode_select(escape, nav, &mut menu_index) {
+                match step_mode_select(nav, &mut menu_index) {
                     ModeSelectOutcome::Quit => {
                         macroquad::miniquad::window::order_quit();
                         return;
@@ -524,7 +571,7 @@ async fn main() {
                     ModeSelectOutcome::EnterSingle => {
                         app = App::Single(SpGame::fresh());
                         run = RunState::fresh(now);
-                        key_repeat.clear();
+                        reset_repeat_after_confirm(&mut key_repeat, pad, now);
                     }
                     ModeSelectOutcome::EnterRoleSelect => {
                         app = App::RoleSelect;
@@ -532,45 +579,29 @@ async fn main() {
                     }
                     ModeSelectOutcome::Stay => {}
                 }
-                draw_mode_select(menu_index, "   [M] mute", Some(&font));
+                draw_mode_select(menu_index, labels, Some(&font));
             }
 
             // ── S2 Role Select ─────────────────────────────────────────
             App::RoleSelect => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                let nav = poll_menu_nav(pad, &mut menu_pad);
-                match step_role_select(escape, nav, &mut menu_index) {
+                match step_role_select(nav, &mut menu_index) {
                     RoleSelectOutcome::Stay => {}
                     RoleSelectOutcome::Back => app = App::ModeSelect,
                     RoleSelectOutcome::Host(lobby) => app = App::Host(*lobby),
                     RoleSelectOutcome::Join(lobby) => app = App::Join(lobby),
                 }
                 if matches!(app, App::RoleSelect) {
-                    draw_role_select(menu_index, Some(&font));
+                    draw_role_select(menu_index, labels, Some(&font));
                 }
             }
 
             // ── S3 Host Lobby ──────────────────────────────────────────
             App::Host(lobby) => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                match step_host_lobby(
-                    lobby,
-                    escape,
-                    pad,
-                    &mut menu_pad,
-                    &mut run,
-                    &mut key_repeat,
-                    now,
-                ) {
+                match step_host_lobby(lobby, nav, &mut run, &mut key_repeat, now) {
                     HostLobbyOutcome::Stay => {}
                     HostLobbyOutcome::Back => app = App::ModeSelect,
                     HostLobbyOutcome::Started => {
+                        reset_repeat_after_confirm(&mut key_repeat, pad, now);
                         let App::Host(lobby) = std::mem::replace(&mut app, App::ModeSelect) else {
                             unreachable!()
                         };
@@ -587,28 +618,17 @@ async fn main() {
                     }
                 }
                 if let App::Host(lobby) = &app {
-                    draw_host_lobby(lobby, "   [M] mute", Some(&font));
+                    draw_host_lobby(lobby, labels, Some(&font));
                 }
             }
 
             // ── S4 Join Screen ─────────────────────────────────────────
             App::Join(lobby) => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                match step_join_lobby(
-                    lobby,
-                    escape,
-                    pad,
-                    &mut menu_pad,
-                    &mut run,
-                    &mut key_repeat,
-                    now,
-                ) {
+                match step_join_lobby(lobby, nav, &mut run, &mut key_repeat, now) {
                     JoinLobbyOutcome::Stay => {}
                     JoinLobbyOutcome::Back => app = App::ModeSelect,
                     JoinLobbyOutcome::Connected(session) => {
+                        reset_repeat_after_confirm(&mut key_repeat, pad, now);
                         app = App::Waiting(Waiting {
                             session: *session,
                             filler: fresh_single(),
@@ -618,98 +638,113 @@ async fn main() {
                     }
                 }
                 if let App::Join(lobby) = &app {
-                    draw_join_lobby(lobby, "   [M] mute", Some(&font));
+                    draw_join_lobby(lobby, labels, Some(&font));
                 }
             }
 
             // ── S6 Waiting Room ────────────────────────────────────────
             App::Waiting(waiting) => {
-                match step_waiting_session(&mut waiting.session, escape, now) {
-                    WaitingOutcome::Left => app = App::ModeSelect,
-                    WaitingOutcome::ToPlaying => {
-                        run = RunState::fresh(now);
-                        key_repeat.clear();
-                        let App::Waiting(w) = std::mem::replace(&mut app, App::ModeSelect) else {
-                            unreachable!()
-                        };
-                        app = App::Playing(Playing {
-                            session: w.session,
-                            filler: None,
-                            own_gameover_since: None,
-                            filler_clear_anim: None,
-                            filler_gameover_since: None,
-                            mp_clear_anim: None,
-                            mp_garbage_anim: None,
-                            connected_prev: Vec::new(),
-                        });
+                if let GameMenuStep::Quit = menu {
+                    waiting.session.leave();
+                    app = App::ModeSelect;
+                } else {
+                    // The filler is local: it freezes while the menu is open,
+                    // and its gravity timer skips the time spent there.
+                    if let GameMenuStep::Continue { paused_for } = menu {
+                        run.last_fall += paused_for;
                     }
-                    WaitingOutcome::HostLost => app = App::HostLost,
-                    WaitingOutcome::Stay => {
-                        if let Some(g) = &mut gilrs {
-                            while g.next_event().is_some() {}
+                    match step_waiting_session(&mut waiting.session, now) {
+                        WaitingOutcome::ToPlaying => {
+                            run = RunState::fresh(now);
+                            key_repeat.clear();
+                            let App::Waiting(w) = std::mem::replace(&mut app, App::ModeSelect)
+                            else {
+                                unreachable!()
+                            };
+                            app = App::Playing(Playing {
+                                session: w.session,
+                                filler: None,
+                                own_gameover_since: None,
+                                filler_clear_anim: None,
+                                filler_gameover_since: None,
+                                mp_clear_anim: None,
+                                mp_garbage_anim: None,
+                                connected_prev: Vec::new(),
+                            });
                         }
-                        let pad = gilrs
-                            .as_ref()
-                            .and_then(|g| g.gamepads().next())
-                            .map(|(_, pad)| pad);
-                        drive_filler(
-                            &mut waiting.filler,
-                            &mut key_repeat,
-                            &logical_keys,
-                            pad,
-                            &mut run,
-                            now,
-                            &sound,
-                            &mut waiting.filler_clear_anim,
-                            &mut waiting.filler_gameover_since,
-                        );
-                        let expired = waiting
-                            .filler_clear_anim
-                            .as_ref()
-                            .is_some_and(|a| a.done(now));
-                        if expired {
-                            waiting.filler_clear_anim = None;
-                        }
-                        if let Some(a) = &waiting.filler_clear_anim {
-                            let p = anim::progress(a, now);
-                            anim::draw_clear_flash(
+                        WaitingOutcome::HostLost => app = App::HostLost,
+                        WaitingOutcome::Stay => {
+                            if !menu.is_open() {
+                                drive_filler(
+                                    &mut waiting.filler,
+                                    &mut key_repeat,
+                                    &logical_keys,
+                                    pad,
+                                    &mut run,
+                                    now,
+                                    &sound,
+                                    &mut waiting.filler_clear_anim,
+                                    &mut waiting.filler_gameover_since,
+                                );
+                            }
+                            let expired = waiting
+                                .filler_clear_anim
+                                .as_ref()
+                                .is_some_and(|a| a.done(now));
+                            if expired {
+                                waiting.filler_clear_anim = None;
+                            }
+                            if let Some(a) = &waiting.filler_clear_anim {
+                                let p = anim::progress(a, now);
+                                anim::draw_clear_flash(
+                                    &constants,
+                                    &waiting.filler,
+                                    &a.grid,
+                                    &a.rows,
+                                    p,
+                                    (0.0, 0.0),
+                                    &t1::instance::piece_color,
+                                    Some(&font),
+                                );
+                            } else {
+                                t6::view::render(
+                                    &constants,
+                                    &waiting.filler,
+                                    t1::instance::piece_color,
+                                    run.banner.as_ref(),
+                                    Some(&font),
+                                );
+                            }
+                            draw_waiting_overlay(&waiting.session, Some(&font));
+                            draw_game_menu_or_hint::<SingleInstance>(
+                                game_menu.as_ref(),
+                                "Paused",
+                                &game_menu_items,
                                 &constants,
-                                &waiting.filler,
-                                &a.grid,
-                                &a.rows,
-                                p,
-                                (0.0, 0.0),
-                                &t1::instance::piece_color,
+                                labels,
                                 Some(&font),
                             );
-                        } else {
-                            t6::view::render(
-                                &constants,
-                                &waiting.filler,
-                                t1::instance::piece_color,
-                                run.banner.as_ref(),
-                                Some(&font),
-                            );
                         }
-                        draw_waiting_overlay(&waiting.session, Some(&font));
                     }
                 }
             }
 
             // ── S7 Gameplay, and S8 mid-match filler ───────────────────
             App::Playing(playing) => {
-                if escape {
+                playing.session.pump(now);
+                if let GameMenuStep::Quit = menu {
                     playing.session.leave();
                     app = App::ModeSelect;
                 } else {
-                    playing.session.pump(now);
-                    if let Some(g) = &mut gilrs {
-                        while g.next_event().is_some() {}
+                    let menu_open = menu.is_open();
+                    // Only S8's filler is local and freezes; S7's match
+                    // keeps running under the menu, so its timer is left
+                    // alone.
+                    if let GameMenuStep::Continue { paused_for } = menu {
+                        if playing.filler.is_some() {
+                            run.last_fall += paused_for;
+                        }
                     }
-                    let pad = gilrs
-                        .as_ref()
-                        .and_then(|g| g.gamepads().next())
-                        .map(|(_, pad)| pad);
                     let wm = constants.wm;
 
                     // The real Machine is driven only in S7; in S8 it stays
@@ -724,8 +759,11 @@ async fn main() {
                         if let Some(gameover) = gameover {
                             let mut clear_anim = playing.mp_clear_anim.take();
                             let mut garbage_anim = playing.mp_garbage_anim.take();
+                            // With the menu open the match keeps running
+                            // (gravity below) but takes no input — skipped
+                            // the same way a gameover skips it.
                             process_input(
-                                gameover,
+                                gameover || menu_open,
                                 &mut key_repeat,
                                 &logical_keys,
                                 pad,
@@ -829,6 +867,9 @@ async fn main() {
                                 sound.play(Sfx::Gameover);
                             }
                         }
+                        // The keypress that enters S8 is game input, which
+                        // the open menu takes instead.
+                        PlayingTransition::EnteredFiller if menu_open => {}
                         PlayingTransition::EnteredFiller => {
                             playing.filler = Some(fresh_single());
                             playing.own_gameover_since = None;
@@ -842,17 +883,19 @@ async fn main() {
 
                     if let App::Playing(playing) = &mut app {
                         if let Some(filler) = playing.filler.as_mut() {
-                            drive_filler(
-                                filler,
-                                &mut key_repeat,
-                                &logical_keys,
-                                pad,
-                                &mut run,
-                                now,
-                                &sound,
-                                &mut playing.filler_clear_anim,
-                                &mut playing.filler_gameover_since,
-                            );
+                            if !menu_open {
+                                drive_filler(
+                                    filler,
+                                    &mut key_repeat,
+                                    &logical_keys,
+                                    pad,
+                                    &mut run,
+                                    now,
+                                    &sound,
+                                    &mut playing.filler_clear_anim,
+                                    &mut playing.filler_gameover_since,
+                                );
+                            }
                         }
                         // Either way the T7 view draws: in S8 the own-board
                         // half shows the filler, while the mini-grid strip
@@ -961,17 +1004,26 @@ async fn main() {
                                 }
                             }
                         }
+                        let title = if playing.filler.is_none() {
+                            "Game still running"
+                        } else {
+                            "Paused"
+                        };
+                        draw_game_menu_or_hint::<Instance>(
+                            game_menu.as_ref(),
+                            title,
+                            &game_menu_items,
+                            &constants,
+                            labels,
+                            Some(&font),
+                        );
                     }
                 }
             }
 
             // ── S9 Winner Screen ───────────────────────────────────────
             App::Winner(winner) => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                match step_winner(winner, pad, &mut menu_pad, &mut menu_index, now) {
+                match step_winner(winner, nav, &mut menu_index, now) {
                     WinnerOutcome::Stay => {}
                     WinnerOutcome::Leave => app = App::ModeSelect,
                     WinnerOutcome::RematchAsHost => {
@@ -987,7 +1039,7 @@ async fn main() {
                             unreachable!()
                         };
                         run = RunState::fresh(now);
-                        key_repeat.clear();
+                        reset_repeat_after_confirm(&mut key_repeat, pad, now);
                         app = App::Waiting(Waiting {
                             session: w.session,
                             filler: fresh_single(),
@@ -997,42 +1049,40 @@ async fn main() {
                     }
                 }
                 if let App::Winner(w) = &app {
-                    draw_winner_screen(w, menu_index, Some(&font));
+                    draw_winner_screen(w, menu_index, labels, Some(&font));
                 }
             }
 
             // ── S10 Host Lost ──────────────────────────────────────────
             App::HostLost => {
-                let pad = gilrs
-                    .as_ref()
-                    .and_then(|g| g.gamepads().next())
-                    .map(|(_, pad)| pad);
-                if step_host_lost(escape, pad, &mut menu_pad) {
+                if step_host_lost(nav) {
                     app = App::ModeSelect;
                 }
                 if matches!(app, App::HostLost) {
-                    draw_host_lost(Some(&font));
+                    draw_host_lost(labels, Some(&font));
                 }
             }
 
             // spec: single-player — the T6 engine, unchanged and
             // un-wrapped: no garbage, no target, no views, no network.
             App::Single(game) => {
-                if escape {
+                let in_post = !matches!(game.post, SpPost::None);
+                if matches!(menu, GameMenuStep::Quit) || (in_post && nav.back) {
                     app = App::ModeSelect;
                 } else {
-                    // logical_keys/logical_mute learning is skipped this frame
-                    // whenever game.post != None (see char_queue_reserved).
-                    if let Some(g) = &mut gilrs {
-                        while g.next_event().is_some() {}
-                    }
-                    let pad = gilrs
-                        .as_ref()
-                        .and_then(|g| g.gamepads().next())
-                        .map(|(_, pad)| pad);
+                    // logical_keys learning is skipped this frame whenever
+                    // game.post != None (see char_queue_reserved).
                     let gameover = game.machine.s4.s3.s2.s1.gameover;
+                    // Frozen while the menu is open; the gravity timer
+                    // skips the time spent there.
+                    if let GameMenuStep::Continue { paused_for } = menu {
+                        run.last_fall += paused_for;
+                    }
 
-                    if matches!(game.post, SpPost::None) {
+                    if menu.is_open() {
+                        // Frozen. (The menu only opens while playing, never
+                        // on the post-gameover screens below.)
+                    } else if !in_post {
                         process_input(
                             gameover,
                             &mut key_repeat,
@@ -1104,7 +1154,7 @@ async fn main() {
                         let edit = poll_text_edit();
                         name.apply(&edit, HOF_NAME_MAX_LEN);
                         drive_backspace_repeat(name, backspace_repeat, now);
-                        if is_key_pressed(KeyCode::Enter) {
+                        if nav.confirm {
                             let entered = entered_name(name, "Player");
                             let (score, level, lines) = (*score, *level, *lines);
                             let entries = highscores::record_score(
@@ -1123,13 +1173,10 @@ async fn main() {
                     } else if let SpPost::HallOfFame { .. } = &game.post {
                         let alnum_pressed =
                             std::iter::from_fn(get_char_pressed).any(|c| c.is_ascii_alphanumeric());
-                        if is_key_pressed(KeyCode::Enter)
-                            || is_key_pressed(KeyCode::Space)
-                            || alnum_pressed
-                        {
+                        if nav.confirm || is_key_pressed(KeyCode::Space) || alnum_pressed {
                             *game = SpGame::fresh();
                             run = RunState::fresh(now);
-                            key_repeat.clear();
+                            reset_repeat_after_confirm(&mut key_repeat, pad, now);
                         }
                     }
                 }
@@ -1188,6 +1235,14 @@ async fn main() {
                                     Some(&font),
                                 );
                             }
+                            draw_game_menu_or_hint::<SingleInstance>(
+                                game_menu.as_ref(),
+                                "Paused",
+                                &game_menu_items,
+                                &constants,
+                                labels,
+                                Some(&font),
+                            );
                         }
                         SpPost::NameEntry {
                             score,
@@ -1196,18 +1251,22 @@ async fn main() {
                             name,
                             ..
                         } => {
-                            draw_name_entry(*score, *level, *lines, name, Some(&font));
+                            draw_name_entry(*score, *level, *lines, name, labels, Some(&font));
                         }
                         SpPost::HallOfFame {
                             entries,
                             highlight,
                             notice,
                         } => {
-                            draw_hall_of_fame(entries, *highlight, *notice, Some(&font));
+                            draw_hall_of_fame(entries, *highlight, *notice, labels, Some(&font));
                         }
                     }
                 }
             }
+        }
+
+        if std::mem::discriminant(&app) != screen {
+            game_menu = None;
         }
 
         if let Some(b) = &run.banner {

@@ -158,10 +158,12 @@ key) that a silent one would make the game read as broken. Checked against every
 - **The gravity tick** — `session.fire_and_broadcast(|machine| fire_with_effects(Action::Down,
   ...))`, gated on the identical `now - run.last_fall >= run.current_gravity_period` guard
   `t7::app::step_playing_gameplay`'s own gravity branch uses, same call shape.
-- **`process_input(gameover, ..., |action| session.fire_and_broadcast(...))`** — the same
-  `t7::app::process_input` free function `step_playing_gameplay`/`t7/main.rs` already call,
-  unmodified; only the dispatch closure passed to it differs (sound/anim-decorated, not a
-  different function).
+- **`process_input(gameover || menu_open, ..., |action| session.fire_and_broadcast(...))`** —
+  the same `t7::app::process_input` free function `step_playing_gameplay`/`t7/main.rs` already
+  call, unmodified, with the same `gameover || menu_open` flag `step_playing_gameplay` passes;
+  only the dispatch closure passed to it differs (sound/anim-decorated, not a different
+  function). With the in-game menu open, `process_input` returns before any dispatch, exactly as
+  on gameover, so no `Machine` call is made from input; the gravity tick is unaffected.
 - **`after_action(&machine.s6.s4.s3.s2, now, &mut run)`** — the same free function, same
   arguments, `step_playing_gameplay`/`t7/main.rs` already call — read-only against `s2`
   (`score`/`level`/`total_cleared_lines`), used here only to select
@@ -169,7 +171,7 @@ key) that a silent one would make the game read as broken. Checked against every
 - **Disconnect sfx** diffs `session.opponent_views()` (read-only, §6) against `connected_prev`
   — no `Machine` call.
 - **`session.pump(now)`/`session.leave()`** — identical calls, identical arguments, to
-  `t7/main.rs`'s own `Playing`/escape arms (`Session`'s network-pump and departure-notify entry
+  `t7/main.rs`'s own `Playing` arm and its in-game menu's Quit (`Session`'s network-pump and departure-notify entry
   points, `session.rs`, already argued in `t7/proofs.md` §8/§10).
 - **`step_playing_transition(&playing.session, filler_is_none, &mut playing.own_gameover_since,
   ...)`** — the same `t7::app` free function `t7/main.rs`'s own `Playing` arm calls, same

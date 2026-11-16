@@ -886,17 +886,17 @@ returns an outcome, and a matching `draw_*` function. With no widget toolkit at 
 
 | `App` variant | id | shown | actions |
 |---|---|---|---|
-| `ModeSelect` | `S1` | "Single Player" / "Multi Player" | `[1]` → `Single`; `[2]` → `RoleSelect` |
-| `RoleSelect` | `S2` | "Host" / "Join" | `[1]` → `Host`; `[2]` → `Join` |
-| `Single` | `S1`'s SP branch | the T6 board alone | ordinary game input |
-| `Host` | `S3` | name field; "Add player" button (`AddConnection::Idle`) → a paste field for the joiner's code, no host code shown yet (`EnteringCode`, §15.1a′) → the host's own code for that pairing, itself shown as a read-only field (`Connecting`, auto-clears on Join); the joiner list; "Start game" button, greyed with "Not enough players." until there's a joiner | `[↑]/[↓]`/gamepad D-pad move focus among the 3 stops (§15.1a), `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+N]`/`[Ctrl+S]` remain as power-user aliases for Add/Start, `[Esc]` cancels the open pairing (paste box, discovery, or `Connecting`) or, with none open, leaves the lobby (§15.1a′), `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
-| `Join` | `S4` | name field; own code, shown as a read-only field, initially focused; the "paste the host's code" field, always editable (§15.1a′ — no gate); "Connect" button | `[↑]/[↓]`/gamepad D-pad move focus among the 4 stops, `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
+| `ModeSelect` | `S1` | "Single Player" / "Multi Player" | `[1]` → `Single`; `[2]` → `RoleSelect`; back (`[Esc]`/gamepad East) quits |
+| `RoleSelect` | `S2` | "Host" / "Join" | `[1]` → `Host`; `[2]` → `Join`; back → `S1` |
+| `Single` | `S1`'s SP branch | the T6 board alone | ordinary game input; `[Esc]`/gamepad Start opens the in-game menu |
+| `Host` | `S3` | name field; "Add player" button (`AddConnection::Idle`) → a paste field for the joiner's code, no host code shown yet (`EnteringCode`, §15.1a′) → the host's own code for that pairing, itself shown as a read-only field (`Connecting`, auto-clears on Join); the joiner list; "Start game" button, greyed with "Not enough players." until there's a joiner | `[↑]/[↓]`/gamepad D-pad move focus among the 3 stops (§15.1a), `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+N]`/`[Ctrl+S]` remain as power-user aliases for Add/Start, back (`[Esc]`/gamepad East) cancels the open pairing (paste box, discovery, or `Connecting`) or, with none open, leaves the lobby (§15.1a′), `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop |
+| `Join` | `S4` | name field; own code, shown as a read-only field, initially focused; the "paste the host's code" field, always editable (§15.1a′ — no gate); "Connect" button | `[↑]/[↓]`/gamepad D-pad move focus among the 4 stops, `[Enter]`/gamepad button 0 activates the focused stop, `[Ctrl+C]`/`[Ctrl+V]` copy/paste the focused stop, back → `S1` |
 | — | `S5` Rejoin | — | none: `S5`'s only action is automatic, so it is `Session::rejoin` called in passing, with no frame on which it would be drawn |
-| `Waiting` | `S6` | `t6::model::Machine` filler game; roster; "Waiting for host…" | ordinary game input |
-| `Playing { filler: None }` | `S7` | `t7::model::Machine`; strip + gauge (§14) | ordinary game input |
-| `Playing { filler: Some(_) }` | `S8` | filler game + a live strip/gauge off the headless real `Machine` | ordinary game input |
+| `Waiting` | `S6` | `t6::model::Machine` filler game; roster; "Waiting for host…" | ordinary game input; in-game menu |
+| `Playing { filler: None }` | `S7` | `t7::model::Machine`; strip + gauge (§14) | ordinary game input; in-game menu |
+| `Playing { filler: Some(_) }` | `S8` | filler game + a live strip/gauge off the headless real `Machine` | ordinary game input; in-game menu |
 | `Winner` | `S9` | "You win" / "Winner: `<name>`"; "Rematch"; "Leave" | `[1]` Rematch, `[2]` Leave |
-| `HostLost` | `S10` | "Connection to host lost."; "Return to menu" | `[1]` |
+| `HostLost` | `S10` | "Connection to host lost."; "Return to menu" | `[1]`, `[Enter]`/button 0 or back |
 
 `S8` is deliberately **not** its own `App` variant: it is `S7` with a filler running. The real
 `Machine<Instance>` stays alive underneath — still pumped, still fed `receive_garbage`/
@@ -983,6 +983,71 @@ on why a payload there would force every `std::mem::replace(&mut app, App::ModeS
 call site to supply a dummy value) rendered the same `CODE_COLOR`-highlight way. The
 digit-key shortcuts (`[1]`/`[2]`, read from the OS-translated character stream, not a fixed
 `KeyCode` — AZERTY etc.) work as an alias alongside arrows/gamepad/Enter.
+
+**Gamepad state is refreshed once per frame, on every screen.** gilrs updates a gamepad's cached
+button state (`Gamepad::is_pressed`) only while its events are pulled, so the main loop pulls them
+all at its top, before any screen reads the pad. The same spot runs `poll_menu_nav` once per frame,
+gameplay screens included, so `GamepadEdges` always holds the pad's real state when a menu screen
+is entered: a button held through the end of a match does not count as a fresh confirm on the
+winner screen. The step functions of the menu-style screens therefore take the frame's `MenuNav`
+rather than the pad. Gamepad button 0 is both the menu confirm and `Action::Ccw`, so entering a
+game straight from a confirm (`S1`'s single-player, `S3`'s Start, `S4`'s Connect, `S9`'s
+joiner rematch) resets the DAS/ARR table with `reset_repeat_after_confirm`. That function records
+the still-held confirm button as already pressed, so the first frame of the game does not rotate.
+
+**Back and the in-game menu.** `MenuNav` carries two more edges besides up/down/confirm: `back`
+(`[Esc]` or gamepad button 1, East) and `pause` (`[Esc]` or the gamepad's Start). Menu screens act
+on `back` (quit on `S1`, cancel or leave elsewhere); game screens (`Single`, `S6`, `S7`, `S8`) act
+on `pause`, which opens the in-game menu (`drive_game_menu`, `GameMenu`): "Continue", "Quit", plus
+any caller-specific items. Opening and stepping never happen on the same frame, so the `[Esc]` that
+opens the menu does not also close it; `pause` or `back` close it like Continue, which resets the
+DAS/ARR table with `reset_repeat_after_confirm`. Quit returns to `S1`, through `Session::leave` on
+`S6`/`S7`/`S8`. A local game (`Single`, and the `S6`/`S8` fillers) is frozen while the menu is
+open, with no input and no gravity, and its gravity timer is shifted by `paused_for` on Continue.
+`S7`'s match cannot pause, because the other peers keep playing: under the menu (titled "Game
+still running") gravity and the network keep running and only local input is withheld
+(`step_playing_gameplay`'s `menu_open`). The menu is owned by the screen it was opened on: any
+screen change (winner resolved, host lost, `START` received) closes it, and the `S7` → `S8`
+keypress is not taken while it is open.
+
+**Menu screens and the in-game menu list their controls in a table.** Long key-plus-button labels
+do not fit on one line, so each such screen shows a three-column table, one row per action,
+columns padded to their longest cell in the monospace font (`controls_lines`): a "Key / Gamepad /
+Action" header, then rows such as `Esc  B  back`. The "Gamepad" header is what tells a pad's "B"
+apart from the B key, so table cells carry no "button" suffix; with no pad connected the Gamepad
+column is left out. Menu screens list move (`↑/↓`, D-pad), select (`Enter`, button 0) and back or
+quit (`Esc`, button 1), plus `Ctrl-C`/`Ctrl-V` in the lobbies (keyboard only, empty pad cell). The
+in-game menu lists, under "Game controls:" and a gap below its items, every `Action` with its key
+(`Action::key`; the rotations show the letters X/Z that `LogicalKeys` binds) and button
+(`Action::gamepad_button`), plus `Esc`/Start for the menu itself (`game_control_rows`). The font
+has the four arrows but no rotation glyphs, so rotations read "rotate right"/"rotate left".
+
+**Game screens show one line, "[Esc/Start button] menu"**, while the menu is closed, so the board's
+surroundings stay uncluttered: in the hint colour on the board's left, aligned with the board's
+bottom (`draw_menu_hint`). Being running text rather than a table, it names the pad button with
+the "button" suffix (`key_name`). It starts at the panel text's x when it fits from there, and
+extends left only as far as its width needs; its font shrinks, down to 10px, to the whole left
+margin's width (a small gap at the window's edge to the panel/grid gap).
+
+**The pad only drives the focused window.** gilrs reads the pad device directly, whatever window
+has focus, so two game windows on one computer (a host and a joiner, say) would both act on it,
+while the OS sends keyboard input only to the focused one. `WindowFocus` tracks focus from
+miniquad's minimized/restored events, which fire on focus changes on X11 (FocusOut/FocusIn, also
+under XWayland), Windows (`WM_ACTIVATE`) and macOS (key-window changes). While unfocused the main
+loop still drains gilrs's events, so its state stays current, but treats the frame as having no
+pad. A button held while focus comes back then counts as one fresh press. Native Wayland reports
+no focus changes, so there the window always counts as focused; macroquad's Linux default is X11
+(or XWayland), where gating works.
+
+**Pad buttons are named after the connected pad's brand.** `PadLabels::for_pad` reads the pad's
+USB vendor ID (`Gamepad::vendor_id`): Microsoft (`0x045E`) → A / B / Y / Start, Sony (`0x054C`) →
+Cross / Circle / Triangle / Options, Nintendo (`0x057E`) → B / A / X / + (South / East / North /
+Start). Any other vendor, or none, falls back to gilrs's positional names South / East / North /
+Start. This covers third-party pads, Steam Input's virtual pad, and the Windows XInput backend,
+which reports no vendor ID. D-pad cells read the same on every brand. Keys named in running text
+(the lobby's pairing instructions) use `key_name`, which adds the "button" suffix there because
+there is no column header: "Esc/B button". The labels are display only: buttons are always read
+by position.
 
 **Neither direction goes through miniquad's own clipboard**
 (`clipboard_set`/`clipboard_get`), which on Linux is unsound both ways, for two *different*
@@ -1078,12 +1143,12 @@ still in flight — and auto-clears back to `Idle` once that joiner's `Join` has
 either way the roster line, or its absence, becomes the visible confirmation, and `[Ctrl+N]` is
 available again for the next joiner.
 
-**`[Esc]` cancels the innermost open thing.** While a pairing is open (`EnteringCode`,
-`Discovering` or `Connecting`), `[Esc]` calls `cancel_add`: back to `Idle`, the whole lobby not
+**Back (`[Esc]`/gamepad East) cancels the innermost open thing.** While a pairing is open
+(`EnteringCode`, `Discovering` or `Connecting`), back calls `cancel_add`: back to `Idle`, the whole lobby not
 left, and every joiner already in it kept. Cancelling `Discovering` drops the `PendingEndpoint`;
 its background thread finishes its one STUN round trip and exits normally with nowhere to send the
 result. Cancelling `Connecting` removes that pairing's not-yet-joined peer. Only when `Idle` does
-`[Esc]` keep its ordinary meaning: leave the lobby entirely, back to `S2`.
+back keep its ordinary meaning: leave the lobby entirely, back to `S2`.
 
 **`S4`'s two fields are both always reachable — no lock is needed.** The host's code for a given
 pairing does not exist until the host has already processed that joiner's own code (minted only

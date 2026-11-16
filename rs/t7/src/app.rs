@@ -485,6 +485,19 @@ impl TextCursor {
         self.line(&format!("{marker} {label}: {value}{caret}"), color, font);
     }
 
+    /// A controls table (`controls_lines`), one line per row, in the hint
+    /// colour.
+    pub fn controls(
+        &mut self,
+        rows: &[ControlRow],
+        labels: Option<PadLabels>,
+        font: Option<&Font>,
+    ) {
+        for line in controls_lines(rows, labels.is_some()) {
+            self.line(&line, HINT_COLOR, font);
+        }
+    }
+
     /// One line of action text ("Add player", "Start game", "Connect") —
     /// same focus/enabled visual language as `field()`, minus the
     /// `label: value` shape and caret, since there's nothing to type.
@@ -502,10 +515,9 @@ impl TextCursor {
 }
 
 /// `S1` Mode Select — "Single Player" / "Multi Player", §15.0's own two
-/// labels and nothing else. `hint_suffix` is appended verbatim to the hint
-/// line, letting a caller add its own key hints (e.g. a mute toggle)
-/// without forking this function.
-pub fn draw_mode_select(selected: usize, hint_suffix: &str, font: Option<&Font>) {
+/// labels and nothing else. `labels` names the connected pad's buttons in
+/// the controls table; `None` without a pad.
+pub fn draw_mode_select(selected: usize, labels: Option<PadLabels>, font: Option<&Font>) {
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("TETRIS", TITLE_COLOR, font);
@@ -513,11 +525,19 @@ pub fn draw_mode_select(selected: usize, hint_suffix: &str, font: Option<&Font>)
     c.button("Single Player", selected == 0, true, font);
     c.button("Multi Player", selected == 1, true, font);
     c.gap();
-    c.line(&format!("[Esc] quit{hint_suffix}"), HINT_COLOR, font);
+    c.controls(
+        &[
+            move_row(),
+            select_row(labels, "select"),
+            back_row(labels, "quit"),
+        ],
+        labels,
+        font,
+    );
 }
 
 /// `S2` Role Select — "Host" / "Join".
-pub fn draw_role_select(selected: usize, font: Option<&Font>) {
+pub fn draw_role_select(selected: usize, labels: Option<PadLabels>, font: Option<&Font>) {
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("MULTI PLAYER", TITLE_COLOR, font);
@@ -525,14 +545,23 @@ pub fn draw_role_select(selected: usize, font: Option<&Font>) {
     c.button("Host", selected == 0, true, font);
     c.button("Join", selected == 1, true, font);
     c.gap();
-    c.line("[Esc] back", HINT_COLOR, font);
+    c.controls(
+        &[
+            move_row(),
+            select_row(labels, "select"),
+            back_row(labels, "back"),
+        ],
+        labels,
+        font,
+    );
 }
 
 /// `S3` Host Lobby — name field; "Add connection"; per pending connection
 /// the generated code (read-only, copy) plus a paste box for the joiner's
 /// own; the joiner list; "Start", enabled once the list has at least one
 /// entry.
-pub fn draw_host_lobby(lobby: &HostLobby, hint_suffix: &str, font: Option<&Font>) {
+pub fn draw_host_lobby(lobby: &HostLobby, labels: Option<PadLabels>, font: Option<&Font>) {
+    let back = key_name("Esc", labels.map(|l| l.back));
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("HOSTING", TITLE_COLOR, font);
@@ -565,7 +594,10 @@ pub fn draw_host_lobby(lobby: &HostLobby, hint_suffix: &str, font: Option<&Font>
                 font,
             );
             c.line(
-                "Paste the joiner's code here (Enter to add, Esc to cancel).",
+                &format!(
+                    "Paste the joiner's code here ({} to add, {back} to cancel).",
+                    key_name("Enter", labels.map(|l| l.select))
+                ),
                 HINT_COLOR,
                 font,
             );
@@ -576,7 +608,11 @@ pub fn draw_host_lobby(lobby: &HostLobby, hint_suffix: &str, font: Option<&Font>
         }
         AddConnection::Connecting { code, .. } => {
             c.field("Host's code", code, lobby.focus == 1, true, false, font);
-            c.line("Send this code to that player (Esc to cancel).", HINT_COLOR, font);
+            c.line(
+                &format!("Send this code to that player ({back} to cancel)."),
+                HINT_COLOR,
+                font,
+            );
         }
     }
     c.gap();
@@ -596,16 +632,33 @@ pub fn draw_host_lobby(lobby: &HostLobby, hint_suffix: &str, font: Option<&Font>
     }
     c.gap();
 
-    c.line(
-        &format!("[Ctrl-C] copy   [Ctrl-V] paste   [Esc] back{hint_suffix}"),
-        HINT_COLOR,
-        font,
-    );
+    c.controls(&lobby_control_rows(labels), labels, font);
+}
+
+/// The Host/Join lobbies' controls: focus navigation, activate, back, and
+/// the keyboard-only clipboard keys.
+fn lobby_control_rows(labels: Option<PadLabels>) -> [ControlRow; 5] {
+    [
+        move_row(),
+        select_row(labels, "select"),
+        back_row(labels, "back"),
+        ControlRow {
+            key: "Ctrl-C",
+            pad: None,
+            action: "copy",
+        },
+        ControlRow {
+            key: "Ctrl-V",
+            pad: None,
+            action: "paste",
+        },
+    ]
 }
 
 /// `S4` Join Screen — name field; own generated code (read-only, copy); the
 /// "paste host's code" box; "Connect".
-pub fn draw_join_lobby(lobby: &JoinLobby, hint_suffix: &str, font: Option<&Font>) {
+pub fn draw_join_lobby(lobby: &JoinLobby, labels: Option<PadLabels>, font: Option<&Font>) {
+    let back = key_name("Esc", labels.map(|l| l.back));
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("JOINING", TITLE_COLOR, font);
@@ -632,7 +685,7 @@ pub fn draw_join_lobby(lobby: &JoinLobby, hint_suffix: &str, font: Option<&Font>
         }
         EndpointState::Failed => {
             c.line(
-                "No local socket — [Esc] back, then retry.",
+                &format!("No local socket — [{back}] back, then retry."),
                 BODY_COLOR,
                 font,
             );
@@ -677,11 +730,7 @@ pub fn draw_join_lobby(lobby: &JoinLobby, hint_suffix: &str, font: Option<&Font>
     }
     c.gap();
 
-    c.line(
-        &format!("[Ctrl-C] copy   [Ctrl-V] paste   [Esc] back{hint_suffix}"),
-        HINT_COLOR,
-        font,
-    );
+    c.controls(&lobby_control_rows(labels), labels, font);
 }
 
 /// `S6` Waiting Room — the filler game is drawn by `t6::view::render`
@@ -719,7 +768,12 @@ pub fn draw_gameover_filler_overlay(font: Option<&Font>) {
 
 /// `S9` Winner Screen — "You win" when this peer is the winner, "Winner:
 /// `<name>`" otherwise; "Rematch" and "Leave".
-pub fn draw_winner_screen(w: &Winner, selected: usize, font: Option<&Font>) {
+pub fn draw_winner_screen(
+    w: &Winner,
+    selected: usize,
+    labels: Option<PadLabels>,
+    font: Option<&Font>,
+) {
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     let me = w.session.my_index;
@@ -740,15 +794,23 @@ pub fn draw_winner_screen(w: &Winner, selected: usize, font: Option<&Font>) {
     c.gap();
     c.button("Rematch", selected == 0, true, font);
     c.button("Leave", selected == 1, true, font);
+    c.gap();
+    c.controls(&[move_row(), select_row(labels, "select")], labels, font);
 }
 
 /// `S10` Host Lost — "Connection to host lost."; "Return to menu".
-pub fn draw_host_lost(font: Option<&Font>) {
+pub fn draw_host_lost(labels: Option<PadLabels>, font: Option<&Font>) {
     clear_background(t2::view::BG_COLOR);
     let mut c = TextCursor::new();
     c.big("Connection to host lost.", TITLE_COLOR, font);
     c.gap();
     c.button("Return to menu", true, true, font);
+    c.gap();
+    c.controls(
+        &[select_row(labels, "select"), back_row(labels, "back")],
+        labels,
+        font,
+    );
 }
 
 // ── Input ───────────────────────────────────────────────────────────────
@@ -796,6 +858,25 @@ pub fn process_input(
         }
     }
     may_have_fixed
+}
+
+/// Resets `repeat` for a game entered straight from a menu confirm. Every
+/// action whose gamepad button is still held is recorded as already
+/// pressed, so the confirm button (South, also `Action::Ccw`) does not fire
+/// as a fresh press on the game's first frame; it fires again only once
+/// released and pressed anew. Keyboard confirm (`Enter`) is no action key,
+/// so only the gamepad needs this.
+pub fn reset_repeat_after_confirm(
+    repeat: &mut HashMap<Action, RepeatTimer>,
+    pad: Option<Gamepad<'_>>,
+    now: f64,
+) {
+    repeat.clear();
+    for action in Action::ALL {
+        if pad.is_some_and(|p| p.is_pressed(action.gamepad_button())) {
+            repeat.insert(action, RepeatTimer::new(now));
+        }
+    }
 }
 
 /// The filler game's own input-dispatch-and-gravity step, shared by the
@@ -927,38 +1008,471 @@ pub fn move_focus(current: usize, count: usize, up: bool, down: bool) -> usize {
 /// Debounces the gamepad half of `poll_menu_nav`: `Gamepad::is_pressed` is
 /// level state, not an edge — without this, holding a D-pad direction or
 /// the confirm button would move/confirm every frame instead of once per
-/// press. One lives per screen family (menu vs. lobby) in the caller's own
-/// loop-local state, alongside `menu_index`/`lobby.focus`.
+/// press. The caller keeps one in its loop-local state and calls
+/// `poll_menu_nav` exactly once per frame on every screen, gameplay
+/// included, so the recorded edges always match the pad's real state when a
+/// menu screen is entered (a button held through the end of a match must
+/// not read as a fresh confirm on arrival).
 #[derive(Default)]
 pub struct GamepadEdges {
     up: bool,
     down: bool,
     confirm: bool,
+    back: bool,
+    pause: bool,
 }
 
+/// One frame's menu reading. `back` is `[Esc]` or the gamepad's East button
+/// (button 1); `pause` is `[Esc]` or the gamepad's Start button. Both read
+/// `[Esc]`: a menu screen acts on `back`, a game screen on `pause`, and no
+/// screen acts on both.
+#[derive(Clone, Copy, Default)]
 pub struct MenuNav {
     pub up: bool,
     pub down: bool,
     pub confirm: bool,
+    pub back: bool,
+    pub pause: bool,
 }
 
 /// One frame's up/down/confirm reading for menu-style navigation — the menu
 /// analogue of `poll_text_edit`. Keyboard is already edge-triggered
-/// (`is_key_pressed`); gamepad D-pad up/down and button 0 (South) are
-/// debounced against `prev`.
+/// (`is_key_pressed`); gamepad D-pad up/down, button 0 (South), button 1
+/// (East) and Start are debounced against `prev`.
 pub fn poll_menu_nav(pad: Option<Gamepad<'_>>, prev: &mut GamepadEdges) -> MenuNav {
-    let pad_up = pad.is_some_and(|p| p.is_pressed(Button::DPadUp));
-    let pad_down = pad.is_some_and(|p| p.is_pressed(Button::DPadDown));
-    let pad_confirm = pad.is_some_and(|p| p.is_pressed(Button::South));
+    let held = |b: Button| pad.is_some_and(|p| p.is_pressed(b));
+    let pad_up = held(Button::DPadUp);
+    let pad_down = held(Button::DPadDown);
+    let pad_confirm = held(Button::South);
+    let pad_back = held(Button::East);
+    let pad_pause = held(Button::Start);
+    let escape = is_key_pressed(KeyCode::Escape);
     let nav = MenuNav {
         up: is_key_pressed(KeyCode::Up) || (pad_up && !prev.up),
         down: is_key_pressed(KeyCode::Down) || (pad_down && !prev.down),
         confirm: is_key_pressed(KeyCode::Enter) || (pad_confirm && !prev.confirm),
+        back: escape || (pad_back && !prev.back),
+        pause: escape || (pad_pause && !prev.pause),
     };
-    prev.up = pad_up;
-    prev.down = pad_down;
-    prev.confirm = pad_confirm;
+    *prev = GamepadEdges {
+        up: pad_up,
+        down: pad_down,
+        confirm: pad_confirm,
+        back: pad_back,
+        pause: pad_pause,
+    };
     nav
+}
+
+/// The names printed on the connected pad's select (South), back (East),
+/// hold (North) and Start buttons. Display only: buttons are always read by
+/// position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PadLabels {
+    pub select: &'static str,
+    pub back: &'static str,
+    pub north: &'static str,
+    pub start: &'static str,
+}
+
+impl PadLabels {
+    /// Picks the labels from the pad's USB vendor ID. Unknown vendors, and
+    /// backends that report none (e.g. XInput), fall back to the
+    /// positional names gilrs itself uses; so do third-party pads and
+    /// Steam Input's virtual pad, which report their own vendor IDs.
+    pub fn for_vendor(vendor_id: Option<u16>) -> PadLabels {
+        match vendor_id {
+            Some(0x045E) => PadLabels {
+                select: "A",
+                back: "B",
+                north: "Y",
+                start: "Start",
+            }, // Microsoft
+            Some(0x054C) => PadLabels {
+                select: "Cross",
+                back: "Circle",
+                north: "Triangle",
+                start: "Options",
+            }, // Sony
+            Some(0x057E) => PadLabels {
+                select: "B",
+                back: "A",
+                north: "X",
+                start: "+",
+            }, // Nintendo
+            _ => PadLabels {
+                select: "South",
+                back: "East",
+                north: "North",
+                start: "Start",
+            },
+        }
+    }
+
+    /// `None` when no pad is connected, so hints show the keyboard key only.
+    pub fn for_pad(pad: Option<Gamepad<'_>>) -> Option<PadLabels> {
+        pad.map(|p| PadLabels::for_vendor(p.vendor_id()))
+    }
+
+    /// The printed name of `button`, for the buttons the game binds
+    /// (`Action::gamepad_button`, `poll_menu_nav`). D-pad directions read
+    /// the same on every brand.
+    pub fn button(&self, button: Button) -> &'static str {
+        match button {
+            Button::South => self.select,
+            Button::East => self.back,
+            Button::North => self.north,
+            Button::Start => self.start,
+            Button::DPadUp => "D-pad ↑",
+            Button::DPadDown => "D-pad ↓",
+            Button::DPadLeft => "D-pad ←",
+            Button::DPadRight => "D-pad →",
+            _ => "?",
+        }
+    }
+}
+
+/// One row of a controls table: the keyboard key, the gamepad button
+/// (`None` when the action has none, e.g. copy/paste), and what it does.
+pub struct ControlRow {
+    pub key: &'static str,
+    pub pad: Option<&'static str>,
+    pub action: &'static str,
+}
+
+/// A controls table as text lines: a "Key / Gamepad / Action" header, then
+/// one line per row, each column padded to its longest cell so the columns
+/// line up in the monospace font. The "Gamepad" header is what tells "B"
+/// apart from a keyboard key, so pad cells carry no "button" suffix. With
+/// no pad connected (`with_pad == false`) the Gamepad column is left out.
+pub fn controls_lines(rows: &[ControlRow], with_pad: bool) -> Vec<String> {
+    let mut cells: Vec<[&str; 3]> = vec![["Key", "Gamepad", "Action"]];
+    cells.extend(rows.iter().map(|r| [r.key, r.pad.unwrap_or(""), r.action]));
+    let width = |col: usize| {
+        cells
+            .iter()
+            .map(|c| c[col].chars().count())
+            .max()
+            .unwrap_or(0)
+    };
+    let (key_w, pad_w) = (width(0), width(1));
+    cells
+        .iter()
+        .map(|[key, pad, action]| {
+            let line = if with_pad {
+                format!("{key:<key_w$}  {pad:<pad_w$}  {action}")
+            } else {
+                format!("{key:<key_w$}  {action}")
+            };
+            line.trim_end().to_owned()
+        })
+        .collect()
+}
+
+/// "↑/↓ · D-pad ↑/↓ · move": menu focus navigation (`poll_menu_nav`).
+pub fn move_row() -> ControlRow {
+    ControlRow {
+        key: "↑/↓",
+        pad: Some("D-pad ↑/↓"),
+        action: "move",
+    }
+}
+
+/// "Enter · <select button> · `action`" (`poll_menu_nav`'s confirm).
+pub fn select_row(labels: Option<PadLabels>, action: &'static str) -> ControlRow {
+    ControlRow {
+        key: "Enter",
+        pad: labels.map(|l| l.select),
+        action,
+    }
+}
+
+/// "Esc · <back button> · `action`" (`poll_menu_nav`'s back).
+pub fn back_row(labels: Option<PadLabels>, action: &'static str) -> ControlRow {
+    ControlRow {
+        key: "Esc",
+        pad: labels.map(|l| l.back),
+        action,
+    }
+}
+
+/// The in-game controls: every `Action` (keys from `Action::key`, buttons
+/// from `Action::gamepad_button`) plus the in-game menu. Rotation keys show
+/// the letters `LogicalKeys` binds to whichever physical key types them.
+pub fn game_control_rows(labels: Option<PadLabels>) -> Vec<ControlRow> {
+    let pad = |a: Action| labels.map(|l| l.button(a.gamepad_button()));
+    vec![
+        ControlRow {
+            key: "←/→",
+            pad: labels.map(|_| "D-pad ←/→"),
+            action: "move",
+        },
+        ControlRow {
+            key: "↓",
+            pad: pad(Action::Down),
+            action: "soft drop",
+        },
+        ControlRow {
+            key: "↑",
+            pad: pad(Action::Drop),
+            action: "hard drop",
+        },
+        ControlRow {
+            key: "X",
+            pad: pad(Action::Cw),
+            action: "rotate right",
+        },
+        ControlRow {
+            key: "Z",
+            pad: pad(Action::Ccw),
+            action: "rotate left",
+        },
+        ControlRow {
+            key: "Space",
+            pad: pad(Action::Hold),
+            action: "hold",
+        },
+        menu_row(labels),
+    ]
+}
+
+/// "Esc · <Start button> · menu": opens the in-game menu (`poll_menu_nav`'s
+/// pause).
+fn menu_row(labels: Option<PadLabels>) -> ControlRow {
+    ControlRow {
+        key: "Esc",
+        pad: labels.map(|l| l.start),
+        action: "menu",
+    }
+}
+
+/// "Esc/B button" with a pad's button name, "Esc" without one, for keys
+/// named in running text (lobby instructions) rather than in a controls
+/// table. The "button" suffix keeps a pad label from reading as a keyboard
+/// key.
+pub fn key_name(key: &str, button: Option<&str>) -> String {
+    match button {
+        Some(b) => format!("{key}/{b} button"),
+        None => key.to_owned(),
+    }
+}
+
+/// The in-game menu (Continue / Quit / caller-specific items), opened with
+/// `MenuNav::pause` on any game screen. `opened_at` lets a local game shift
+/// its gravity timer by the time spent in the menu.
+pub struct GameMenu {
+    pub focus: usize,
+    pub opened_at: f64,
+}
+
+pub const GAME_MENU_CONTINUE: usize = 0;
+pub const GAME_MENU_QUIT: usize = 1;
+
+pub enum GameMenuStep {
+    /// No menu open: the game runs normally.
+    Closed,
+    /// Menu open: the caller ignores game input (and freezes a local game).
+    Open,
+    /// Menu just closed; `paused_for` is how long it was open.
+    Continue { paused_for: f64 },
+    /// "Quit" chosen; the menu is closed.
+    Quit,
+    /// A caller-specific item (index ≥ 2) was activated; the menu stays open.
+    Item(usize),
+}
+
+impl GameMenuStep {
+    /// Whether the menu is showing after this frame, i.e. whether the
+    /// caller ignores game input (and freezes a local game) this frame.
+    pub fn is_open(&self) -> bool {
+        matches!(self, GameMenuStep::Open | GameMenuStep::Item(_))
+    }
+}
+
+/// One frame of the in-game menu. Opens it on `nav.pause`; while open,
+/// up/down move the focus over `item_count` items and confirm activates the
+/// focused one, while `pause`/`back` close it like Continue. Opening and
+/// stepping never happen on the same frame, so the `[Esc]` that opens it
+/// does not also close it. On Continue, `repeat` is reset with
+/// `reset_repeat_after_confirm`, so the button that closed the menu does
+/// not also fire a game action.
+pub fn drive_game_menu(
+    menu: &mut Option<GameMenu>,
+    nav: MenuNav,
+    item_count: usize,
+    pad: Option<Gamepad<'_>>,
+    repeat: &mut HashMap<Action, RepeatTimer>,
+    now: f64,
+) -> GameMenuStep {
+    let Some(m) = menu else {
+        if nav.pause {
+            *menu = Some(GameMenu {
+                focus: GAME_MENU_CONTINUE,
+                opened_at: now,
+            });
+            return GameMenuStep::Open;
+        }
+        return GameMenuStep::Closed;
+    };
+    m.focus = move_focus(m.focus, item_count, nav.up, nav.down);
+    let chosen = if nav.pause || nav.back {
+        Some(GAME_MENU_CONTINUE)
+    } else if nav.confirm {
+        Some(m.focus)
+    } else {
+        None
+    };
+    match chosen {
+        None => GameMenuStep::Open,
+        Some(GAME_MENU_CONTINUE) => {
+            let paused_for = now - m.opened_at;
+            *menu = None;
+            reset_repeat_after_confirm(repeat, pad, now);
+            GameMenuStep::Continue { paused_for }
+        }
+        Some(GAME_MENU_QUIT) => {
+            *menu = None;
+            GameMenuStep::Quit
+        }
+        Some(i) => GameMenuStep::Item(i),
+    }
+}
+
+/// The in-game menu, drawn over the game: a translucent veil, `title`
+/// ("Paused", or "Game still running" for a multiplayer match), then
+/// `items` in the lobby screens' button style.
+pub fn draw_game_menu(
+    title: &str,
+    items: &[&str],
+    focus: usize,
+    labels: Option<PadLabels>,
+    font: Option<&Font>,
+) {
+    draw_rectangle(
+        0.0,
+        0.0,
+        screen_width(),
+        screen_height(),
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+    let mut c = TextCursor::new();
+    c.big(title, TITLE_COLOR, font);
+    c.gap();
+    for (i, item) in items.iter().enumerate() {
+        c.button(item, i == focus, true, font);
+    }
+    c.gap();
+    c.line("Game controls:", BODY_COLOR, font);
+    c.controls(&game_control_rows(labels), labels, font);
+}
+
+/// Every game screen's last draw call: the in-game menu when it is open,
+/// otherwise the hint naming the key that opens it (`draw_menu_hint`).
+pub fn draw_game_menu_or_hint<P: t4::model::Params>(
+    menu: Option<&GameMenu>,
+    title: &str,
+    items: &[&str],
+    constants: &view::RenderConstants,
+    labels: Option<PadLabels>,
+    font: Option<&Font>,
+) {
+    match menu {
+        Some(m) => draw_game_menu(title, items, m.focus, labels, font),
+        None => draw_menu_hint::<P>(constants, labels, font),
+    }
+}
+
+/// "[Esc/Start button] menu" on the board's left, bottom-aligned with the
+/// board: the in-game controls themselves are listed inside the in-game
+/// menu (`draw_game_menu`). Running text, not a controls table, so the pad
+/// button carries the "button" suffix (`key_name`). The line starts at the
+/// panel text's x when it fits from there, and further left only as far as
+/// its width needs; its font shrinks, down to `MIN_HINT_FONT`, to fit the
+/// whole left margin (window edge margin to the panel/grid gap).
+pub fn draw_menu_hint<P: t4::model::Params>(
+    constants: &view::RenderConstants,
+    labels: Option<PadLabels>,
+    font: Option<&Font>,
+) {
+    let text = format!("[{}] menu", key_name("Esc", labels.map(|l| l.start)));
+    let l4 = t4::view::compute_layout::<P>(constants);
+    let l2 = &l4.base.base; // t2::view::Layout: the left column
+    let grid = &l2.base;
+    let grid_bottom = grid.origin_y + constants.hm as f32 * grid.cell_size;
+    let m = t2::view::panel_metrics(l2.panel_width);
+    let col_x = l2.panel_left + m.margin_x;
+    // The same panel/grid gap `t2::view::compute_layout` leaves.
+    let right = grid.origin_x - t2::view::desired_panel_px() * t2::view::PANEL_GRID_GAP_FRACTION;
+    let left = screen_width() * HINT_SCREEN_MARGIN_FRACTION;
+
+    let width = |size: u16| measure_text(&text, font, size, 1.0).width;
+    let size = (MIN_HINT_FONT..=m.label_font.max(MIN_HINT_FONT))
+        .rev()
+        .find(|&size| width(size) <= right - left)
+        .unwrap_or(MIN_HINT_FONT);
+    let x = col_x.min(right - width(size)).max(left);
+    t2::view::draw_text_label(&text, x, grid_bottom, size, HINT_COLOR, font);
+}
+
+/// Smallest font `draw_menu_hint` shrinks its line to; anything smaller is
+/// unreadable.
+const MIN_HINT_FONT: u16 = 10;
+
+/// Gap `draw_menu_hint` keeps from the window's left edge, as a fraction of
+/// the window's width.
+const HINT_SCREEN_MARGIN_FRACTION: f32 = 0.02;
+
+/// Whether this window has input focus. gilrs reads the pad device itself,
+/// regardless of focus, so two game windows on one computer would both act
+/// on it; callers drop the pad while unfocused, as the OS already does for
+/// the keyboard. miniquad reports focus changes as its minimized/restored
+/// events (X11 FocusOut/FocusIn, also under XWayland; Windows WM_ACTIVATE;
+/// macOS key-window changes). Native Wayland reports none, so there the
+/// window always counts as focused.
+pub struct WindowFocus {
+    subscriber: usize,
+    focused: bool,
+}
+
+impl Default for WindowFocus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WindowFocus {
+    /// Starts focused: a newly opened window has focus.
+    pub fn new() -> WindowFocus {
+        WindowFocus {
+            subscriber: macroquad::input::utils::register_input_subscriber(),
+            focused: true,
+        }
+    }
+
+    /// Replays this frame's window events; call once per frame.
+    pub fn update(&mut self) {
+        let mut handler = FocusEvents(self.focused);
+        macroquad::input::utils::repeat_all_miniquad_input(&mut handler, self.subscriber);
+        self.focused = handler.0;
+    }
+
+    pub fn focused(&self) -> bool {
+        self.focused
+    }
+}
+
+/// `WindowFocus::update`'s event sink: only the focus-change events matter.
+struct FocusEvents(bool);
+
+impl macroquad::miniquad::EventHandler for FocusEvents {
+    fn update(&mut self) {}
+    fn draw(&mut self) {}
+    fn window_minimized_event(&mut self) {
+        self.0 = false;
+    }
+    fn window_restored_event(&mut self) {
+        self.0 = true;
+    }
 }
 
 // ── Step functions: one per screen, mutate in place, return an outcome ──
@@ -970,8 +1484,8 @@ pub enum ModeSelectOutcome {
     EnterRoleSelect,
 }
 
-pub fn step_mode_select(escape: bool, nav: MenuNav, menu_index: &mut usize) -> ModeSelectOutcome {
-    if escape {
+pub fn step_mode_select(nav: MenuNav, menu_index: &mut usize) -> ModeSelectOutcome {
+    if nav.back {
         return ModeSelectOutcome::Quit;
     }
     *menu_index = move_focus(*menu_index, 2, nav.up, nav.down);
@@ -989,8 +1503,8 @@ pub enum RoleSelectOutcome {
     Join(JoinLobby),
 }
 
-pub fn step_role_select(escape: bool, nav: MenuNav, menu_index: &mut usize) -> RoleSelectOutcome {
-    if escape {
+pub fn step_role_select(nav: MenuNav, menu_index: &mut usize) -> RoleSelectOutcome {
+    if nav.back {
         return RoleSelectOutcome::Back;
     }
     *menu_index = move_focus(*menu_index, 2, nav.up, nav.down);
@@ -1028,20 +1542,18 @@ pub enum HostLobbyOutcome {
 
 pub fn step_host_lobby(
     lobby: &mut HostLobby,
-    escape: bool,
-    pad: Option<Gamepad<'_>>,
-    menu_pad: &mut GamepadEdges,
+    nav: MenuNav,
     run: &mut RunState,
     key_repeat: &mut HashMap<Action, RepeatTimer>,
     now: f64,
 ) -> HostLobbyOutcome {
-    // [Esc] while a pairing is open cancels that (`HostLobby::cancel_add`),
-    // not the whole lobby.
+    // Back ([Esc]/East) while a pairing is open cancels that
+    // (`HostLobby::cancel_add`), not the whole lobby.
     let pairing_open = !matches!(lobby.add, AddConnection::Idle);
-    if escape && pairing_open {
+    if nav.back && pairing_open {
         lobby.cancel_add();
         return HostLobbyOutcome::Stay;
-    } else if escape {
+    } else if nav.back {
         return HostLobbyOutcome::Back;
     }
 
@@ -1050,7 +1562,6 @@ pub fn step_host_lobby(
     lobby.poll_add_completion(now);
 
     let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
-    let nav = poll_menu_nav(pad, menu_pad);
     // "Start game" (stop 2) is disabled below < 2 players — a disabled
     // stop renders with no focus marker at all (`TextCursor::button`), so
     // navigation must not be able to land there while it's unreachable.
@@ -1140,14 +1651,12 @@ pub enum JoinLobbyOutcome {
 
 pub fn step_join_lobby(
     lobby: &mut JoinLobby,
-    escape: bool,
-    pad: Option<Gamepad<'_>>,
-    menu_pad: &mut GamepadEdges,
+    nav: MenuNav,
     run: &mut RunState,
     key_repeat: &mut HashMap<Action, RepeatTimer>,
     now: f64,
 ) -> JoinLobbyOutcome {
-    if escape {
+    if nav.back {
         return JoinLobbyOutcome::Back;
     }
     if let EndpointState::Discovering(pending) = &lobby.endpoint {
@@ -1170,7 +1679,6 @@ pub fn step_join_lobby(
             ep.send_mapping_keepalive();
         }
     }
-    let nav = poll_menu_nav(pad, menu_pad);
     // "Connect" (stop 3) is disabled until "Host's code" has text — same
     // reasoning as Host Lobby's "Start game": a disabled stop renders with
     // no focus marker, so navigation must not be able to land there.
@@ -1245,7 +1753,7 @@ pub fn step_join_lobby(
                     lobby.endpoint = EndpointState::Discovering(pending); // still legitimately in flight
                 }
                 EndpointState::Failed => {
-                    lobby.status = "No local socket — [Esc] back and retry.".into()
+                    lobby.status = "No local socket — go back and retry.".into()
                 }
             },
         }
@@ -1255,7 +1763,6 @@ pub fn step_join_lobby(
 
 pub enum WaitingOutcome {
     Stay,
-    Left,
     ToPlaying,
     HostLost,
 }
@@ -1265,11 +1772,9 @@ pub enum WaitingOutcome {
 /// since they need loop-local state (`RunState`, `key_repeat`, the current
 /// `LogicalKeys`/gamepad poll, the font) this function has no reason to
 /// take.
-pub fn step_waiting_session(session: &mut Session, escape: bool, now: f64) -> WaitingOutcome {
-    if escape {
-        session.leave();
-        return WaitingOutcome::Left;
-    }
+/// Leaving is the in-game menu's Quit, handled by the caller
+/// (`Session::leave`).
+pub fn step_waiting_session(session: &mut Session, now: f64) -> WaitingOutcome {
     session.pump(now);
     if session.started() {
         // §15.0: START received → S7.
@@ -1353,6 +1858,7 @@ pub fn step_playing_gameplay(
     run: &mut RunState,
     now: f64,
     wm: i64,
+    menu_open: bool,
     mut dispatch: impl FnMut(Action, &mut crate::model::Machine<Instance>) -> bool,
 ) -> Option<AfterActionEvents> {
     let gameover = session
@@ -1364,9 +1870,16 @@ pub fn step_playing_gameplay(
     // aggregated across the frame — since `Down`'s own ARR repeat and a
     // fresh `Drop` press can both fire in the same `process_input` call
     // below (see `fire_and_broadcast`'s own doc comment).
-    process_input(gameover, key_repeat, logical_keys, pad, now, |action| {
-        session.fire_and_broadcast(|machine| dispatch(action, machine))
-    });
+    // With the in-game menu open the match keeps running (gravity below)
+    // but takes no input — skipped the same way a gameover skips it.
+    process_input(
+        gameover || menu_open,
+        key_repeat,
+        logical_keys,
+        pad,
+        now,
+        |action| session.fire_and_broadcast(|machine| dispatch(action, machine)),
+    );
 
     let gameover_now = session
         .machine
@@ -1398,13 +1911,11 @@ pub enum WinnerOutcome {
 /// `JoinLobbyOutcome::Connected` already use.
 pub fn step_winner(
     winner: &mut Winner,
-    pad: Option<Gamepad<'_>>,
-    menu_pad: &mut GamepadEdges,
+    nav: MenuNav,
     menu_index: &mut usize,
     now: f64,
 ) -> WinnerOutcome {
     winner.session.pump(now);
-    let nav = poll_menu_nav(pad, menu_pad);
     *menu_index = move_focus(*menu_index, 2, nav.up, nav.down);
     if !nav.confirm {
         return WinnerOutcome::Stay;
@@ -1434,9 +1945,8 @@ pub fn step_winner(
     }
 }
 
-pub fn step_host_lost(escape: bool, pad: Option<Gamepad<'_>>, menu_pad: &mut GamepadEdges) -> bool {
-    let nav = poll_menu_nav(pad, menu_pad);
-    escape || nav.confirm
+pub fn step_host_lost(nav: MenuNav) -> bool {
+    nav.back || nav.confirm
 }
 
 #[cfg(test)]
@@ -1868,5 +2378,138 @@ mod tests {
     #[test]
     fn move_focus_clamps_a_stale_current_even_with_no_input() {
         assert_eq!(move_focus(2, 2, false, false), 1);
+    }
+
+    #[test]
+    fn pad_labels_follow_the_vendor_and_fall_back_to_positions() {
+        let names = |v| {
+            let l = PadLabels::for_vendor(v);
+            (l.select, l.back, l.north, l.start)
+        };
+        assert_eq!(names(Some(0x045E)), ("A", "B", "Y", "Start"));
+        assert_eq!(
+            names(Some(0x054C)),
+            ("Cross", "Circle", "Triangle", "Options")
+        );
+        assert_eq!(names(Some(0x057E)), ("B", "A", "X", "+"));
+        assert_eq!(names(Some(0x28DE)), ("South", "East", "North", "Start"));
+        assert_eq!(names(None), ("South", "East", "North", "Start"));
+    }
+
+    #[test]
+    fn key_name_suffixes_the_pad_button_and_omits_it_without_a_pad() {
+        assert_eq!(key_name("Esc", Some("B")), "Esc/B button");
+        assert_eq!(key_name("Esc", None), "Esc");
+    }
+
+    #[test]
+    fn controls_lines_align_columns_under_a_header() {
+        let xbox = Some(PadLabels::for_vendor(Some(0x045E)));
+        let rows = [
+            move_row(),
+            back_row(xbox, "back"),
+            ControlRow {
+                key: "Ctrl-C",
+                pad: None,
+                action: "copy",
+            },
+        ];
+        assert_eq!(
+            controls_lines(&rows, true),
+            [
+                "Key     Gamepad    Action",
+                "↑/↓     D-pad ↑/↓  move",
+                "Esc     B          back",
+                "Ctrl-C             copy",
+            ]
+        );
+    }
+
+    #[test]
+    fn controls_lines_drop_the_gamepad_column_without_a_pad() {
+        let rows = [move_row(), select_row(None, "select")];
+        assert_eq!(
+            controls_lines(&rows, false),
+            ["Key    Action", "↑/↓    move", "Enter  select"]
+        );
+    }
+
+    #[test]
+    fn game_controls_name_each_actions_bound_button() {
+        let sony = Some(PadLabels::for_vendor(Some(0x054C)));
+        let rows = game_control_rows(sony);
+        let pad_of = |action: &str| rows.iter().find(|r| r.action == action).and_then(|r| r.pad);
+        assert_eq!(pad_of("rotate right"), Some("Circle"));
+        assert_eq!(pad_of("rotate left"), Some("Cross"));
+        assert_eq!(pad_of("hold"), Some("Triangle"));
+        assert_eq!(pad_of("hard drop"), Some("D-pad ↑"));
+        assert_eq!(pad_of("menu"), Some("Options"));
+        assert!(game_control_rows(None).iter().all(|r| r.pad.is_none()));
+    }
+
+    fn step(menu: &mut Option<GameMenu>, nav: MenuNav, count: usize, now: f64) -> GameMenuStep {
+        drive_game_menu(menu, nav, count, None, &mut HashMap::new(), now)
+    }
+
+    #[test]
+    fn game_menu_opens_on_pause_and_the_opening_press_does_not_close_it() {
+        let mut menu = None;
+        let esc = MenuNav {
+            back: true,
+            pause: true,
+            ..MenuNav::default()
+        };
+        assert!(matches!(
+            step(&mut menu, MenuNav::default(), 2, 0.0),
+            GameMenuStep::Closed
+        ));
+        assert!(matches!(step(&mut menu, esc, 2, 1.0), GameMenuStep::Open));
+        assert!(matches!(
+            step(&mut menu, MenuNav::default(), 2, 2.0),
+            GameMenuStep::Open
+        ));
+        match step(&mut menu, esc, 2, 3.5) {
+            GameMenuStep::Continue { paused_for } => assert_eq!(paused_for, 2.5),
+            _ => panic!("pause/back must close the menu like Continue"),
+        }
+        assert!(menu.is_none());
+    }
+
+    #[test]
+    fn game_menu_confirm_activates_the_focused_item() {
+        let open = MenuNav {
+            pause: true,
+            ..MenuNav::default()
+        };
+        let down = MenuNav {
+            down: true,
+            ..MenuNav::default()
+        };
+        let confirm = MenuNav {
+            confirm: true,
+            ..MenuNav::default()
+        };
+
+        let mut menu = None;
+        step(&mut menu, open, 3, 0.0);
+        step(&mut menu, down, 3, 0.0);
+        assert!(matches!(
+            step(&mut menu, confirm, 3, 0.0),
+            GameMenuStep::Quit
+        ));
+        assert!(menu.is_none());
+
+        let mut menu = None;
+        step(&mut menu, open, 3, 0.0);
+        step(&mut menu, down, 3, 0.0);
+        step(&mut menu, down, 3, 0.0);
+        step(&mut menu, down, 3, 0.0); // clamps on the last item
+        let item = step(&mut menu, confirm, 3, 0.0);
+        assert!(matches!(item, GameMenuStep::Item(2)));
+        assert!(
+            item.is_open(),
+            "a caller-specific item leaves the menu open"
+        );
+        assert!(menu.is_some());
     }
 }
