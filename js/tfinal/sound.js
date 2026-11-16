@@ -2,11 +2,31 @@
 
 let ctx = null;
 let muted = false;
+let unavailable = false; // Web Audio missing or refused: sound stays off for good
 
+// Every sfx call is fail-soft: a browser without Web Audio (or with it
+// disabled), or any error while scheduling a tone, silently produces no
+// sound. Sounds are called from the middle of the controllers' step handling
+// (e.g. right after a lock, before its messages are sent), so they must never
+// throw into it.
 function getCtx() {
-  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-  if (ctx.state === 'suspended') ctx.resume(); // browsers require a user gesture first
-  return ctx;
+  if (unavailable) return null;
+  try {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        unavailable = true;
+        return null;
+      }
+      ctx = new AC();
+    }
+    // browsers require a user gesture first; resume() rejects without one
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return ctx;
+  } catch {
+    unavailable = true;
+    return null;
+  }
 }
 
 function tone(
@@ -28,15 +48,19 @@ function tone(
 }
 
 function beep(spec) {
-  if (muted) return;
-  tone(getCtx(), spec);
+  chord([spec]);
 }
 
 // Several tones layered/sequenced in one call — shares one AudioContext lookup.
 function chord(specs) {
   if (muted) return;
   const ac = getCtx();
-  for (const spec of specs) tone(ac, spec);
+  if (!ac) return;
+  try {
+    for (const spec of specs) tone(ac, spec);
+  } catch {
+    // a tone that cannot be scheduled is simply not played
+  }
 }
 
 export const sfx = {

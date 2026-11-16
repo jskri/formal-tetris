@@ -1,13 +1,34 @@
 import { T } from '../t7/model.js';
 import { T as T6 } from '../t6/model.js';
-import { render } from '../t7/view.js';
+import { render, drawSideRegions } from '../t7/view.js';
 import {
   renderClearFlash,
   drawGarbageFlash,
   drawGameOverPartial,
 } from './view.js';
 import { sfx } from './sound.js';
-import { deflateSync, inflateSync } from '../vendor/fflate.js';
+import { muteItemLabel, toggleMute, showMutedBadge } from './mute.js';
+import { deflateSync } from '../vendor/fflate.js';
+import {
+  MAX_PLAYERS,
+  NAME_MAX_LEN,
+  sanitizeName,
+  validState,
+  validGarbage,
+  validPlayers,
+  validFrom,
+  decodeWire,
+} from '../t7/protocol.js';
+import {
+  readPad,
+  firstPad,
+  createMenuNav,
+  navigateStops,
+  createLabelWatch,
+  refreshControls,
+  createGameMenu,
+  drawMenuHint,
+} from '../t7/menu.js';
 import {
   Piece,
   InitialMainGrid,
@@ -52,7 +73,6 @@ const constants = {
 
 const STUN_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 const STATE_HZ = 3;
 const STATE_PERIOD_MS = 1000 / STATE_HZ;
 const HEARTBEAT_TIMEOUT_MS = 10000;
@@ -93,7 +113,7 @@ function fallPeriod(level) {
 }
 
 // Same keys/gamepad map as t6/controller.js — dropPiece is available at T7
-// level too now (§4-T7i), so DROP is wired identically.
+// level too (§4-T7i), so DROP is wired identically.
 const KEYMAP = new Map([
   ['ArrowLeft', 'LEFT'],
   ['ArrowRight', 'RIGHT'],
@@ -224,9 +244,13 @@ export function main(canvas, root) {
   // only the filler has an "any key restarts" flow to gate; T7's own
   // gameover transitions straight to the filler/winner screen instead
 
-  // Menu focus (S1/S2/S3/S4/S9/S10)
-  let focusIndex = 0;
-  let prevMenuHeld = {};
+  // Menus: per-frame edges (polled on every screen), pad-brand labels for the
+  // controls tables, and the in-game menu of the game screens (S6/S7/S8).
+  const menuNav = createMenuNav();
+  const labelWatch = createLabelWatch((labels) =>
+    refreshControls(root, labels),
+  );
+  const gameMenu = createGameMenu(root);
 
   let stateTimer = null;
   let heartbeatTimer = null;
@@ -235,21 +259,31 @@ export function main(canvas, root) {
     isHost ? (playerData[i]?.name ?? '?') : (roster[i] ?? '?');
 
   // ── screens ──
+  // 'SP' is S1's single-player branch, run by sp_controller.js, which owns
+  // the canvas, input and menus until it hands back to S1.
   const SCREEN_IDS = ['S1', 'S2', 'S3', 'S4', 'S6', 'S9', 'S10'];
   function showScreen(id) {
+    // The in-game menu belongs to the screen it was opened on.
+    if (id !== screen) gameMenu.close();
     screen = id;
     for (const s of SCREEN_IDS) {
       const el = document.getElementById(s);
       if (el) el.classList.toggle('hidden', s !== id);
     }
-    focusIndex = 0;
-    menuButtons()[0]?.focus();
+    if (isGameScreen()) document.activeElement?.blur?.();
+    else menuButtons()[0]?.focus();
   }
 
   function menuButtons() {
     const el = document.getElementById(screen);
     if (!el) return [];
     return Array.from(el.querySelectorAll('button:not([disabled])'));
+  }
+
+  // Game screens take game input and open the in-game menu on pause; S8 is
+  // S7 with the filler running. (Single player's are sp_controller.js's.)
+  function isGameScreen() {
+    return screen === 'S6' || screen === 'S7';
   }
 
   // ── connection-state watcher ──
@@ -282,8 +316,12 @@ export function main(canvas, root) {
     return false;
   }
   // Inverse of rawSend — every dc.onmessage handler below goes through this.
+  // ev.data is compressed bytes (an ArrayBuffer, per binaryType set at
+  // connection creation). decodeWire (protocol.js) bounds both the frame and
+  // what it inflates to; anything oversized, corrupt, or not an object yields
+  // null and is dropped by the caller.
   function decodeMsg(data) {
-    return JSON.parse(textDecoder.decode(inflateSync(new Uint8Array(data))));
+    return decodeWire(data);
   }
   // A failed send attempt is itself treated as detection, fail-fast, rather
   // than left as a silent drop for the heartbeat/watchConnection timers to
@@ -404,7 +442,8 @@ export function main(canvas, root) {
       hostHandleLeave(fromIdx);
       return;
     }
-    if (msg.gen !== matchGen) return; // stale — different match
+    if (msg.gen !== matchGen || !t7machine) return; // stale — different match,
+    // or none started yet
     const p = playerData[fromIdx];
     // A player declared disconnected is not connected: nothing she sends may
     // reach anyone (T7.v's FixPiece only sends when `connected pl`).
@@ -413,19 +452,58 @@ export function main(canvas, root) {
     msg.from = fromIdx; // the channel identifies the sender, not the payload
     switch (msg.type) {
       case 'STATE':
-        applyIncoming(msg);
-        broadcastFromHost(msg, fromIdx);
+        // Checked before anything uses it, the relay included: one malformed
+        // STATE must not reach any player's renderer.
+        if (!validState(msg, constants)) return;
+        {
+          // Relayed rebuilt from the validated fields only: nothing else a
+          // peer put in the payload reaches the other players.
+          const { mg, p, py, px, pr, gameover } = msg;
+          const relay = {
+            type: 'STATE',
+            from: fromIdx,
+            to: null,
+            gen: msg.gen,
+            mg,
+            p,
+            py,
+            px,
+            pr,
+            gameover,
+          };
+          applyIncoming(relay);
+          broadcastFromHost(relay, fromIdx);
+        }
         break;
       case 'GARBAGE':
-        // TODO: replace 0 with HostIndex
-        if (msg.to === 0) applyIncoming(msg);
-        else sendToPlayer(msg.to, msg);
+        // Addressed to a single other player, in an amount one fix could
+        // have generated — anything else is neither applied nor relayed.
+        if (!validGarbage(msg, fromIdx, playerData.length, maxGarbage()))
+          return;
+        {
+          const relay = {
+            type: 'GARBAGE',
+            from: fromIdx,
+            to: msg.to,
+            gen: msg.gen,
+            amount: msg.amount,
+          };
+          if (relay.to === 0) applyIncoming(relay);
+          else sendToPlayer(relay.to, relay);
+        }
         break;
-      case 'GAMEOVER':
-        applyIncoming(msg);
-        broadcastFromHost(msg, fromIdx);
+      case 'GAMEOVER': {
+        const relay = {
+          type: 'GAMEOVER',
+          from: fromIdx,
+          to: null,
+          gen: msg.gen,
+        };
+        applyIncoming(relay);
+        broadcastFromHost(relay, fromIdx);
         maybeEnterWinnerScreen();
         break;
+      }
     }
   }
 
@@ -466,15 +544,43 @@ export function main(canvas, root) {
       joinerHandleStart(msg);
       return;
     }
-    if (msg.gen !== matchGen) {
-      return;
-    }
+    if (msg.gen !== matchGen || !t7machine) return;
+    if (!validFromHost(msg)) return;
     applyIncoming(msg);
     if (msg.type === 'GAMEOVER') {
       maybeEnterWinnerScreen();
     } else if (msg.type === 'DISCONNECT') {
       maybeEnterWinnerScreen(msg.from);
     }
+  }
+
+  // The joiner's own checks on a host-relayed match message: the host is
+  // trusted to route, not to validate on everyone's behalf.
+  function validFromHost(msg) {
+    const n = t7machine.gameoverView.length;
+    switch (msg.type) {
+      case 'STATE':
+        return (
+          validFrom(msg, n) &&
+          msg.from !== myIndex &&
+          validState(msg, constants)
+        );
+      case 'GARBAGE':
+        return (
+          msg.to === myIndex && validGarbage(msg, msg.from, n, maxGarbage())
+        );
+      case 'GAMEOVER':
+      case 'DISCONNECT':
+        return validFrom(msg, n);
+      default:
+        return false;
+    }
+  }
+
+  // The most garbage one fix can generate: PW lines cleared at once, plus a
+  // perfect clear.
+  function maxGarbage() {
+    return t7eng.generatedGarbage(PW, true);
   }
 
   // ── JOIN / PLAYERS / START (§15.1) ──
@@ -494,7 +600,7 @@ export function main(canvas, root) {
     if (!playerData[fromIdx]) return; // evicted since this JOIN was sent
     // fromIdx assigned at connection-accept time (see S3 wiring below); msg
     // carries the name.
-    playerData[fromIdx].name = msg.name;
+    playerData[fromIdx].name = sanitizeName(msg.name) || `P${fromIdx + 1}`;
     playerData[fromIdx].joined = true;
     playerData[fromIdx].lastHeard = performance.now();
     broadcastPlayers();
@@ -509,12 +615,22 @@ export function main(canvas, root) {
   }
 
   function joinerHandlePlayers(msg) {
-    roster = msg.roster;
+    // A match's indices are fixed (every Machine's Player roster is built from
+    // them): a PLAYERS sent while one is still running here (the host may
+    // already be past it, evicting a slot) is ignored. 's3-start' always
+    // sends a fresh PLAYERS before START, and 's9-rematch' drops t7machine.
+    if (t7machine) return;
+    const names = validPlayers(msg);
+    if (!names) return;
+    roster = names;
     myIndex = msg.yourIndex;
     renderS6Joiners();
   }
 
   function joinerHandleStart(msg) {
+    // A START needs a roster to build the match from (PLAYERS precedes it).
+    if (!Number.isInteger(msg.gen) || myIndex === null || roster.length < 2)
+      return;
     matchGen = msg.gen; // authoritative — host's own increment, never guessed locally
     showScreen('S7');
     startMatch();
@@ -599,6 +715,12 @@ export function main(canvas, root) {
     return null;
   }
 
+  // The active game runs locally (the S6/S8 filler) and so freezes
+  // under the in-game menu; S7's match keeps running for the other peers.
+  function activeGameIsLocal() {
+    return activeMachine() === t6machine;
+  }
+
   // ── winner / rematch (§15.0 S9, S15.6) ──
   function findWinner() {
     if (!t7machine) return null;
@@ -623,7 +745,7 @@ export function main(canvas, root) {
     document.getElementById('s9-message').textContent =
       w === myIndex
         ? disconnectedPl !== undefined
-          ? `You win! (your last opponent, ${nameOf(disconnectedPl)} was disconnected)`
+          ? `You win! (your last opponent, ${nameOf(disconnectedPl)}, was disconnected)`
           : 'You win!'
         : // only a self-claimed win is sound (ViewSound): w's own
           // GAMEOVER may still be in flight, so w is not named here
@@ -634,6 +756,10 @@ export function main(canvas, root) {
   function noticeHostLost() {
     if (hostLostHandled) return; // watchConnection() and the heartbeat can
     hostLostHandled = true; // both observe the same loss
+    // Closed here, whatever detected the loss: once she has noticed, nothing
+    // more from the host is processed, even if the link would have recovered
+    // ('disconnected' is not terminal, see watchConnection).
+    closeSlot({ conn: hostConn, pc: hostPc });
     if (t7machine) t7machine.noticeDisconnection();
     // A resolved winner keeps S9 (§15.0); a later Rematch click finds the
     // channel closed and lands on S10 then.
@@ -830,9 +956,13 @@ export function main(canvas, root) {
       const effRem = Math.min(remGarbage, constants.HM);
       if (effRem > 0) {
         sfx.garbageSlam(effRem);
+        // The same lock's clear flash (armed just before, in onLocked) is
+        // shown first: the garbage flash starts when it ends.
         garbageAnim = {
           rowCount: effRem,
-          start: performance.now(),
+          start: clearAnim
+            ? clearAnim.start + clearAnim.duration
+            : performance.now(),
           duration: GARBAGE_ANIM_MS,
         };
       }
@@ -942,6 +1072,14 @@ export function main(canvas, root) {
     repeatTimers = {};
   }
 
+  // Entering or resuming a game from a confirm: pad button 0 is both the menu
+  // confirm and CCW, so whatever is still held is recorded as already
+  // pressed, and the game's first frame does not rotate.
+  function resetRepeatAfterConfirm() {
+    resetInput();
+    prevHeld = computeHeld();
+  }
+
   // Recomputes gravity's period for whichever machine is active right now and
   // restarts the accumulator fresh, discarding whatever had already accumulated
   // toward the previous period — used both when the active machine itself
@@ -969,7 +1107,7 @@ export function main(canvas, root) {
   function computeHeld() {
     const held = {};
     for (const name of keyHeld) held[name] = true;
-    const gp = navigator.getGamepads?.()?.[0];
+    const gp = readPad();
     if (gp)
       for (const [idx, name] of GAMEPAD_MAP)
         if (gp.buttons[idx]?.pressed) held[name] = true;
@@ -1016,40 +1154,122 @@ export function main(canvas, root) {
     prevHeld = held;
   }
 
-  // ── menu navigation (S1/S2/S3/S4/S9/S10) — gamepad drives focus, button 0 clicks ──
-  function processMenuInput() {
-    const active = document.activeElement;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA'))
+  // ── menu navigation ──
+  // One frame of menu input. Menu screens move focus among their stops,
+  // click on the pad's confirm (Enter clicks natively), and act on back. Game
+  // screens open the in-game menu on pause; once open, it takes the frame's
+  // input instead of the game. Opening and stepping never happen on the same
+  // frame.
+  function processMenuInput(nav) {
+    if (screen === 'SP') return;
+    if (isGameScreen()) {
+      if (gameMenu.isOpen) {
+        if (gameMenu.step(nav) === 'close') continueGame();
+        else gameMenu.setTitle(gameMenuTitle());
+      } else if (nav.pause) openGameMenu();
       return;
-    const buttons = menuButtons();
-    if (buttons.length === 0) return;
-    const gp = navigator.getGamepads?.()?.[0];
-    const held = {};
-    if (gp) {
-      held.up = gp.buttons[12]?.pressed;
-      held.down = gp.buttons[13]?.pressed;
-      held.a = gp.buttons[0]?.pressed;
     }
-    if (held.down && !prevMenuHeld.down) {
-      focusIndex = (focusIndex + 1) % buttons.length;
-      buttons[focusIndex]?.focus();
+    if (nav.back) {
+      onBack();
+      return;
     }
-    if (held.up && !prevMenuHeld.up) {
-      focusIndex = (focusIndex - 1 + buttons.length) % buttons.length;
-      buttons[focusIndex]?.focus();
+    const el = document.getElementById(screen);
+    if (el) navigateStops(el, nav);
+  }
+
+  // Back: cancel or leave, innermost first. S1 has nowhere to go back to (a
+  // browser tab cannot quit itself), and S9 offers Rematch/Leave only.
+  function onBack() {
+    switch (screen) {
+      case 'S2':
+        showScreen('S1');
+        break;
+      case 'S3': {
+        const blocks = document.getElementById('s3-pending').children;
+        const last = blocks[blocks.length - 1];
+        if (last?.cancel) last.cancel();
+        else leaveSession();
+        break;
+      }
+      case 'S4':
+      case 'S10':
+        leaveSession();
+        break;
     }
-    if (held.a && !prevMenuHeld.a) buttons[focusIndex]?.click();
-    prevMenuHeld = held;
+  }
+
+  // ── in-game menu ──
+  // Continue, Quit, then Mute or Unmute — whichever activating it does.
+  function gameMenuTitle() {
+    return activeGameIsLocal() ? 'Paused' : 'Game still running';
+  }
+  function openGameMenu() {
+    gameMenu.open(gameMenuTitle(), gameMenuItems(), onGameMenuChoice);
+  }
+  function gameMenuItems() {
+    return ['Continue', 'Quit', muteItemLabel()];
+  }
+  function onGameMenuChoice(i) {
+    if (i === 0) continueGame();
+    else if (i === 1) leaveSession();
+    else if (i === 2) {
+      toggleMute(root);
+      gameMenu.setItemText(2, muteItemLabel());
+    }
+  }
+  // Closes the menu, like Continue. (A local game's gravity timer was
+  // shifted by every frozen frame, in frame().)
+  function continueGame() {
+    gameMenu.close();
+    resetRepeatAfterConfirm();
+  }
+
+  // Leaves whatever session is open and returns to S1: a joiner tells the
+  // host (LEAVE), then every connection is closed — for the host, that is a
+  // real `DisconnectPlayer Host` every joiner notices on its own.
+  function leaveSession() {
+    if (!isHost && hostConn && myIndex !== null && !hostLostHandled)
+      sendToHost({ type: 'LEAVE', from: myIndex });
+    teardownSession();
+    showScreen('S1');
   }
 
   // ── render loop ──
+  let lastFrameAt = null;
+  let labels = labelWatch.labels;
+  // "[Esc/Start] menu" on game screens while the in-game menu is closed.
+  function drawHint() {
+    if (isGameScreen() && !gameMenu.isOpen)
+      drawMenuHint(canvas, constants, labels);
+  }
   function frame(now) {
-    if (screen === 'S6' || screen === 'S7') processGameInput(now);
-    else processMenuInput();
+    const pad = readPad();
+    labels = labelWatch.update(firstPad());
+    // Polled on every screen, gameplay included, so the pad's edges are
+    // current whenever a menu screen is entered.
+    const nav = menuNav.poll(pad);
+    const menuWasOpen = gameMenu.isOpen;
+    processMenuInput(nav);
+    // The clear flash is a line-clear delay: it shows the pre-clear board,
+    // so the game it hides takes no input and no gravity until it ends.
+    const flashing =
+      clearAnim !== null && now - clearAnim.start < clearAnim.duration;
+    // Input is withheld while the menu is open (and on the frame it closes,
+    // whose confirm belongs to the menu), and during the clear flash.
+    if (isGameScreen() && !menuWasOpen && !gameMenu.isOpen && !flashing)
+      processGameInput(now);
 
     const m = activeMachine();
+    // A local game (the S6/S8 filler) is frozen under the in-game menu:
+    // no input, no gravity, and its gravity timer skips every frozen frame.
+    // S7's match keeps running for the other peers, so only input stops.
+    // Any game is frozen the same way during the clear flash.
+    const frozen = (gameMenu.isOpen && activeGameIsLocal()) || flashing;
+    if (frozen && lastFrameAt !== null) lastGravityAt += now - lastFrameAt;
+    lastFrameAt = now;
     if (
       gravityRunning &&
+      !frozen &&
       m &&
       !m.gameover &&
       now - lastGravityAt >= currentGravityPeriod
@@ -1083,6 +1303,10 @@ export function main(canvas, root) {
             progress,
             PieceColor,
           );
+          // The frozen frame covers the main area only: the garbage gauge
+          // and the opponents' boards stay live on top of it.
+          drawSideRegions(canvas, constants, snap, PieceColor, opps, target);
+          drawHint();
           if (isTetris) {
             const amp = SHAKE_AMPLITUDE * (1 - t);
             const dx = (Math.random() * 2 - 1) * amp;
@@ -1092,10 +1316,11 @@ export function main(canvas, root) {
           window.requestAnimationFrame(frame);
           return;
         }
-      } else if (garbageAnim) {
-        // Never starts until clearAnim (above) has finished — matches the
-        // model's own sequencing (a fix's own clear resolves before
-        // materialization), not just a rendering convenience.
+      } else if (garbageAnim && now >= garbageAnim.start) {
+        // Never drawn while clearAnim (above) runs, and starts once the same
+        // lock's clear flash has ended — matches the model's own sequencing
+        // (a fix's own clear resolves before materialization), not just a
+        // rendering convenience.
         const t = (now - garbageAnim.start) / garbageAnim.duration;
         if (t >= 1) {
           garbageAnim = null;
@@ -1103,6 +1328,7 @@ export function main(canvas, root) {
         } else {
           render(canvas, constants, snap, PieceColor, banner, opps, target);
           drawGarbageFlash(canvas, constants, garbageAnim.rowCount, t);
+          drawHint();
           const amp =
             GARBAGE_SHAKE_BASE *
             Math.min(2, garbageAnim.rowCount / 2) *
@@ -1156,11 +1382,13 @@ export function main(canvas, root) {
       } else {
         render(canvas, constants, snap, PieceColor, banner, opps, target);
       }
+      drawHint();
     }
     window.requestAnimationFrame(frame);
   }
 
   function sizeCanvas() {
+    if (screen === 'SP') return; // sized by sp_controller.js meanwhile
     const PANEL_FRAC = 0.22,
       PANEL_MIN = 120,
       PANEL_MAX = 360;
@@ -1227,6 +1455,8 @@ export function main(canvas, root) {
       el.appendChild(div);
     }
     document.getElementById('s3-start-btn').disabled = joined.length < 1;
+    const addBtn = root.querySelector('[data-action="s3-add-connection"]');
+    if (addBtn) addBtn.disabled = playerData.length >= MAX_PLAYERS;
   }
   function renderS6Joiners() {
     const el = document.getElementById('s6-joiners');
@@ -1243,9 +1473,18 @@ export function main(canvas, root) {
     if (!action) return;
     switch (action) {
       case 'sp': {
+        // Single player runs its own controller (sounds, animations, hall
+        // of fame) on the same canvas; its in-game menu's Quit, or back
+        // from its gameover screens, returns here to S1.
+        showScreen('SP');
         const { main: spMain } = await import('./sp_controller.js');
-        root.querySelectorAll('.overlay').forEach((el) => el.remove());
-        spMain(canvas, root);
+        const dispose = spMain(canvas, root, {
+          onQuit: () => {
+            dispose();
+            showScreen('S1');
+            sizeCanvas();
+          },
+        });
         break;
       }
       case 'mp':
@@ -1254,7 +1493,8 @@ export function main(canvas, root) {
       case 'host': {
         isHost = true;
         myIndex = 0;
-        myName = document.getElementById('s3-name').value || 'Host';
+        myName =
+          sanitizeName(document.getElementById('s3-name').value) || 'Host';
         playerData = [
           {
             name: myName,
@@ -1273,6 +1513,7 @@ export function main(canvas, root) {
         break;
 
       case 's3-add-connection': {
+        if (playerData.length >= MAX_PLAYERS) return;
         const block = document.createElement('div');
         block.className = 'pending-block';
         block.innerHTML = `
@@ -1284,7 +1525,12 @@ export function main(canvas, root) {
         document.getElementById('s3-pending').appendChild(block);
         const offerInput = block.querySelector('.s3-offer-input');
         offerInput.focus();
+        // Back (or Cancel) cancels this pairing, whichever stage it is at:
+        // `block.cancel` is replaced as the pairing advances. The lobby and
+        // every joiner already in it are kept.
+        let cancelled = false;
         const offerText = await new Promise((resolve) => {
+          block.cancel = () => resolve(null);
           block
             .querySelector('.s3-offer-add')
             .addEventListener('click', () => resolve(offerInput.value));
@@ -1296,8 +1542,31 @@ export function main(canvas, root) {
           block.remove();
           return;
         }
-        const { pc, dcPromise, sdpText } =
-          await createAnswerConnection(offerText);
+        block.cancel = () => {
+          cancelled = true;
+          block.remove();
+        };
+        let answer;
+        try {
+          answer = await createAnswerConnection(offerText);
+        } catch {
+          // not a valid offer
+          block.remove();
+          return;
+        }
+        const { pc, dcPromise, sdpText } = answer;
+        if (cancelled || !block.isConnected) {
+          // cancelled (or the lobby left) while discovering
+          closeSlot({ pc });
+          return;
+        }
+        if (playerData.length >= MAX_PLAYERS) {
+          // other pairings filled the roster while this one was discovering
+          closeSlot({ pc });
+          block.remove();
+          renderS3Joiners();
+          return;
+        }
         // Handlers hold the slot object, not an index: evictions shift
         // indices, so the index is looked up when a handler runs.
         const slot = {
@@ -1314,17 +1583,28 @@ export function main(canvas, root) {
           <textarea readonly></textarea>
         `;
         block.querySelector('textarea').value = sdpText;
+        block.querySelector('textarea').focus();
+        block.cancel = () => {
+          block.remove();
+          const i = playerData.indexOf(slot);
+          if (i > 0) {
+            evictSlot(i);
+            broadcastPlayers(); // later slots' indices shifted
+          }
+          renderS3Joiners();
+        };
         const dc = await dcPromise;
         block.remove();
         if (!playerData.includes(slot)) {
-          // evicted (e.g. by 's3-start') before its channel arrived
+          // evicted (cancelled, or by 's3-start') before its channel arrived
           closeSlot({ conn: dc, pc });
           break;
         }
         slot.conn = dc;
         dc.onmessage = (ev) => {
           const i = playerData.indexOf(slot);
-          if (i > 0) hostHandleFromJoiner(i, decodeMsg(ev.data));
+          const msg = decodeMsg(ev.data);
+          if (i > 0 && msg) hostHandleFromJoiner(i, msg);
         };
         const onLost = () => {
           const i = playerData.indexOf(slot);
@@ -1380,6 +1660,7 @@ export function main(canvas, root) {
           sendToPlayer(i, { type: 'START', gen: matchGen });
         showScreen('S7');
         startMatch();
+        resetRepeatAfterConfirm();
         // A START send that failed above declared its player disconnected
         // while no match was running yet; she is in every roster, so the
         // DISCONNECT is announced now, after every survivor has START.
@@ -1390,7 +1671,8 @@ export function main(canvas, root) {
       }
 
       case 's4-connect': {
-        myName = document.getElementById('s4-name').value || 'Player';
+        myName =
+          sanitizeName(document.getElementById('s4-name').value) || 'Player';
         const answerText = document.getElementById('s4-answer').value;
         if (!hostPc || hostPc.signalingState !== 'have-local-offer') {
           // Already negotiated (e.g. a stray repeat click) or not ready yet —
@@ -1401,10 +1683,22 @@ export function main(canvas, root) {
           );
           return;
         }
-        await applyAnswer(hostPc, answerText);
+        const pc = hostPc;
+        try {
+          await applyAnswer(pc, answerText);
+        } catch {
+          console.warn(
+            "[T7] Ignoring Connect click — not a valid host's code.",
+          );
+          return;
+        }
+        if (hostPc !== pc || screen !== 'S4') return; // left S4 meanwhile
         hostLostHandled = false;
         watchConnection(hostPc, () => noticeHostLost());
-        hostConn.onmessage = (ev) => joinerHandleFromHost(decodeMsg(ev.data));
+        hostConn.onmessage = (ev) => {
+          const msg = decodeMsg(ev.data);
+          if (msg) joinerHandleFromHost(msg);
+        };
         hostConn.onclose = () => noticeHostLost(); // the host closing is seen here first
         // The data channel isn't usable the instant the answer is applied —
         // ICE/DTLS still has to finish connecting. Waiting for 'open' here,
@@ -1417,10 +1711,12 @@ export function main(canvas, root) {
             hostConn.onopen = resolve;
           });
         }
+        if (hostPc !== pc || screen !== 'S4') return; // left S4 meanwhile
         lastHostMessageAt = performance.now();
         sendToHost({ type: 'JOIN', name: myName });
         showScreen('S6');
         enterWaitingRoom();
+        resetRepeatAfterConfirm();
         startHeartbeat();
         break;
       }
@@ -1456,6 +1752,7 @@ export function main(canvas, root) {
           opponents = [];
           showScreen('S6');
           enterWaitingRoom();
+          resetRepeatAfterConfirm();
           startHeartbeat();
           // Sent last: a failed send routes to S10 (noticeHostLost), and
           // nothing after it may overwrite that screen.
@@ -1464,13 +1761,8 @@ export function main(canvas, root) {
         break;
       }
       case 's9-leave':
-        if (!isHost && hostConn) sendToHost({ type: 'LEAVE', from: myIndex });
-        teardownSession();
-        showScreen('S1');
-        break;
       case 's10-menu':
-        teardownSession();
-        showScreen('S1');
+        leaveSession();
         break;
     }
   });
@@ -1495,6 +1787,11 @@ export function main(canvas, root) {
         document.getElementById('s4-name').value = myName || '';
         document.getElementById('s4-answer').value = '';
         const { pc, dc, sdpText } = await createOfferConnection();
+        if (screen !== 'S4') {
+          // left S4 while the offer was being gathered
+          closeSlot({ conn: dc, pc });
+          return;
+        }
         hostPc = pc;
         hostConn = dc;
         document.getElementById('s4-offer').value = sdpText;
@@ -1504,17 +1801,42 @@ export function main(canvas, root) {
       }
     });
 
+  // Game keys go to the game while it takes input; everything else is menu
+  // navigation, queued for the next frame's menuNav.poll: Escape (back /
+  // pause) always, ↑/↓ outside a textarea, whose caret they move instead.
+  // Single player has its own controller and its own handlers.
   document.addEventListener('keydown', (e) => {
-    const name = KEYMAP.get(e.key);
-    if (name && (screen === 'S6' || screen === 'S7')) {
+    if (screen === 'SP') return;
+    if (e.key === 'Escape') {
+      menuNav.key(e);
       e.preventDefault();
-      keyHeld.add(name);
+      return;
     }
+    if (isGameScreen() && !gameMenu.isOpen) {
+      const name = KEYMAP.get(e.key);
+      if (name) {
+        e.preventDefault();
+        keyHeld.add(name);
+      }
+      return;
+    }
+    if (document.activeElement?.tagName === 'TEXTAREA') return;
+    if (menuNav.key(e)) e.preventDefault();
   });
   document.addEventListener('keyup', (e) => {
     const name = KEYMAP.get(e.key);
     if (name) keyHeld.delete(name);
   });
+  // Keys released while another window has focus never send keyup here.
+  window.addEventListener('blur', () => keyHeld.clear());
+  const onPadChange = () => labelWatch.update(firstPad());
+  window.addEventListener('gamepadconnected', onPadChange);
+  window.addEventListener('gamepaddisconnected', onPadChange);
+  refreshControls(root, labelWatch.labels);
+  showMutedBadge(root);
+
+  for (const id of ['s3-name', 's4-name'])
+    document.getElementById(id).maxLength = NAME_MAX_LEN;
 
   sizeCanvas();
   window.addEventListener('resize', sizeCanvas);

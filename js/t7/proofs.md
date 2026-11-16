@@ -15,13 +15,23 @@ against `T7.v`, never JS against `T6.v` directly.
 
 ## 0. Result
 
-No unresolved gap. One accepted, bounded divergence, argued rather than
-closed outright: `FixPiece`'s own `if connected s pl then SendMessages ...
-else messages s` gate, for the acting player's own connectivity, cannot be
-matched step-for-step in every case — a player's own channel can fail before
-the host's detection has caught up, and only the host can realize
-`DisconnectPlayer pl≠Host` (§10) — but the divergence is invariant-harmless
-by the same reasoning §12 already uses for the `MAX_SAFE_INTEGER` cap (§5a).
+No unresolved gap. Three accepted, bounded divergences, argued rather than
+closed outright, all with one root: a joiner's link and the host's record of
+it (`declaredDisconnected`, which is what α reads as `connected`, §3) can
+disagree for a while, and only the host can realize `DisconnectPlayer pl≠Host`
+(§10).
+
+- `FixPiece`'s own `if connected s pl then SendMessages ... else messages s`
+  gate cannot be matched step-for-step in every case: a player's own channel
+  can fail before the host's detection has caught up (§5a).
+- Messages a joiner sent while α still said `connected` can be lost when the
+  host declares her disconnected (§5b).
+- A joiner can notice her own disconnection before the host declares it, so
+  `NoticeDisconnection`'s guard does not always hold, and `ViewSound` fails on
+  that joiner's own `(pl, pl)` cell until the host catches up (§5b, §9).
+
+Each is invariant-harmless, or harmless to every step that follows, by the
+same reasoning §12 already uses for the `MAX_SAFE_INTEGER` cap.
 
 Two further points are load-bearing enough to call out up front, both argued
 in full where noted: `receiveGameover`/`receiveDisconnect`'s target
@@ -91,11 +101,13 @@ buffering). Per field, in `T7.v`'s own field order:
   topology means every non-host-to-non-host path is physically two hops, but
   `T7.v`'s `messages from to` models it as one queue between `from` and `to`
   directly; the host relay never reorders (single-threaded, processes one incoming
-  event at a time, forwards before accepting the next) and never drops (no channel
-  write is skipped), so the two-hop physical path and the one-queue model agree on
-  order and content — a refinement detail, not an extra invariant to carry. §5a is
-  the one place a send can fail outright (channel not `'open'`) rather than
-  merely being relayed; see there for why that doesn't break `Correct`.
+  event at a time, forwards before accepting the next), and drops only what §5a
+  and §5b describe, so the two-hop physical path and the one-queue model agree
+  on order, and on content up to those losses — a refinement detail, not an
+  extra invariant to carry. §5a covers a send that fails outright (channel not
+  `'open'`); §5b covers messages already sent that the host discards on
+  declaring their sender disconnected. See there for why neither breaks
+  `Correct`.
 
 Well-definedness: for the JS system there is always exactly one channel, and
 hence exactly one `declaredDisconnected`/`hostLostHandled` flag, per `(pl, Host)`
@@ -177,19 +189,24 @@ transcription:
   shift loop's source range `[0, HM - effRem) = ∅`, so every old row is dropped —
   matching total replacement by `GarbageGrid`'s rows once its own height reaches
   or exceeds `HM`.
-- **Overflow.** `remGarbage ≥ HM` ⟹ `overflow = true` unconditionally, no scan
-  needed — `T7.v`'s own crop drops the *entire* old `mg` in this regime (every
-  row of `mg` sits at an offset `≥ HM` post-shift), so `mg' ⊈ croppedMg'` is forced
-  true whenever `mg` has any occupied cell — and a `T6.Correct` machine's `mg` is
-  never all-empty once a piece has fixed (a fixed piece always leaves an occupied
-  cell unless every row it touched was immediately cleared, in which case the
-  *next* line down does; `HM ≥ 1` throughout). When `remGarbage < HM`, the
-  overflow scan reads rows `[HM - remGarbage, HM)` of `s1.mg` **before** the
-  shift/overwrite loop below overwrites them (the scan runs first, in source
-  order) — these are exactly the
-  rows `T7.v`'s `mg ⊕ (remGarbage, 0)` pushes to `y ≥ HM`, i.e. exactly the rows
-  `Full mg`'s crop drops; `mg' ⊈ croppedMg'` iff one of them is occupied, which is
-  what `T1Eng.occ` tests cell-by-cell. Same value, same rows.
+- **Overflow.** `overflow = (remGarbage > HM && WM > 1) || scan`, where the scan
+  tests rows `[HM - effRem, HM)` of `s1.mg` **before** the shift/overwrite loop
+  below overwrites them (the scan runs first, in source order). `T7.v`'s
+  `mg' ⊈ croppedMg'` (`FP.Gameover'`) holds iff some occupied cell of
+  `mg' = GarbageGrid ∪ (mg ⊕ (remGarbage, 0))` lies at `y ≥ HM`. Such a cell
+  comes from one of the two operands of the union:
+  - **a garbage row**: `GarbageGrid` occupies rows `[0, remGarbage)`, each with
+    `WM - 1` cells (every column but the hole). A row at `y ≥ HM` exists iff
+    `remGarbage > HM`, and it is non-empty iff `WM > 1`. This is the first
+    disjunct. At `remGarbage = HM` exactly, every garbage row still fits in
+    the box, so this disjunct is `false` and only the scan decides.
+  - **a shifted row of `mg`**: row `y` of `mg` lands at `y + remGarbage`, so
+    `y + remGarbage ≥ HM` iff `y ≥ HM - remGarbage`. Within the box `[0, HM)`,
+    these are the rows `[max(0, HM - remGarbage), HM) = [HM - effRem, HM)`,
+    which is exactly the scan's range. `T1Eng.occ` tests their cells one by one.
+
+  The two disjuncts are exactly `T7.v`'s, for every instance, with no
+  assumption on `mg`'s contents.
 - **Shift/overwrite**: decreasing `i`, source row `i` written to
   destination `i + effRem` — reversed order is load-bearing (a later destination
   can coincide with an earlier source once `effRem < HM`; increasing order would
@@ -252,8 +269,8 @@ meaningfully fires `false` here.
 For `pl ≠ Host`, `connected(pl)` is `!declaredDisconnected[pl]` (§3) — a value
 the host's controller owns, not something `pl`'s own client can read
 directly. `pl`'s own `sendToHost` call instead checks her own
-`hostConn.readyState`/`hostLostHandled` (§9, fixed to fail fast rather than
-silently drop) — a *different*, only loosely-correlated fact. So a genuine
+`hostConn.readyState`/`hostLostHandled` (§9; a failed send is itself treated as
+detection, not a silent drop) — a *different*, only loosely-correlated fact. So a genuine
 corner case exists: the host hasn't yet set `declaredDisconnected[pl]` (α
 says `connected(pl) = true`, so `T7.v`'s `FixPiece` requires
 `SendMessages` to append a message), but `pl`'s own channel has already gone
@@ -263,7 +280,7 @@ branches), so there is no way to reclassify this JS step as the other
 branch — this is a literal mismatch: `T7.v` computes a `messages'` with the
 new entry appended; the JS `α(σ')` does not have it.
 
-This is not closed by fail-fast sending (§9's fix narrows the *window* this
+This is not closed by fail-fast sending (it narrows the *window* this
 can happen in — from up to `HEARTBEAT_TIMEOUT_MS` down to whatever gap
 remains between `pl`'s own channel actually failing and the host's own
 detection running — but cannot eliminate it: `pl` still lacks the means to
@@ -284,6 +301,59 @@ only the safety scope this file claims (§1) — an exactly analogous move to
 spec's literal semantics" accepted because nothing in `Correct` is sensitive
 to it. Liveness (a genuinely-sent `GARBAGE`/`GAMEOVER` eventually being
 *acted on* by anyone) is explicitly out of scope (§1) regardless.
+
+## 5b. A joiner's link versus the host's record of it — two more bounded divergences
+
+Same root as §5a: α's `connected(pl)`, for `pl ≠ Host`, is the host's
+`!declaredDisconnected[pl]` (§3), while what `pl`'s own client sees and acts on
+is her channel. The two can disagree in either order.
+
+**(a) Messages lost at the host's declaration.** `pl` sends a `GARBAGE` or
+`GAMEOVER` while α says `connected(pl)` (so `T7.v` appends it to
+`messages pl to`), and the host declares `pl` disconnected (heartbeat, failed
+channel, failed send) before relaying it. `declarePlayerDisconnected` closes
+the slot (`closeSlot` unbinds `onmessage`), and `hostHandleFromJoiner` drops
+anything from a declared slot, so that message is never delivered.
+`DisconnectPlayer` appends `DisconnectMessage` *after* it, and the host's
+`DISCONNECT` then reaches every other player: each such receipt pops the tail
+of a queue whose head was lost — not `ReceiveMessage`'s head-of-queue pop.
+
+Harmless for the same reason as §5a: the JS queues only ever *lose* entries
+relative to α's. `MessageSound` constrains the messages present, and dropping
+garbage or gameover messages from a queue of shape `map GarbageMessage ns ++
+[GameoverMessage]? ++ [DisconnectMessage]?` keeps that shape
+(`LastMessagesGameoverDisconnect`). For each receiver, the `DISCONNECT` sets
+`connectedView to pl = false`, so `PlayingView to pl` becomes false exactly as
+the lost `GAMEOVER` would have made it, and the target redirect is the same
+(`ReceiveMessage` uses one `view'` for both branches, §8). A lost `GAMEOVER`
+leaves `gameoverView to pl` at `false`, which `ViewSound`'s first conjunct
+trivially allows. A lost `GARBAGE` is garbage the receiver never gets, which
+only liveness could object to (§1).
+
+**(b) A joiner noticing first.** `noticeHostLost` runs on the joiner's own
+evidence: her heartbeat (`10` s without a host message), her channel's
+`onclose`, `connectionState` reaching `failed`, or a failed send. Any of these
+can fire while the host still has `declaredDisconnected[pl] = false`, so α
+still has `connected(pl) = true`. `noticeDisconnection` then sets
+`connectedView pl pl = false`: `NoticeDisconnection`'s guard
+(`! connected s pl`) does not hold, and `ViewSound`'s second conjunct
+(`connectedView s pl pl2 = false → connected s pl2 = false`) fails for the one
+cell `(pl, pl)`.
+
+Harmless to every step that follows, which is what refinement needs here:
+- Only `pl` reads her own view. In `WinnerMulti s pl`, the cell makes
+  `PlayingView pl pl` false, so `pl` can never claim a win from it. In
+  `NextTarget`, it is never consulted (the search excludes `self`).
+- `pl` takes no further step of this match. `noticeHostLost` stops gravity and
+  the `STATE` timer and leaves for `S10` (or keeps `S9`), neither of which
+  dispatches game input. It also closes `pl`'s channel to the host, so no
+  `Receive` follows either (`ReceiveMessage` is guarded on `connected s pl`,
+  which α would only falsify later).
+- The window closes. Closing the channel fires the host's `onclose` for that
+  slot, and failing that, the `10` s heartbeat. Either way the host declares
+  `pl` disconnected, so `connected(pl)` becomes false and the cell satisfies
+  `ViewSound` again from then on. At that point `connectedView pl pl` already
+  holds the value `NoticeDisconnection` would have given it.
 
 ## 6. `dropPiece` — no-use relocation, then §5 in full
 
@@ -396,8 +466,39 @@ nothing left to reorder once α is defined per §3.
   `declarePlayerDisconnected` closes that slot's channel and peer connection.
   So no `GARBAGE`/`GAMEOVER` from `pl` reaches anyone after her `DISCONNECT`,
   which also keeps `LastMessagesGameoverDisconnect`'s "disconnect last" shape.
+  Messages `pl` sent *before* the host declared her, still in flight, are
+  dropped the same way: §5b(a).
   The host also overwrites each relayed message's `from` with the index of
   the channel it arrived on, so the sender recorded in a queue is the real one.
+- **Validation drops only messages no `T7.v` step enqueues.** The controller
+  drops a received message that fails `protocol.js`'s checks
+  (`implementation.md` §15.3a) before applying or relaying it. Every message a
+  refining peer sends passes them:
+  - **`STATE`** is a snapshot of a real `Machine`. Its `mg` is `HM × WM` over
+    `false | Piece` (`Correct`, §11). `p ∈ Piece`. `pr ∈ 0..3`, because T1
+    keeps rotations modulo 4. Every cell of the current piece lies on the
+    board, so its `PW × PW` box origin `(py, px)` lies within `PW` of it.
+  - **`GARBAGE`** is sent by `handleFixResult` only when `remGenGarbage > 0`,
+    and `remGenGarbage ≤ genGarbage = GeneratedGarbage(clearedLines,
+    perfectClear)`. One fix clears at most `PW` lines, and `GeneratedGarbage`
+    is monotone in both arguments, so `amount ∈ 1..generatedGarbage(PW,
+    true)`. Its `to` is the sender's pre-fix `target`, a player index. It is
+    never the sender itself. `target` starts at `PlayerNext(self) ≠ self`, and
+    a redirect (§7) falls back to `self` only when the sender's own view has
+    no other player playing. Views never revive a player, so from then on
+    `WinnerMulti` holds for the sender, and no fix fires.
+  - **`GAMEOVER`/`DISCONNECT`** relayed by the host carry a player index of
+    the match. **`PLAYERS`** carries the host's roster, which `MAX_PLAYERS`
+    bounds, plus the receiver's own non-zero index.
+
+  A dropped message is therefore one only a non-refining peer could have
+  sent. No `T7.v` step corresponds to it, and the receiver's state is
+  unchanged by it (a stutter). This is the same as the frames `decodeMsg`
+  (`protocol.js`'s `decodeWire`) rejects — undecodable, over `MAX_WIRE_BYTES`,
+  or inflating past `MAX_DECODED_BYTES` — which are dropped before any handler
+  runs: a refining peer's messages are a few KiB at most once inflated.
+  Rebuilding a relayed message from its validated fields (`hostHandleFromJoiner`)
+  changes none of the fields any handler reads.
 - **Dequeued in order, exactly the message that was enqueued first.** `applyIncoming`
   dispatches on `msg.type` directly against the concrete message
   object the host relayed or the direct channel delivered — channels are
@@ -441,12 +542,17 @@ nothing left to reorder once α is defined per §3.
 `connectedView[myIndex] = false` ≙ the `(pl, pl)` cell of
 `connectedView` (`NoticeDisconnection`) — no other field moves, either side. `T7.v`'s own
 guard (`! connected s pl && connectedView s pl pl`) is *not* checked in
-JS: the caller (`noticeHostLost`) only invokes this
-when its own heartbeat timeout or `watchConnection`'s `onFailed` callback (its
-own connection to the host reaching `connectionState === 'failed'`) has just
-fired, which is exactly the
-trigger condition for `¬connected s pl` becoming true — a controller fact, not
-something `α` needs to reconstruct (`implementation.md` §8 item 7). The second
+JS. The caller (`noticeHostLost`) invokes this on `pl`'s own evidence that her
+link to the host is gone: her heartbeat timeout, her channel's `onclose`,
+`watchConnection`'s `onFailed` callback, or a failed send.
+
+The first conjunct holds when the host has already declared `pl` disconnected
+(α's `connected(pl)`, §3), or when the host itself is gone (`DisconnectPlayer
+Host`, §10, makes every `connected` false). It need not hold otherwise: `pl`
+can notice before the host declares her. That case is the divergence argued in
+§5b(b): `ViewSound` fails on the `(pl, pl)` cell until the host's declaration,
+which `noticeHostLost`'s own closing of the channel brings about, and no step
+in between reads that cell. The second
 conjunct (`connectedView s pl pl`, "hasn't already noticed") is not checked either;
 its absence is harmless, not a divergence: the field write is idempotent
 (`false ← false` on a repeat call is the same state as `T7.v`'s own `None` — no
@@ -494,10 +600,26 @@ proof: `controller.js` never reads a return value from this call.
   received `START` by then (ordered channels), so this is a `DisconnectPlayer`
   step taken from the fresh `Init`.
 
+  The in-game menu's Quit (`leaveSession`) adds no new event. A joiner sends
+  `LEAVE` and closes her connection, which is the mid-match `LEAVE` trigger
+  above. A host closes every connection, which is the `pl = Host` case.
+
   The `10` s silence trigger is sound only while a connected player keeps
   sending. A player who is gameover keeps her `STATE` timer running during the
   mid-match filler (§15.2 of `implementation.md`), so the host never mistakes
   her silence for a lost link.
+
+## 10a. The in-game menu — no `Machine` call
+
+While the in-game menu is open, `frame()` does not call `processGameInput`, so
+no input-driven `Machine` method is dispatched. This is the environment taking
+no input step, which `T7.v` always permits. On `S7` the gravity tick and every
+network handler keep running exactly as without the menu, so
+`fallStep`/`receive*`/`DISCONNECT` steps are taken as usual. On `SP`, `S6` and
+`S8` the frozen game is the `t6.Machine` filler, outside the `T7.State` this
+proof maps (§3). Its freeze, and the shift of its gravity timer, change no
+`α σ`. Closing the menu resets input bookkeeping only
+(`resetRepeatAfterConfirm`), which is controller state, not `α σ`.
 
 ## 11. Representation invariant — `Correct`, by induction
 
@@ -568,7 +690,10 @@ Inductive step, one clause per method:
   `myIndex` (`to = preTarget`, always `≠ myIndex` by `TargetNotSelf`) and by the
   host's `DISCONNECT` broadcast excluding the disconnected player itself
   (`broadcastFromHost(tag(msg), i)`, excludes index `i`) — realizing
-  `NoSelfMessage`.
+  `NoSelfMessage`. Two exceptions, both argued in §5b: queues can lose
+  entries (which no conjunct objects to), and `ViewSound` can fail on a
+  joiner's own `(pl, pl)` `connectedView` cell from her noticing until the
+  host's declaration.
 
 ## 12. Integer-range soundness
 
@@ -619,9 +744,12 @@ stays exact regardless of whether `garbage` sits at the cap, since
 | `fallStep` | disjoint-guard sequencing over `movePiece`/`fixPiece`, both above |
 | `dropPiece` | no-use relocation (mirrors `t5/model.js`) + §5 in full (§6) |
 | `receiveGarbage`/`receiveGameover`/`receiveDisconnect` | cross-machine, message-queue argument (§8), redirect soundness via §7 case 1 |
-| `noticeDisconnection` | stutter w.r.t. `s6`, controller-detected trigger (§9) |
+| `noticeDisconnection` | stutter w.r.t. `s6`, controller-detected trigger (§9); may precede the host's declaration (§5b(b)) |
 | `Disconnect`, `pl = Host` | realized by nobody — argued against reality (§10) |
 | `Disconnect`, `pl ≠ Host` | realized by the host's controller relay (§10) |
 | `Correct` | inductive, one clause per method (§11) |
 | `garbage`'s range | capped at `MAX_SAFE_INTEGER` in code, unbounded (exact `ℕ`) in the spec (§12) |
 | `fixPiece`'s outer `connected s pl` message gate | bounded, invariant-harmless divergence — not an exact match (§5a) |
+| in-flight messages from a joiner the host declares disconnected | dropped; queues only lose entries, invariant-harmless (§5b(a)) |
+| dropped invalid messages | only non-refining peers send them; no step, receiver unchanged (§8) |
+| in-game menu | withholds input only; no `Machine` call (§10a) |

@@ -19,9 +19,32 @@ export function render(
   opponents = [],
   target = null,
 ) {
-  const ctx = canvas.getContext('2d');
   const cellSize = renderT6(canvas, constants, snapshot, pieceColor, banners);
+  drawSideRegions(
+    canvas,
+    constants,
+    snapshot,
+    pieceColor,
+    opponents,
+    target,
+    cellSize,
+  );
+}
 
+// The garbage gauge and the mini-grid strip alone, on top of whatever the
+// main area already shows — `render` above draws them after T6's board, and
+// a renderer that draws its own board (e.g. a frozen frame) calls this
+// afterwards so they stay visible. `cellSize` defaults to the main grid's.
+export function drawSideRegions(
+  canvas,
+  constants,
+  snapshot,
+  pieceColor = {},
+  opponents = [],
+  target = null,
+  cellSize = mainCellSize(canvas, constants),
+) {
+  const ctx = canvas.getContext('2d');
   drawGarbageGauge(ctx, constants, snapshot, cellSize);
   drawMiniStrip(
     ctx,
@@ -31,6 +54,14 @@ export function render(
     pieceColor,
     cellSize,
     target,
+  );
+}
+
+function mainCellSize(canvas, constants) {
+  const gridAreaWidth = constants.gridAreaWidth ?? canvas.width;
+  return Math.min(
+    (gridAreaWidth - 2 * constants.PANEL_PX) / constants.WM,
+    canvas.height / constants.HM,
   );
 }
 
@@ -187,7 +218,16 @@ function drawMini(
     }
   }
 
-  if (!dead && opp.p != null) {
+  // `pr` in 0..3: the rotation table only has four entries; a peer-supplied
+  // out-of-range value is not drawn (the controller already drops such a
+  // STATE — this is a second guard, so a bad value can never throw here).
+  if (
+    !dead &&
+    opp.p != null &&
+    Number.isInteger(opp.pr) &&
+    opp.pr >= 0 &&
+    opp.pr < 4
+  ) {
     const rg = constants.rotGrid(opp.p, opp.pr);
     const color = pieceColor[opp.p] ?? '#FFFFFF';
     for (let y = 0; y < constants.PW; y++) {

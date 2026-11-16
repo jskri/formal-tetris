@@ -38,12 +38,14 @@
       <h2>Tetris</h2>
       <button data-action="sp">Single Player</button>
       <button data-action="mp">Multi Player</button>
+      <div data-controls="nav"></div>
     </div>
 
     <div id="S2" class="overlay hidden">
       <h2>Multi Player</h2>
       <button data-action="host">Host</button>
       <button data-action="join">Join</button>
+      <div data-controls="menu"></div>
     </div>
 
     <div id="S3" class="overlay hidden">
@@ -54,6 +56,7 @@
       <div class="small">Joiners:</div>
       <div id="s3-joiners" class="joiner-list"></div>
       <button data-action="s3-start" id="s3-start-btn" disabled>Start</button>
+      <div data-controls="lobby"></div>
     </div>
 
     <div id="S4" class="overlay hidden">
@@ -64,6 +67,7 @@
       <div class="small">Paste host's code here:</div>
       <textarea id="s4-answer"></textarea>
       <button data-action="s4-connect">Connect</button>
+      <div data-controls="lobby"></div>
     </div>
 
     <div id="S6" class="overlay banner hidden">
@@ -75,11 +79,13 @@
       <h2 id="s9-message">Game over</h2>
       <button data-action="s9-rematch">Rematch</button>
       <button data-action="s9-leave">Leave</button>
+      <div data-controls="nav"></div>
     </div>
 
     <div id="S10" class="overlay hidden">
       <h2>Connection to host lost.</h2>
       <button data-action="s10-menu">Return to menu</button>
+      <div data-controls="menu"></div>
     </div>
   </div>
 

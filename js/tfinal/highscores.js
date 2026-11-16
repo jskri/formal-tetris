@@ -3,15 +3,52 @@
 // synchronous access keeps the gameover flow simple (no async plumbing for
 // something this small).
 
+import { sanitizeName } from '../t7/protocol.js';
+
 const KEY = 'tetris-tfinal-hof-v1'; // versioned — a later schema change
 // shouldn't have to migrate or crash on old data
-const MAX_ENTRIES = 10;
+export const MAX_ENTRIES = 10;
+
+// A stored table is not trusted to be what save() wrote (it can be edited
+// by hand, or by another version): entries that are not records with finite
+// numeric score/level/lines are dropped, names are cleaned like typed ones
+// (sanitizeName), and the result is sorted by score, highest first (stable,
+// so equal scores keep their order), and truncated to MAX_ENTRIES.
+export function normalize(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter(
+      (e) =>
+        e &&
+        typeof e === 'object' &&
+        [e.score, e.level, e.lines].every(Number.isFinite),
+    )
+    .map((e) => ({
+      name: sanitizeName(e.name) || 'Player',
+      score: e.score,
+      level: e.level,
+      lines: e.lines,
+      date: Number.isFinite(e.date) ? e.date : 0,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_ENTRIES);
+}
+
+// Inserts `entry` after every entry scoring at least as much (an earlier
+// equal score keeps its rank), truncated to MAX_ENTRIES. `row` is the new
+// entry's own index, or -1 if it did not make the table.
+export function insertEntry(entries, entry) {
+  let row = entries.findIndex((e) => e.score < entry.score);
+  if (row === -1) row = entries.length;
+  const next = [...entries.slice(0, row), entry, ...entries.slice(row)];
+  next.length = Math.min(next.length, MAX_ENTRIES);
+  return { entries: next, row: row < MAX_ENTRIES ? row : -1 };
+}
 
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    return normalize(raw ? JSON.parse(raw) : []);
   } catch {
     return []; // corrupted data / storage unavailable — fail soft, never crash the game
   }
@@ -57,11 +94,17 @@ export function qualifies(score) {
   );
 }
 
-export function recordScore(name, score, level, lines) {
-  const entries = load();
-  entries.push({ name, score, level, lines, date: Date.now() });
-  entries.sort((a, b) => b.score - a.score);
-  entries.length = Math.min(entries.length, MAX_ENTRIES);
-  save(entries);
-  return entries;
+// Records a score; returns { entries, row }, `row` being the new entry's
+// own index (or -1), which the hall of fame highlights — by row, so tied
+// scores are not all highlighted. `date` defaults to now.
+export function recordScore(name, score, level, lines, date = Date.now()) {
+  const result = insertEntry(load(), {
+    name: sanitizeName(name) || 'Player',
+    score,
+    level,
+    lines,
+    date,
+  });
+  save(result.entries);
+  return result;
 }

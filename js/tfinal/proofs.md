@@ -19,9 +19,11 @@ state and call sites) is either read-only against already-computed `Machine`
 state, or a side effect (audio, `localStorage`, DOM/canvas) entirely disjoint
 from `Σ`. No new call to a mutating `Machine` method is introduced; no existing
 one is removed, reordered relative to another mutating call, or given
-different arguments. `t7/proofs.md`'s and `t6/proofs.md`'s own conclusions
-(including the accepted, bounded divergence at `t7/proofs.md` §5a — ported
-into `tfinal/controller.js` unchanged, §5 below) transfer without modification.
+different arguments. The clear flash only withholds input and gravity calls
+for its duration (environment stutter, §3.3). `t7/proofs.md`'s and `t6/proofs.md`'s own conclusions
+(including the accepted, bounded divergences at `t7/proofs.md` §5a and §5b,
+whose networking code `tfinal/controller.js` shares, §3.5) transfer without
+modification.
 
 ## 1. Scope
 
@@ -74,6 +76,15 @@ outcome it reacts to has already returned (§3.4) — it reads no `Machine`
 field and writes none. No-use: `Σ`, as `t7/proofs.md` §3 defines it, has no
 audio component for this to touch.
 
+"Strictly after the `Machine` call" is not the same as "after the whole
+step": some calls sit between a lock's `fixPiece` and the `GARBAGE`/
+`GAMEOVER` sends that complete the same `FixPiece` step (`onLocked`'s
+`sfx.fix`/`sfx.drop` run before `fixFamily → handleFixResult`). No-use there
+also needs every `sfx` call to return normally, and it does: `getCtx`
+catches a missing or failing `AudioContext` and turns sound off for good,
+and `chord` catches any scheduling error (`sound.js`). So an `sfx` call
+cannot cut the step's sends short, and cannot stop the frame loop.
+
 ### 3.3 New local state in `main()`'s closure
 
 `clearAnim`, `garbageAnim`, `gameoverAt` are all new `let`-bound closure
@@ -95,6 +106,14 @@ argument (§0 there: single-player, i.e. the filler, is `t6/model.js`'s own
 concern); delaying *when* a fresh `t6.Init` happens doesn't change that it
 *is* one when it happens — `t6/proofs.md`'s own base case applies at whatever
 wall-clock moment `enterWaitingRoom()` runs, unconditionally on timing.
+
+The clear flash also freezes the game (`implementation.md` §5): while
+`clearAnim` runs, `frame()` calls neither `processGameInput` nor `onTick`,
+and shifts `lastGravityAt` by each such frame. No `Machine` method runs, so
+this is the environment taking no step, which `T7.v` and `T6.v` always
+permit — the same argument `t7/proofs.md` §10a makes for the in-game menu,
+applied to every game screen for at most `TETRIS_ANIM_MS`. Network handlers
+are untouched, so every `Receive`/`Disconnect` step is taken as without it.
 
 ### 3.4 Every new function's call sites, checked against the existing call set
 
@@ -134,13 +153,17 @@ machine.s1`) — `machine.s6.s1` already exists as `T7.Machine`'s own flattened
 accessor chain (`t7/implementation.md` §6.8); `getS1` adds no new field, only
 a two-way branch over an existing one.
 
-### 3.5 The fail-fast networking fix — identical port, already covered
+### 3.5 Networking — identical port, already covered
 
-`sendToHost`/`sendToPlayer`/`declarePlayerDisconnected`/`rawSend` in
-`tfinal/controller.js` are a verbatim port of the same functions in
-`t7/controller.js`, fixed in the same commit this file's counterpart records
-(`t7/proofs.md` §5a: the `FixPiece`-message-gate corner case is an accepted,
-invariant-harmless divergence, not a re-derived argument here). One addition:
+`sendToHost`/`sendToPlayer`/`declarePlayerDisconnected`/`noticeHostLost`/
+`rawSend`/`decodeMsg`, the relay in `hostHandleFromJoiner` and the `PLAYERS`
+handling in `joinerHandlePlayers` are a verbatim port of the same functions
+in `t7/controller.js`, so `t7/proofs.md`'s arguments apply as they stand:
+§5a (the `FixPiece`-message-gate corner case), §5b (messages lost at the
+host's declaration of their sender, and a joiner noticing her disconnection
+before that declaration — `noticeHostLost` closing her channel), and §8
+(frames `decodeWire` rejects, and relayed messages rebuilt from their
+validated fields). None is re-derived here. One addition:
 `sfx.disconnect()` inside `applyIncoming`'s `'DISCONNECT'` branch, placed
 *after* `t7machine.receiveDisconnect(msg.from)` has already returned — no-use,
 §3.2.
@@ -165,6 +188,22 @@ New relative to `t7/controller.js`. Matters only for `frame()`'s own
 regardless). No-use: this branch changes what gets rendered, never what gets
 mutated.
 
+### 3.7 Menus, validation, the clear-flash side regions — `t7/`'s own, or render-only
+
+- **Menu navigation, the in-game menu, message validation** are
+  `t7/controller.js`'s, ported verbatim and argued in `t7/proofs.md`:
+  - dropped invalid messages correspond to no step (§8 there);
+  - the in-game menu withholds input only, and Quit is `leaveSession` (§10,
+    §10a there).
+
+  The in-game menu's third item, Mute/Unmute, calls `mute.js`'s
+  `toggleMute`. Like `sound.js` (§3.2), it touches no `Machine`.
+- **`screen === 'SP'`** hands everything to `sp_controller.js` (§4): this
+  controller then dispatches no input, so no `T7.Machine` call is made.
+- **`drawSideRegions`** after `renderClearFlash` is `t7/view.js`'s own read-only
+  gauge/strip drawing (§3.1's reasoning). Setting `garbageAnim.start` to the
+  end of the clear flash only changes when pixels are drawn.
+
 ## 4. `tfinal/sp_controller.js` — single-player, new surface catalogued
 
 Wraps `t6/model.js`'s `Machine` directly (§2) — `t6/proofs.md`'s refinement
@@ -179,7 +218,9 @@ refinement obligation lives entirely at the `Machine` level).
   (`onLocked`, after the same call returns truthy). No new `machine` call, no
   reordering.
 - `sfx.*` call sites in `ACTIONS`/`afterAction`/`handleGameover`: same
-  strictly-after placement as §3.2/§3.4.
+  strictly-after placement as §3.2/§3.4, and the same no-throw guarantee.
+  `handleGameover`'s once-per-game guard (`gameoverAt`) only skips sound,
+  timer and overlay work; it calls no `Machine` method.
 - `highscores.js` (`qualifies`/`recordScore`/`getHighScores`/
   `isStorageAvailable`): only reached from `handleGameover`, only after
   `machine.gameover` is already `true`, operating on `{ score, level, lines }`
@@ -191,6 +232,15 @@ refinement obligation lives entirely at the `Machine` level).
   closure state, unread by any `α` (`t6/proofs.md` has no `α` construction
   spanning a controller at all — `Σ` there is just the `Machine` instance
   itself, so *any* controller-local variable is automatically outside it).
+- **Gravity, the in-game menu.** The gravity tick is `attemptFall`, the same
+  call it always was. It is driven by `frame()`'s clock (`lastFallAt`/
+  `fallPeriodMs`) and fires only while playing with the menu closed and no
+  clear flash running. While the menu is open or the flash runs,
+  `processInput` is not called and no tick fires, so no `Machine` method
+  runs: the environment takes no step, which `T6.v` always permits. Shifting `lastFallAt` and recording held actions on Continue
+  change controller state only. Quit (`onQuit`) and back from the gameover
+  screens end the controller (`dispose`): no `Machine` call either. Mute is
+  §3.2's case.
 
 ## 5. Conclusion
 
@@ -200,5 +250,7 @@ surface is no-use. No new argument was needed beyond confirming, call site by
 call site, that nothing new was inserted *between* an existing pair of
 `Machine`-mutating calls, and that every new read either precedes a mutating
 call on its pre-state or follows one on its post-state. `tfinal/*.js ⊨ T7.v`
-(multiplayer) and `tfinal/*.js ⊨ T6.v` (single-player, via `t7/model.js`'s own
-`PlayerCount = 1` delegation to `t6/model.js`, `t7/proofs.md` §2) both hold.
+(multiplayer) and `tfinal/*.js ⊨ T6.v` (single-player: `sp_controller.js`
+drives `t6/model.js` directly, `t6/proofs.md`; this is `T7.v`'s
+`PlayerCount = 1` case, which `t7/proofs.md` §2 discharges by `T6.v`) both
+hold.

@@ -68,7 +68,10 @@ instance.js       # re-exports t6/instance.js; adds nothing (§11)
 model.js          # T7 engine: wraps T6.Machine, adds garbage/target/gameoverView/
                    #   connectedView/remGenGarbage (§5-7)
 view.js           # renderer: mini-grid strip, garbage gauge, wraps t6/view.js (§14)
-controller.js     # network relay, lobby, waiting room (§15)
+controller.js     # network relay, lobby, waiting room, single player (§15)
+protocol.js       # validation of received messages, player names (§15.3a)
+menu.js           # menu navigation, pad labels, controls tables, in-game
+                   #   menu, menu hint (§15.8a, §15.8b)
 ../vendor/
   fflate.js       # deflate/inflate, used by controller.js's rawSend/decodeMsg (§15.3)
 index.html        # canvas + DOM overlay container (§15.8)
@@ -78,6 +81,8 @@ tests/
   model.unit.test.js
   model.properties.test.js
   model.fuzz.test.js
+  protocol.test.js
+  menu.test.js
   oracle.js
 ```
 
@@ -155,14 +160,14 @@ tests/
                                    // clamped so array indices stay in range (see below)
   gameover' = this.s6.gameover
   if (!gameover' && remGarbage > 0) {
-    if (remGarbage >= HM) {
-      overflow = true   // pushes the entire board off — no scan needed
-    } else {
-      // must read the top rows before the shift below overwrites them
-      overflow = T1Eng.occ test on any cell in rows [HM - remGarbage, HM) of
-                 this.s6.s1.mg — not plain truthiness (mg cells are false | Piece,
-                 t1/implementation.md D1; `occ(c) = c !== false`)
-    }
+    // FP.Gameover's `Mg' ⊈ CroppedMg'`: some block of the materialized grid
+    // lies above the box. Either a garbage row does (rows HM..remGarbage, each
+    // with WM - 1 blocks), or a block of the current top effRem rows is
+    // shifted out — read before the shift below overwrites them.
+    overflow = (remGarbage > HM && WM > 1)
+            || T1Eng.occ test on any cell in rows [HM - effRem, HM) of
+               this.s6.s1.mg — not plain truthiness (mg cells are false | Piece,
+               t1/implementation.md D1; `occ(c) = c !== false`)
     gameover' = overflow
   }
   // shift always runs, regardless of gameover' — the stored grid always
@@ -465,6 +470,11 @@ per-event argument both span all three layers.
   example); each `receiveX` method's field update; `noticeDisconnection`.
 - `model.properties.test.js` — `winnerMulti`/`nextTarget` never return `self`
   except the no-alternative case; differential oracle over every snapshot field.
+- `protocol.test.js` — `protocol.js`'s message validators and `sanitizeName`
+  (§15.3a): out-of-range `STATE` fields, garbage no fix could have produced,
+  oversized/malformed rosters, control characters and length caps.
+- `menu.test.js` — `menu.js`'s pure parts (§15.8): menu edges (a held button
+  is one edge; Escape is back and pause), pad vendor parsing and brand labels.
 - `model.fuzz.test.js` — multi-instance harness: several `Machine`s in one
   process, each one's outgoing values wired directly into others'
   `receiveGarbage`/`receiveGameover`/`receiveDisconnect` calls, no transport —
@@ -515,7 +525,13 @@ None. See §11.
 
 ```js
 export function render(canvas, constants, snapshot, pieceColor, banners, opponents, target) { ... }
+export function drawSideRegions(canvas, constants, snapshot, pieceColor, opponents, target, cellSize) { ... }
 ```
+
+`drawSideRegions` draws the garbage gauge and the mini-grid strip alone
+(`render` calls it after T6's board); a caller that draws its own main area,
+e.g. a frozen frame, calls it afterwards so both stay visible. `cellSize`
+defaults to the main grid's.
 
 `opponents`: `[{ playerIndex, name, mg, p, py, px, pr, gameover, connected }]`,
 controller-supplied from `STATE`/`GAMEOVER`/`DISCONNECT` messages — never
@@ -534,7 +550,10 @@ renders gray automatically, no special-casing needed), except while a mini is
 dead (gameover or disconnected, below), which overrides to a flat status color
 regardless of cell content — that gray signals connectivity, not block identity.
 Forbidden-zone tint kept; no grid lines, no ghost, no next/hold. Labeled by
-`name`.
+`name`. The current piece is drawn only when `pr` is an integer in `0..3`
+(the rotation table's four entries): the controller already drops a `STATE`
+outside that range (§15.3a), and this second guard means a bad value can never
+throw inside the render loop.
 
 A mini renders as a flat, uniformly-grey placeholder before that player's `mg`
 is known (no `STATE` received yet). Once `mg` is known, a mini is drawn dead —
@@ -560,34 +579,43 @@ T6's existing order, then the garbage gauge, then the mini-grid strip.
 
 ### 14.5 Lobby
 
-DOM overlay, not canvas (§15.8).
+DOM overlay, not canvas (§15.8). The one canvas addition outside `view.js` is
+the game screens' menu hint, drawn by `menu.js`'s `drawMenuHint` (§15.8b).
 
 ## 15. `controller.js`
 
 ### 15.0 Screens
 
-One DOM overlay state machine, `<canvas>` shown only in `S7`/`S8` (gameplay).
+One DOM overlay state machine, `<canvas>` shown only on the game screens
+(`SP`, `S6`, `S7`/`S8`). "Back" is `[Esc]` or pad button 1 (East); "pause" is
+`[Esc]` or pad button 9 (Start) (§15.8a).
 
 | screen | shown | actions | on action |
 |---|---|---|---|
-| `S1` Mode Select | "Single Player" / "Multi Player" buttons | click | SP → `t6/controller.js`'s `main()`, `t7` never loaded. MP → `S2` |
-| `S2` Role Select | "Host" / "Join" buttons | click | Host → `S3`. Join → `S4` |
-| `S3` Host Lobby | name field; "Add connection" button; per-pending-connection: joiner's-code paste-box + "Add"/"Cancel" buttons, then (once added) host's code (read-only, copy); joiner list (names, post-`JOIN`); "Start" button, enabled once joiner list `≥ 1` | paste joiner's code, `Start` | `Start` → freeze roster, send `START` to all, `HostIndex = 0`, own transition to `S7` |
-| `S4` Join Screen | name field; own generated code (read-only, copy); "paste host's code" box; "Connect" button | `Connect` | apply pasted code → connection opens → send `JOIN(name)` → `S6` |
+| `S1` Mode Select | "Single Player" / "Multi Player" buttons | click | SP → `SP`. MP → `S2`. Back: nothing (a browser tab cannot quit itself) |
+| `SP` Single Player | `t6.Machine` alone, no overlay | ordinary game input; pause opens the in-game menu (§15.8b) | Quit → `S1` |
+| `S2` Role Select | "Host" / "Join" buttons | click | Host → `S3`. Join → `S4`. Back → `S1` |
+| `S3` Host Lobby | name field; "Add connection" button (disabled at `MAX_PLAYERS` slots); per-pending-connection: joiner's-code paste-box + "Add"/"Cancel" buttons, then (once added) host's code (read-only, copy); joiner list (names, post-`JOIN`); "Start" button, enabled once joiner list `≥ 1` | paste joiner's code, `Start` | `Start` → freeze roster, send `START` to all, `HostIndex = 0`, own transition to `S7`. Back cancels the newest open pairing (§15.8a), or with none open, leaves the lobby (`leaveSession`) → `S1` |
+| `S4` Join Screen | name field; own generated code (read-only, copy); "paste host's code" box; "Connect" button | `Connect` | apply pasted code → connection opens → send `JOIN(name)` → `S6`. Back → `leaveSession` → `S1` |
 | `S5` Rejoin | (rematch only) name pre-filled, no SDP exchange (existing connection reused) | automatic | send `JOIN(name)` over existing connection → `S6` |
-| `S6` Waiting Room (pre-`START`) | `t6.Machine` filler game; joiner-name list from `PLAYERS`; "waiting for host" text | ordinary SP input | `START` received → `S7` |
-| `S7` Gameplay | `t7.Machine`; mini-grid strip + garbage gauge (§14) | ordinary game input | own `gameover` → `S8`. `winnerMulti(self)` → `S9` |
-| `S8` Mid-match Filler | `t6.Machine` filler game; mini-grid strip stays live (`t7.Machine` kept alive headless, §15.2); own link failing → `S10` | ordinary SP input | `findWinner() ≠ null` → `S9` |
-| `S9` Winner Screen | "You win" (if `findWinner() = myIndex`), otherwise "You lose" (no winner named: only a self-claimed win is sound, `ViewSound`); "Rematch" button; "Leave" button | `Rematch` / `Leave` | Rematch, host → `S3` (fresh lobby, connections reused for rejoiners, still accepts brand-new ones). Rematch, joiner → `S5` (→ `S10` if the host was lost meanwhile). Leave, joiner → sends `LEAVE` to host (§15.1), → `S1`. Leave, host → `S1`, no message. Either Leave closes every connection this client holds and resets its role (`teardownSession`); for the host, closing is the `DisconnectPlayer pl = Host` case (§4-T7f) that every other client then notices |
-| `S10` Host Lost | "Connection to host lost."; "Return to menu" button | click | → `S1` |
+| `S6` Waiting Room (pre-`START`) | `t6.Machine` filler game; joiner-name list from `PLAYERS`; "waiting for host" text | ordinary SP input; in-game menu | `START` received → `S7`. Quit → `leaveSession` → `S1` |
+| `S7` Gameplay | `t7.Machine`; mini-grid strip + garbage gauge (§14) | ordinary game input; in-game menu | own `gameover` → `S8`. `winnerMulti(self)` → `S9`. Quit → `leaveSession` → `S1` |
+| `S8` Mid-match Filler | `t6.Machine` filler game; mini-grid strip stays live (`t7.Machine` kept alive headless, §15.2); own link failing → `S10` | ordinary SP input; in-game menu | `findWinner() ≠ null` → `S9`. Quit → `leaveSession` → `S1` |
+| `S9` Winner Screen | "You win" (if `findWinner() = myIndex`), otherwise "You lose" (no winner named: only a self-claimed win is sound, `ViewSound`); "Rematch" button; "Leave" button | `Rematch` / `Leave` | Rematch, host → `S3` (fresh lobby, connections reused for rejoiners, still accepts brand-new ones). Rematch, joiner → `S5` (→ `S10` if the host was lost meanwhile). Leave → `leaveSession` → `S1`: a joiner first sends `LEAVE` to the host (§15.1); then every connection this client holds is closed and its role reset (`teardownSession`). For the host, closing is the `DisconnectPlayer pl = Host` case (§4-T7f) that every other client then notices |
+| `S10` Host Lost | "Connection to host lost."; "Return to menu" button | click, or back | → `S1` |
+
+`SP` is S1's single-player branch run inside this controller: it reuses the
+waiting room's filler path (a `t6.Machine`, `processGameInput`, the gravity
+timer, `render` with no opponents), so it shares the in-game menu and the
+menu hint with every other game screen.
 
 `S8` is not a distinct value of the `screen` variable — `showScreen('S8')` is
 never called. It is `screen === 'S7'` with `inMidMatchFiller` set:
 `activeMachine()` branches on `inMidMatchFiller` first, ahead of the
 `screen === 'S7'` check, so the filler `t6.Machine` drives input while `screen`
-itself stays `'S7'`. This is why `processGameInput`'s own `screen === 'S6' ||
-screen === 'S7'` gate (and the DOM overlay, hidden for both) needs no separate
-`'S8'` case.
+itself stays `'S7'`. This is why `isGameScreen()` (`SP`, `S6`, `S7`), which
+gates game input and the in-game menu (and the DOM overlay, hidden for all
+three), needs no separate `'S8'` case.
 
 `S10` is reached from `S6`/`S7`/`S8` whenever the link to the host is lost
 (`noticeHostLost`) — a resolved winner keeps `S9`, even if the connection is lost
@@ -599,7 +627,11 @@ immediately after; a Rematch click from there then leads to `S10`. Mini-grids in
 
 `JOIN` (host only): append `{ conn, name }` to `playerData`; reply `PLAYERS` to
 every connected player, including the new one. `PLAYERS`: every client rebuilds
-its local `playerData`/roster from the payload. `START`: no payload; freezes the
+its local `playerData`/roster from the payload — except a joiner whose match is
+still running (`t7machine !== null`), which ignores it: a match's indices are
+fixed, and the host may already be past that match, evicting a slot. `s3-start`
+always sends a fresh `PLAYERS` before `START`, and a joiner's Rematch drops
+`t7machine` first, so the next match is built from the current roster. `START`: no payload; freezes the
 roster into `Player` (index = `playerData` position), constructs
 `new eng.Machine(myIndex, bagsFn)` via `T(..., Player, HostIndex)`, exits the
 waiting room.
@@ -646,19 +678,56 @@ real recipient index, since it is the one message routed to a single target
 (the sender's own `target` field) rather than relayed to everyone.
 
 On the wire, every message is `JSON.stringify`'d then `deflateSync`'d
-(`rawSend`) and, on receipt, `inflateSync`'d then `JSON.parse`'d (`decodeMsg`)
-— both synchronous, so message order and content are unaffected; the table
-above describes the payload before this encoding.
+(`rawSend`) and, on receipt, decoded by `protocol.js`'s `decodeWire`
+(`decodeMsg`) — both synchronous, so message order and content are
+unaffected; the table above describes the payload before this encoding.
+`decodeWire` bounds what a peer can make the receiver allocate: a frame over
+`MAX_WIRE_BYTES` (16 KiB) is rejected unread, and inflation writes into a
+fixed `MAX_DECODED_BYTES` (64 KiB) buffer, a result filling it being rejected
+as truncated — legitimate messages are a few KiB at most. Data that is
+oversized or does not decode to a JSON object yields `null` and is dropped
+before any handler runs; it does not count as activity for the heartbeat
+either.
 
 `STATE`: sent unconditionally right after a successful `Fix`; otherwise at
 minimum `3` Hz — a single timer, always re-armed for `1/3` s from the last send
 (natural tick or `Fix`), so `Fix`-triggered sends aren't delayed. First `STATE`
 sent immediately at `START`.
 
+### 15.3a Validation of received messages (`protocol.js`)
+
+Every peer is untrusted: a modified client can send any JSON. Before a message
+reaches a `Machine`, the renderer, or another peer, it is checked by
+`protocol.js`'s pure validators, and dropped if it fails. A dropped message is
+never delivered, so it corresponds to no `T7.v` step.
+
+| message | checked by | requirement |
+|---|---|---|
+| `STATE` | host (before applying **and** before relaying), joiner | `validState`: `p ∈ Piece`; `pr` an integer in `0..3`; `py ∈ [-PW, HM + PW)`, `px ∈ [-PW, WM + PW)`, integers; `gameover` a boolean; `mg` exactly `HM × WM`, each cell `false` or a `Piece`. Joiner: also `from` a player index other than its own |
+| `GARBAGE` | host, joiner | `validGarbage`: `to` a single player index other than the sender (the joiner: its own index); `amount` an integer in `1..generatedGarbage(PW, true)`, the most one fix can generate |
+| `GAMEOVER` / `DISCONNECT` | joiner | `validFrom`: `from` a player index of the match |
+| `PLAYERS` | joiner | `validPlayers`: an array of at most `MAX_PLAYERS` (16) strings, `yourIndex` an integer in range and not `0`; names re-sanitized |
+| `START` | joiner | `gen` an integer, and a roster (`PLAYERS`) already received |
+| `JOIN` | host | `name` sanitized; empty → `P<n>` |
+
+Host and joiner each drop a match message received before any match exists
+(`t7machine === null`). `MAX_PLAYERS` also caps the host's own slots: "Add
+connection" is disabled once `playerData.length` reaches it, and a pairing
+whose offer resolves once the roster is already full (several can be open at
+once) is closed instead of added.
+
+Names: `sanitizeName` drops control characters (`\p{Cc}`) and the
+`U+F700–U+F8FF` function-key range, trims, and clamps to `NAME_MAX_LEN` (64)
+code points. It applies to every received name, and to the local name fields
+(`s3-name`, `s4-name`, which also get `maxLength = NAME_MAX_LEN`) when their
+value is read, so pasted control characters are dropped like any other.
+
 ### 15.4 Host responsibilities
 
 Relay `STATE`/`GARBAGE`/`GAMEOVER` between all connected players, with `from`
-set to the index of the channel the message arrived on. Detect an ordinary
+set to the index of the channel the message arrived on. A relayed message is
+rebuilt from its validated fields only (§15.3's payloads, plus `gen`), so
+nothing else a peer puts in a payload reaches the other players. Detect an ordinary
 player's disconnection via any of: the peer connection's own `connectionState`
 reaching `failed`, the data channel closing, a failed send, a mid-match
 `LEAVE`, or a `10` s silence on that player's `STATE`/`JOIN` heartbeat
@@ -670,6 +739,12 @@ immediately (there is no message buffer to flush: each `DISCONNECT` is
 constructed and sent directly at detection time). Every match message later
 received from a declared player is dropped, never relayed or applied. No
 action for the host's own loss (§4-T7f).
+
+A joiner's own detection of her link to the host (`noticeHostLost`: the
+connection reaching `failed`, the channel closing, a failed send, or a `10` s
+silence from the host) closes that channel and peer connection on her side,
+whichever fired: from then on she processes nothing from the host, even if
+the link would have recovered.
 
 ### 15.5 Match-generation counter
 
@@ -690,11 +765,100 @@ constructed fresh at each `fixPiece`/`fallStep` call site.
 ### 15.8 Lobby — DOM overlay
 
 Real `<button>`/`<textarea>` elements over the canvas, for SDP offer/answer
-copy-paste and roster/name entry. Canvas is reserved for gameplay only. Gamepad
-navigates the overlay via a focus index driven by the existing input-polling
-loop (`button 0` → `.click()` on the focused element).
+copy-paste and roster/name entry. Canvas is reserved for gameplay only. The
+keyboard and the gamepad both navigate it (§15.8a). The shared navigation
+code is `menu.js`.
+
+### 15.8a Menu navigation (`menu.js`)
+
+- **The pad only drives the focused window.** The browser exposes a pad to
+  every window, while the keyboard goes only to the focused one, so two game
+  windows on one computer would both act on one pad. `readPad()` returns the
+  first connected pad, or `null` when `!document.hasFocus()`. A button held
+  while focus comes back then counts as one fresh press. On window `blur`,
+  `keyHeld` is cleared: a key released elsewhere never sends `keyup` here.
+- **Menu edges are polled once per frame, on every screen.** `frame()` calls
+  `menuNav.poll(pad)` at its top, gameplay included, so the pad's previous
+  state is always current when a menu screen is entered: a button held through
+  the end of a match is not a fresh confirm on `S9`. The edges are `up`/`down`
+  (D-pad 12/13, or ↑/↓), `padConfirm` (button 0), `back` (button 1, East, or
+  `[Esc]`), and `pause` (button 9, Start, or `[Esc]`). Keyboard edges come from
+  `keydown`, queued by `menuNav.key` and consumed by the next `poll`. ↑/↓ are
+  not queued inside a `textarea`, whose caret they move. `[Enter]` is not
+  queued: it activates the focused button natively.
+- **Stops.** On a menu screen, up/down move focus among the screen's enabled,
+  visible `button`, `input` and `textarea` elements (`navigateStops`), and the
+  pad's confirm clicks the focused button. A focused text field does not trap
+  the pad.
+- **Back** (`onBack`): `S2` → `S1`. `S3` cancels the newest open pairing:
+  each pending block carries a `cancel` that matches its stage. The paste box
+  resolves as Cancel. While its answer is being gathered, the pairing is
+  marked cancelled, and its peer connection is closed once gathering ends.
+  Once the host's code is shown, the not-yet-joined slot is evicted (and
+  `PLAYERS` re-sent, since later indices shift). With nothing open, back
+  leaves the lobby. `S4` and `S10` leave the session. `S1` and `S9` ignore
+  back. Async lobby steps (gathering the joiner's offer, applying the host's
+  answer, waiting for the channel to open) check, once they resume, that
+  their screen and connection are still current, and otherwise close what
+  they created.
+- **Entering a game from a confirm.** Pad button 0 is both the menu confirm
+  and `CCW`, so entering a game straight from a confirm (`S1`'s single
+  player, `S3`'s Start, `S4`'s Connect, `S9`'s joiner rematch) and closing the
+  in-game menu call `resetRepeatAfterConfirm`. It resets input, then records
+  every still-held action as already pressed, so the game's first frame does
+  not rotate.
+- **Controls tables.** Each menu overlay holds a `[data-controls]` element,
+  which `refreshControls` fills with a Key / Gamepad / Action table
+  (`controlsTable`). `nav` lists move and select. `menu` adds back. `lobby`
+  adds `Ctrl-C`/`Ctrl-V` (keyboard only, empty pad cell). `game` lists every
+  action with its key and button, plus `Esc`/Start for the menu. The Gamepad
+  column is left out with no pad. The header is what tells a pad's "B" apart
+  from the B key, so cells carry no "button" suffix. Tables are rebuilt when
+  the connected pad or its brand changes (`createLabelWatch`, checked every
+  frame and on `gamepadconnected`/`gamepaddisconnected`).
+- **Pad labels.** `padLabels` reads the USB vendor ID from the pad's `id`
+  (Chrome: `… Vendor: 054c …`; Firefox: `054c-…`):
+  - Microsoft (`045e`) → A / B / Y / Start;
+  - Sony (`054c`) → Cross / Circle / Triangle / Options;
+  - Nintendo (`057e`) → B / A / X / +;
+  - anything else → South / East / North / Start.
+
+  The names are display only: buttons are always read by position (the
+  Standard Gamepad mapping).
+
+### 15.8b In-game menu
+
+On a game screen (`SP`, `S6`, `S7`/`S8`), pause opens the in-game menu
+(`createGameMenu`, a DOM overlay): a title, "Continue" and "Quit", then "Game
+controls:" with the `game` table. Opening and stepping never happen on the same
+frame, so the `[Esc]` that opens it does not also close it. Once it is open:
+- up/down and the pad's confirm drive its buttons, and `[Enter]` or a click
+  works too;
+- back or pause close it like Continue (`continueGame`, then
+  `resetRepeatAfterConfirm`);
+- Quit runs `leaveSession` → `S1`.
+
+Game input is withheld while it is open, and on the frame it closes. A local
+game (`SP`, or the `S6`/`S8` filler: `activeGameIsLocal()`) is frozen under
+the menu, titled "Paused": no input, no gravity, and its gravity timer
+(`lastGravityAt`) is shifted by every frozen frame's duration, so the time
+spent in the menu does not count. `S7`'s match cannot pause, because the other
+peers keep playing. Under the menu, titled "Game still running", gravity,
+`STATE` broadcasts and the network keep running, and only local input is
+withheld. When the player's own gameover switches `S7` to `S8` under an open
+menu, the title follows, and the filler starts frozen.
+
+The menu is owned by the screen it was opened on: `showScreen` closes it on
+any screen change (winner resolved, host lost, `START` received). While it is
+closed, every game screen shows one line, "[Esc/<Start> button] menu" ("[Esc]
+menu" with no pad), on the canvas (`drawMenuHint`). It is drawn in the hint
+colour in the left panel, aligned with the board's bottom, with its font
+shrunk (down to 10px) to fit the panel. It is running text rather than a
+table, so it names the pad button with the "button" suffix.
 
 ### 15.9 `index.html`
 
 Canvas plus a DOM overlay container, toggled visible/hidden by lifecycle state
-(lobby, waiting room, winner screen use the overlay; gameplay hides it).
+(lobby, waiting room, winner screen use the overlay; gameplay hides it). Each
+menu overlay holds a `[data-controls]` element for its controls table
+(§15.8a). The in-game menu's overlay is created by `menu.js`.

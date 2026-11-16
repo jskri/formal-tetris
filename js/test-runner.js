@@ -4,7 +4,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 
-const dirs = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'];
+const dirs = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 'tfinal'];
 const files = dirs.flatMap((dir) => {
   const testdir = join(dir, 'tests');
   return readdirSync(testdir)

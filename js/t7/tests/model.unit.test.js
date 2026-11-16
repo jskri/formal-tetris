@@ -168,6 +168,42 @@ describe('fixPiece — materialization (§4-T7c)', () => {
     assert.strictEqual(m.gameover, true);
   });
 
+  test("remGarbage === HM on an emptied board: every garbage row fits, no overflow (FP.Gameover')", () => {
+    // A 1x1-piece instance whose 1x1 forbidden zone sits on the hole column,
+    // so garbage rows never hit it: the only possible gameover cause left is
+    // overflow, which T7.v rules out here (all HM garbage rows fit the box).
+    const HM = 6;
+    const WM = 4;
+    const eng = T(
+      ['A'],
+      Array.from({ length: HM }, () => Array(WM).fill(false)),
+      [[true]],
+      (p) => [[p]],
+      () => HM - 1,
+      () => 0,
+      1,
+      HM - 1,
+      0,
+      TI.NextLen,
+      TI.Player,
+      TI.HostIndex,
+    );
+    const m = new eng.Machine(0, bagsFnFrom(['A']));
+    for (const x of [1, 2, 3]) m.s6.s1.mg[0][x] = 'A';
+    m.s6.updateShadowY();
+    // The drop fills row 0 (a perfect clear), cancelling generatedGarbage(1,
+    // true) of the pending garbage; exactly HM rows remain to materialize.
+    m.garbage = eng.generatedGarbage(1, true) + HM;
+    assert.strictEqual(
+      m.dropPiece(['A'], () => 0),
+      true,
+    );
+    assert.strictEqual(m.perfectClear, true);
+    assert.strictEqual(m.gameover, false);
+    for (let y = 0; y < HM; y++)
+      assert.deepStrictEqual(m.mg[y], [false, 'garbage', 'garbage', 'garbage']);
+  });
+
   test('holesFn is queried only for rows actually materialized (effRem), never beyond it', () => {
     const eng = makeEngine();
     const m = new eng.Machine(0, bagsFnFrom(['A', 'B']));

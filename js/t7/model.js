@@ -299,14 +299,16 @@ export function T(
 
       let gameover2 = this.s6.gameover;
       if (!gameover2 && remGarbage > 0) {
-        let overflow = remGarbage >= HM; // pushes the entire board off — no scan needed
-        if (!overflow) {
-          for (let y = HM - remGarbage; y < HM; y++) {
-            if (s1.mg[y].some(T1Eng.occ)) {
-              overflow = true;
-              break;
-            }
-          }
+        // spec: FP.Gameover' `Mg' ⊈ CroppedMg'` — some occupied block of the
+        // materialized grid lies above the box. Either a garbage row itself
+        // does (rows HM..remGarbage, each with WM - 1 blocks, one hole per
+        // row), or a block of the current grid's top effRem rows gets shifted
+        // out — read BEFORE the shift below overwrites them. At
+        // remGarbage === HM exactly, every garbage row still fits, so only
+        // the scan decides.
+        let overflow = remGarbage > HM && WM > 1;
+        for (let y = HM - effRem; !overflow && y < HM; y++) {
+          if (s1.mg[y].some(T1Eng.occ)) overflow = true;
         }
         gameover2 = overflow;
       }
