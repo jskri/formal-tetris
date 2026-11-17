@@ -441,12 +441,16 @@ No separate configuration file exists at the moment. To change the input, modify
     │   ├── view.js
     │   ├── controller.js
     │   ├── instance.js
+    │   ├── menu.js
+    │   ├── protocol.js
     │   ├── index.html
     │   └── tests
+    │       ├── menu.test.js
     │       ├── model.fuzz.test.js
     │       ├── model.properties.test.js
     │       ├── model.unit.test.js
     │       ├── oracle.js
+    │       ├── protocol.test.js
     │       └── testInstance.js
     └── tfinal
         ├── controller.js
@@ -454,9 +458,12 @@ No separate configuration file exists at the moment. To change the input, modify
         ├── implementation.md
         ├── index.html
         ├── instance.js
+        ├── mute.js
         ├── proofs.md
         ├── sound.js
         ├── sp_controller.js
+        ├── tests
+        │   └── highscores.test.js
         └── view.js
 ```
 
