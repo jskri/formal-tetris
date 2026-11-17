@@ -770,11 +770,17 @@ fn handshake_completes_through_whichever_candidate_answers() {
         .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
         .unwrap();
     assert_eq!(
-        conn_a.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        conn_a
+            .incoming
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap(),
         WireMessage::Untagged(Payload::Hello { nonce: 222 })
     );
     assert_eq!(
-        conn_b.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        conn_b
+            .incoming
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap(),
         WireMessage::Untagged(Payload::Hello { nonce: 111 })
     );
     assert_eq!(conn_a.peer_addr(), Some(addr_b));
@@ -800,7 +806,10 @@ fn a_wrong_nonce_from_a_candidate_address_is_ignored() {
         .unwrap();
     impostor.send_to(&raw_hello(999), addr_a).unwrap();
     std::thread::sleep(Duration::from_millis(300));
-    assert!(conn_a.incoming.try_recv().is_err(), "impostor not delivered");
+    assert!(
+        conn_a.incoming.try_recv().is_err(),
+        "impostor not delivered"
+    );
     assert_eq!(conn_a.seconds_since_last_activity(), None);
     assert_eq!(conn_a.peer_addr(), None);
 
@@ -808,7 +817,10 @@ fn a_wrong_nonce_from_a_candidate_address_is_ignored() {
         .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
         .unwrap();
     assert_eq!(
-        conn_a.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        conn_a
+            .incoming
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap(),
         WireMessage::Untagged(Payload::Hello { nonce: 222 })
     );
     assert_eq!(conn_a.peer_addr(), Some(addr_b));
@@ -844,12 +856,18 @@ fn a_peer_with_an_unexpected_nonce_is_never_accepted() {
         .register(sock_b, &[addr_a], 222, 111, test_max_decoded_bytes())
         .unwrap();
     assert_eq!(
-        conn_b.incoming.recv_timeout(Duration::from_secs(2)).unwrap(),
+        conn_b
+            .incoming
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap(),
         WireMessage::Untagged(Payload::Hello { nonce: 111 }),
         "B expects A's nonce, so A gets through to B"
     );
     std::thread::sleep(Duration::from_millis(1000));
-    assert!(conn_a.incoming.try_recv().is_err(), "B never gets through to A");
+    assert!(
+        conn_a.incoming.try_recv().is_err(),
+        "B never gets through to A"
+    );
     assert_eq!(conn_a.seconds_since_last_activity(), None);
     assert_eq!(conn_a.peer_addr(), None);
 }
